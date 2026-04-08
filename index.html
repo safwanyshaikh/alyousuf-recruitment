@@ -9,11 +9,7 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; min-height: 100vh; }
-  .header {
-    background: linear-gradient(135deg, #1B2A4A 0%, #2C4A7C 100%);
-    color: white; padding: 20px 40px;
-    display: flex; align-items: center; justify-content: space-between;
-  }
+  .header { background: linear-gradient(135deg, #1B2A4A 0%, #2C4A7C 100%); color: white; padding: 20px 40px; display: flex; align-items: center; justify-content: space-between; }
   .header h1 { font-size: 22px; font-weight: 600; }
   .header p { font-size: 13px; opacity: 0.8; margin-top: 4px; }
   .header-right { text-align: right; font-size: 12px; opacity: 0.7; }
@@ -38,6 +34,9 @@
   .btn-primary:disabled { background: #aaa; cursor: not-allowed; transform: none; }
   .btn-secondary { background: #f0f4f8; color: #1B2A4A; border: 1.5px solid #ddd; }
   .btn-secondary:hover { background: #e4eaf2; }
+  .btn-bulk { background: #0F6E56; color: white; }
+  .btn-bulk:hover { background: #0A5240; transform: translateY(-1px); }
+  .btn-bulk:disabled { background: #aaa; cursor: not-allowed; transform: none; }
   .result-card { background: white; border-radius: 16px; padding: 28px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); display: none; }
   .result-card.show { display: block; }
   .result-header { display: flex; align-items: center; gap: 20px; padding-bottom: 20px; border-bottom: 2px solid #f0f4f8; margin-bottom: 20px; }
@@ -45,14 +44,14 @@
   .score-circle .score-num { font-size: 28px; line-height: 1; }
   .score-circle .score-label { font-size: 10px; opacity: 0.8; }
   .score-high { background: #E8F8F0; color: #006640; border: 3px solid #00A86B; }
-  .score-mid  { background: #FFF8E8; color: #885500; border: 3px solid #FFA500; }
-  .score-low  { background: #FFF0F0; color: #CC0000; border: 3px solid #FF4444; }
+  .score-mid { background: #FFF8E8; color: #885500; border: 3px solid #FFA500; }
+  .score-low { background: #FFF0F0; color: #CC0000; border: 3px solid #FF4444; }
   .decision-badge { display: inline-block; padding: 8px 20px; border-radius: 20px; font-size: 14px; font-weight: 700; margin-top: 8px; }
-  .badge-pass      { background: #E8F8F0; color: #006640; }
+  .badge-pass { background: #E8F8F0; color: #006640; }
   .badge-shortlist { background: #E8F0FF; color: #1B2A9A; }
-  .badge-park      { background: #FFF0F0; color: #CC0000; }
-  .badge-marginal  { background: #FFF8E8; color: #885500; }
-  .candidate-name  { font-size: 22px; font-weight: 700; color: #1B2A4A; }
+  .badge-park { background: #FFF0F0; color: #CC0000; }
+  .badge-marginal { background: #FFF8E8; color: #885500; }
+  .candidate-name { font-size: 22px; font-weight: 700; color: #1B2A4A; }
   .candidate-trade { font-size: 14px; color: #666; margin-top: 4px; }
   .details-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
   .detail-item { background: #f8fafc; border-radius: 10px; padding: 14px; }
@@ -67,7 +66,7 @@
   .score-bar-val { font-size: 12px; font-weight: 600; color: #444; min-width: 35px; text-align: right; }
   .ai-summary { background: #F0F4FF; border-radius: 10px; padding: 16px; border-left: 4px solid #2C4A7C; margin-bottom: 20px; }
   .ai-summary h3 { font-size: 13px; font-weight: 600; color: #2C4A7C; margin-bottom: 8px; }
-  .ai-summary p  { font-size: 13px; color: #444; line-height: 1.6; }
+  .ai-summary p { font-size: 13px; color: #444; line-height: 1.6; }
   .certs-found { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .cert-tag { background: #E8F0FF; color: #1B2A9A; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; }
   .action-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 20px; }
@@ -82,7 +81,7 @@
   .history-item:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.12); }
   .history-left { display: flex; align-items: center; gap: 14px; }
   .history-score { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
-  .history-name  { font-size: 14px; font-weight: 600; color: #1B2A4A; }
+  .history-name { font-size: 14px; font-weight: 600; color: #1B2A4A; }
   .history-trade { font-size: 12px; color: #888; margin-top: 2px; }
   .history-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
   .loading { display: none; text-align: center; padding: 40px; }
@@ -90,18 +89,49 @@
   .spinner { width: 48px; height: 48px; border: 4px solid #f0f4f8; border-top: 4px solid #1B2A4A; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading p { color: #666; font-size: 14px; }
-  .tab-buttons { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab-buttons { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
   .tab-btn { padding: 8px 20px; border: 1.5px solid #ddd; border-radius: 20px; background: white; font-size: 13px; cursor: pointer; font-weight: 500; transition: all 0.2s; }
   .tab-btn.active { background: #1B2A4A; color: white; border-color: #1B2A4A; }
+  .tab-btn.bulk-btn.active { background: #0F6E56; border-color: #0F6E56; }
   .upload-zone { border: 2px dashed #ddd; border-radius: 10px; padding: 40px; text-align: center; color: #888; cursor: pointer; transition: all 0.2s; }
   .upload-zone:hover { border-color: #2C4A7C; background: #f8faff; }
   .upload-zone.dragover { border-color: #2C4A7C; background: #EEF3FF; }
-  .upload-icon { font-size: 36px; margin-bottom: 8px; }
-  .upload-title { font-weight: 600; margin-bottom: 4px; color: #444; }
-  .upload-sub { font-size: 12px; }
   .upload-progress { display: none; margin-top: 12px; padding: 10px 14px; background: #f0f4f8; border-radius: 8px; font-size: 13px; color: #444; }
   .upload-progress.show { display: block; }
   .api-notice { background: #FFF8E8; border: 1.5px solid #FFD080; border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; font-size: 13px; color: #885500; }
+
+  /* Bulk Upload Styles */
+  .bulk-section { display: none; }
+  .bulk-section.show { display: block; }
+  .bulk-progress-bar { width: 100%; height: 8px; background: #f0f4f8; border-radius: 4px; margin: 12px 0; overflow: hidden; }
+  .bulk-progress-fill { height: 100%; background: #0F6E56; border-radius: 4px; transition: width 0.4s ease; }
+  .bulk-status { font-size: 13px; color: #444; margin-bottom: 8px; }
+  .bulk-results { margin-top: 20px; }
+  .bulk-result-item { background: white; border-radius: 12px; padding: 16px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: box-shadow 0.2s; border-left: 4px solid #ddd; }
+  .bulk-result-item:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.12); }
+  .bulk-result-item.top { border-left-color: #00A86B; }
+  .bulk-result-item.shortlist { border-left-color: #378ADD; }
+  .bulk-result-item.marginal { border-left-color: #FFA500; }
+  .bulk-result-item.park { border-left-color: #FF4444; }
+  .bulk-result-item.processing { border-left-color: #ccc; opacity: 0.7; }
+  .bulk-left { display: flex; align-items: center; gap: 14px; }
+  .bulk-rank { width: 32px; height: 32px; border-radius: 50%; background: #1B2A4A; color: white; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .bulk-score { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; flex-shrink: 0; }
+  .bulk-name { font-size: 14px; font-weight: 600; color: #1B2A4A; }
+  .bulk-detail { font-size: 12px; color: #888; margin-top: 2px; }
+  .bulk-right { text-align: right; }
+  .bulk-summary-box { background: #F0F7FF; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .bulk-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }
+  .bulk-summary-item { text-align: center; }
+  .bulk-summary-num { font-size: 24px; font-weight: 700; }
+  .bulk-summary-label { font-size: 11px; color: #666; margin-top: 2px; }
+  .cv-separator-hint { background: #E8F8F0; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #006640; margin-bottom: 12px; line-height: 1.6; }
+  .bulk-file-list { margin-top: 12px; }
+  .bulk-file-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f8fafc; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+  .bulk-file-remove { background: none; border: none; color: #CC0000; cursor: pointer; font-size: 16px; padding: 0 4px; }
+  .export-btn { background: #2C4A7C; color: white; border: none; border-radius: 8px; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 12px; }
+  .export-btn:hover { background: #1B2A4A; }
+
   @media (max-width: 768px) {
     .main-grid { grid-template-columns: 1fr; }
     .stats-row { grid-template-columns: repeat(2, 1fr); }
@@ -109,6 +139,7 @@
     .action-buttons { grid-template-columns: 1fr; }
     .header { padding: 16px 20px; }
     .header h1 { font-size: 18px; }
+    .bulk-summary-grid { grid-template-columns: repeat(2, 1fr); }
   }
 </style>
 </head>
@@ -136,7 +167,6 @@
 
   <div class="api-notice" id="apiNotice">
     <strong>Setup Required:</strong> Enter your Claude API key below to activate AI screening.
-    Get your key from <strong>console.anthropic.com</strong>
   </div>
 
   <div class="card" style="margin-bottom:24px;">
@@ -156,51 +186,90 @@
   </div>
 
   <div class="main-grid">
-
     <div class="card">
-      <h2>📋 Screen a CV</h2>
+      <h2>📋 Screen CVs</h2>
       <div class="tab-buttons">
-        <button class="tab-btn active" id="tabPasteBtn" onclick="switchTab('paste')">Paste CV Text</button>
-        <button class="tab-btn" id="tabUploadBtn" onclick="switchTab('upload')">Upload PDF / Word / TXT</button>
+        <button class="tab-btn active" id="tabPasteBtn" onclick="switchTab('paste')">Paste CV</button>
+        <button class="tab-btn" id="tabUploadBtn" onclick="switchTab('upload')">Upload File</button>
+        <button class="tab-btn bulk-btn" id="tabBulkBtn" onclick="switchTab('bulk')">⚡ Bulk Screen (Multiple CVs)</button>
       </div>
 
+      <!-- Single Paste Tab -->
       <div id="tab-paste">
         <div class="form-group">
           <label>Paste CV Text Here</label>
-          <textarea id="cvText" placeholder="Paste the full CV text here...
-
-Example:
-Mohammed Rafi
-Age: 32 | Indian | Kerala
-Passport: Yes (valid until 2028)
-Trade: Pipe Welder
-Experience: 8 years
-Gulf Experience: Yes — Saudi Aramco (2018-2022)
-Certifications: ASME IX, 6G qualification, API 1104
-Phone: +91 98765 43210"></textarea>
+          <textarea id="cvText" placeholder="Paste the full CV text here..."></textarea>
         </div>
       </div>
 
+      <!-- Upload Tab -->
       <div id="tab-upload" style="display:none;">
         <div class="upload-zone" id="uploadZone"
           onclick="document.getElementById('fileInput').click()"
-          ondragover="handleDragOver(event)"
-          ondragleave="handleDragLeave(event)"
-          ondrop="handleDrop(event)">
-          <div class="upload-icon">📄</div>
-          <div class="upload-title">Click to upload or drag and drop</div>
-          <div class="upload-sub">PDF, DOC, DOCX, TXT — all supported</div>
+          ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+          <div style="font-size:36px;margin-bottom:8px;">📄</div>
+          <div style="font-weight:600;margin-bottom:4px;color:#444;">Click to upload or drag and drop</div>
+          <div style="font-size:12px;">PDF, DOC, DOCX, TXT supported</div>
           <input type="file" id="fileInput" style="display:none" accept=".txt,.pdf,.doc,.docx" onchange="handleFile(event)">
         </div>
-        <div class="upload-progress" id="uploadProgress"><span id="uploadProgressText">Reading file...</span></div>
+        <div class="upload-progress" id="uploadProgress"><span id="uploadProgressText">Reading...</span></div>
         <div id="uploadedFileName" style="display:none;margin-top:10px;padding:8px 12px;background:#E8F8F0;border-radius:8px;font-size:13px;color:#006640;"></div>
       </div>
 
+      <!-- BULK UPLOAD TAB -->
+      <div id="tab-bulk" style="display:none;">
+        <div class="cv-separator-hint">
+          <strong>How bulk screening works:</strong><br>
+          Option 1: Paste multiple CVs below separated by a line of dashes (---)<br>
+          Option 2: Upload multiple PDF/Word files at once<br>
+          The AI will screen each CV one by one and show a ranked list at the end.
+        </div>
+
+        <div class="tab-buttons" style="margin-bottom:12px;">
+          <button class="tab-btn active" id="bulkPasteBtn" onclick="switchBulkTab('paste')">Paste Multiple CVs</button>
+          <button class="tab-btn" id="bulkFileBtn" onclick="switchBulkTab('files')">Upload Multiple Files</button>
+        </div>
+
+        <!-- Bulk Paste -->
+        <div id="bulk-paste-area">
+          <div class="form-group">
+            <label>Paste all CVs here — separate each CV with a line containing only: ---</label>
+            <textarea id="bulkCvText" style="min-height:280px;" placeholder="CV 1:
+Mohammed Rafi, Age 32, Indian, Pipe Welder, 8 years exp, Gulf exp yes...
+
+---
+
+CV 2:
+Suresh Kumar, Age 28, Indian, Electrician, 5 years exp...
+
+---
+
+CV 3:
+Rajesh Singh, Age 35, Indian, Mason, 10 years exp..."></textarea>
+          </div>
+          <div style="font-size:12px;color:#888;margin-top:-8px;margin-bottom:12px;" id="cvCountLabel">CVs detected: 0</div>
+        </div>
+
+        <!-- Bulk Files -->
+        <div id="bulk-files-area" style="display:none;">
+          <div class="upload-zone" id="bulkUploadZone"
+            onclick="document.getElementById('bulkFileInput').click()"
+            ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleBulkDrop(event)">
+            <div style="font-size:36px;margin-bottom:8px;">📁</div>
+            <div style="font-weight:600;margin-bottom:4px;color:#444;">Click to select multiple files</div>
+            <div style="font-size:12px;">Select up to 20 PDF, Word, or TXT files at once</div>
+            <input type="file" id="bulkFileInput" style="display:none" accept=".txt,.pdf,.doc,.docx" multiple onchange="handleBulkFiles(event)">
+          </div>
+          <div class="bulk-file-list" id="bulkFileList"></div>
+        </div>
+      </div>
+
+      <!-- Filter Settings (shared) -->
       <div style="margin-top:20px;padding-top:20px;border-top:1px solid #f0f4f8;">
         <div style="font-size:13px;font-weight:600;color:#444;margin-bottom:12px;">Filter Settings</div>
         <div class="form-row">
-          <div class="form-group"><label>Minimum Age</label><input type="number" id="minAge" value="21" min="18" max="60"></div>
-          <div class="form-group"><label>Maximum Age</label><input type="number" id="maxAge" value="50" min="18" max="65"></div>
+          <div class="form-group"><label>Minimum Age</label><input type="number" id="minAge" value="21"></div>
+          <div class="form-group"><label>Maximum Age</label><input type="number" id="maxAge" value="50"></div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -224,7 +293,7 @@ Phone: +91 98765 43210"></textarea>
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Min. Years Experience</label><input type="number" id="minExp" value="2" min="0" max="30"></div>
+          <div class="form-group"><label>Min. Years Experience</label><input type="number" id="minExp" value="2"></div>
           <div class="form-group">
             <label>Gulf Experience</label>
             <select id="reqGulf">
@@ -235,15 +304,25 @@ Phone: +91 98765 43210"></textarea>
           </div>
         </div>
         <div class="form-group">
-          <label>Job Description / Required Skills (optional — improves scoring)</label>
-          <textarea id="jdText" style="min-height:80px;" placeholder="Paste client JD here for precise matching..."></textarea>
+          <label>Job Description (optional — improves scoring)</label>
+          <textarea id="jdText" style="min-height:80px;" placeholder="Paste client JD here..."></textarea>
         </div>
       </div>
 
-      <button class="btn btn-primary" id="analyseBtn" onclick="analyseCV()">⚡ Analyse CV with Claude AI</button>
-      <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+      <!-- Single CV Button -->
+      <div id="single-btn-area">
+        <button class="btn btn-primary" id="analyseBtn" onclick="analyseCV()">⚡ Analyse CV with Claude AI</button>
+        <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+      </div>
+
+      <!-- Bulk Screen Button -->
+      <div id="bulk-btn-area" style="display:none;">
+        <button class="btn btn-bulk" id="bulkAnalyseBtn" onclick="runBulkAnalysis()">⚡ Screen All CVs with Claude AI</button>
+        <button class="btn btn-secondary" onclick="clearBulk()">Clear All</button>
+      </div>
     </div>
 
+    <!-- Right Panel -->
     <div>
       <div class="loading card" id="loadingCard">
         <div class="spinner"></div>
@@ -251,6 +330,7 @@ Phone: +91 98765 43210"></textarea>
         <p style="margin-top:8px;font-size:12px;color:#999;">Extracting trade, experience, certifications, Gulf history...</p>
       </div>
 
+      <!-- Single Result -->
       <div class="result-card" id="resultCard">
         <div class="result-header">
           <div class="score-circle" id="scoreCircle">
@@ -290,23 +370,50 @@ Phone: +91 98765 43210"></textarea>
         </div>
         <div class="action-buttons">
           <button class="btn-action btn-shortlist" onclick="moveToShortlist()">✓ Move to Shortlist</button>
-          <button class="btn-action btn-park"      onclick="parkCandidate()">⏸ Park in Database</button>
-          <button class="btn-action btn-save"      onclick="saveResult()">⬇ Save Result</button>
+          <button class="btn-action btn-park" onclick="parkCandidate()">⏸ Park in Database</button>
+          <button class="btn-action btn-save" onclick="saveResult()">⬇ Save Result</button>
         </div>
       </div>
 
+      <!-- Bulk Results Panel -->
+      <div class="card bulk-section" id="bulkResultsCard">
+        <h2>⚡ Bulk Screening Results</h2>
+
+        <div id="bulkProgressArea" style="display:none;">
+          <div class="bulk-status" id="bulkStatusText">Starting...</div>
+          <div class="bulk-progress-bar"><div class="bulk-progress-fill" id="bulkProgressFill" style="width:0%"></div></div>
+        </div>
+
+        <div id="bulkSummaryArea" style="display:none;">
+          <div class="bulk-summary-box">
+            <div style="font-size:14px;font-weight:600;color:#1B2A4A;">Screening Complete — Ranked by Score</div>
+            <div class="bulk-summary-grid">
+              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-total" style="color:#1B2A4A;">0</div><div class="bulk-summary-label">Total Screened</div></div>
+              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-top" style="color:#006640;">0</div><div class="bulk-summary-label">Top Shortlist</div></div>
+              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-short" style="color:#1B2A9A;">0</div><div class="bulk-summary-label">Shortlist</div></div>
+              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-park" style="color:#CC0000;">0</div><div class="bulk-summary-label">Parked</div></div>
+            </div>
+          </div>
+          <button class="export-btn" onclick="exportBulkResults()">⬇ Export All Results to Excel/CSV</button>
+        </div>
+
+        <div class="bulk-results" id="bulkResultsList"></div>
+      </div>
+
+      <!-- Empty State -->
       <div class="card" id="emptyState" style="text-align:center;padding:60px 28px;">
         <div style="font-size:64px;margin-bottom:16px;">🎯</div>
         <div style="font-size:18px;font-weight:600;color:#1B2A4A;margin-bottom:8px;">Ready to Screen</div>
         <div style="font-size:14px;color:#888;line-height:1.8;">
-          Paste a CV or upload a PDF / Word file<br>
-          then click <strong>Analyse CV with Claude AI</strong><br><br>
-          Results appear here in 5 seconds
+          Single CV: Paste text or upload PDF/Word<br>
+          Multiple CVs: Use the <strong>Bulk Screen</strong> tab<br><br>
+          Results appear in seconds
         </div>
       </div>
     </div>
   </div>
 
+  <!-- History -->
   <div class="card" style="margin-top:24px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <h2 style="margin-bottom:0;border-bottom:none;padding-bottom:0;">📁 Screened Candidates — Today's Session</h2>
@@ -320,13 +427,15 @@ Phone: +91 98765 43210"></textarea>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-let apiKey      = localStorage.getItem('ay_claude_key') || '';
-let crmKey      = localStorage.getItem('ay_crm_key') || '';
+let apiKey = localStorage.getItem('ay_claude_key') || '';
+let crmKey = localStorage.getItem('ay_crm_key') || '';
 let sessionData = JSON.parse(localStorage.getItem('ay_session') || '[]');
-let stats       = JSON.parse(localStorage.getItem('ay_stats') || '{"total":0,"pass":0,"park":0}');
+let stats = JSON.parse(localStorage.getItem('ay_stats') || '{"total":0,"pass":0,"park":0}');
 let currentResult = null;
+let bulkFiles = [];
+let bulkResults = [];
 
-window.onload = function () {
+window.onload = function() {
   updateClock(); setInterval(updateClock, 1000);
   updateStats(); renderHistory();
   if (apiKey) {
@@ -335,6 +444,7 @@ window.onload = function () {
     document.getElementById('keyStatus').textContent = '✓ API key loaded';
   }
   if (crmKey) document.getElementById('crmKeyInput').value = crmKey;
+  document.getElementById('bulkCvText').addEventListener('input', updateCvCount);
 };
 
 function updateClock() {
@@ -355,73 +465,123 @@ function saveKeys() {
 }
 
 function switchTab(tab) {
-  document.getElementById('tab-paste').style.display  = tab === 'paste'  ? 'block' : 'none';
-  document.getElementById('tab-upload').style.display = tab === 'upload' ? 'block' : 'none';
-  document.getElementById('tabPasteBtn').classList.toggle('active',  tab === 'paste');
-  document.getElementById('tabUploadBtn').classList.toggle('active', tab === 'upload');
+  ['paste','upload','bulk'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t===tab ? 'block' : 'none';
+  });
+  document.getElementById('tabPasteBtn').classList.toggle('active', tab==='paste');
+  document.getElementById('tabUploadBtn').classList.toggle('active', tab==='upload');
+  document.getElementById('tabBulkBtn').classList.toggle('active', tab==='bulk');
+  document.getElementById('single-btn-area').style.display = tab==='bulk' ? 'none' : 'block';
+  document.getElementById('bulk-btn-area').style.display = tab==='bulk' ? 'block' : 'none';
+  if (tab==='bulk') {
+    document.getElementById('bulkResultsCard').classList.add('show');
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('resultCard').classList.remove('show');
+  } else {
+    document.getElementById('bulkResultsCard').classList.remove('show');
+    document.getElementById('emptyState').style.display = 'block';
+  }
 }
 
-function handleDragOver(e)  { e.preventDefault(); document.getElementById('uploadZone').classList.add('dragover'); }
-function handleDragLeave(e) { document.getElementById('uploadZone').classList.remove('dragover'); }
+function switchBulkTab(tab) {
+  document.getElementById('bulk-paste-area').style.display = tab==='paste' ? 'block' : 'none';
+  document.getElementById('bulk-files-area').style.display = tab==='files' ? 'block' : 'none';
+  document.getElementById('bulkPasteBtn').classList.toggle('active', tab==='paste');
+  document.getElementById('bulkFileBtn').classList.toggle('active', tab==='files');
+}
+
+function updateCvCount() {
+  const text = document.getElementById('bulkCvText').value;
+  const parts = text.split(/\n---\n/).filter(p => p.trim().length > 50);
+  document.getElementById('cvCountLabel').textContent = 'CVs detected: ' + parts.length;
+}
+
+function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+function handleDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
 function handleDrop(e) {
-  e.preventDefault();
-  document.getElementById('uploadZone').classList.remove('dragover');
+  e.preventDefault(); e.currentTarget.classList.remove('dragover');
   if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+}
+function handleBulkDrop(e) {
+  e.preventDefault(); e.currentTarget.classList.remove('dragover');
+  handleBulkFiles({ target: { files: e.dataTransfer.files } });
 }
 function handleFile(event) { if (event.target.files[0]) processFile(event.target.files[0]); }
 
 async function processFile(file) {
-  const progress = document.getElementById('uploadProgress');
-  const progressText = document.getElementById('uploadProgressText');
-  const fileNameDiv  = document.getElementById('uploadedFileName');
-  progress.classList.add('show');
-  progressText.textContent = 'Reading ' + file.name + '...';
-  const ext = file.name.toLowerCase().split('.').pop();
-  let extractedText = '';
+  const prog = document.getElementById('uploadProgress');
+  const progText = document.getElementById('uploadProgressText');
+  prog.classList.add('show');
+  progText.textContent = 'Reading ' + file.name + '...';
   try {
-    if (ext === 'txt') {
-      extractedText = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = e => res(e.target.result);
-        r.onerror = () => rej(new Error('Could not read file'));
-        r.readAsText(file);
-      });
-    } else if (ext === 'pdf') {
-      progressText.textContent = 'Extracting text from PDF...';
-      const ab  = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page    = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        extractedText += content.items.map(item => item.str).join(' ') + '\n';
+    const text = await extractTextFromFile(file);
+    if (!text || text.trim().length < 50) { alert('Could not extract text. Please paste the CV directly.'); prog.classList.remove('show'); return; }
+    document.getElementById('cvText').value = text;
+    document.getElementById('uploadedFileName').style.display = 'block';
+    document.getElementById('uploadedFileName').textContent = '✓ ' + file.name + ' loaded';
+    progText.textContent = '✓ Done — ' + text.length + ' characters extracted';
+    setTimeout(() => { switchTab('paste'); prog.classList.remove('show'); }, 1500);
+  } catch(err) { prog.classList.remove('show'); alert('Error: ' + err.message); }
+}
+
+async function handleBulkFiles(event) {
+  const files = Array.from(event.target.files);
+  bulkFiles = [];
+  const listEl = document.getElementById('bulkFileList');
+  listEl.innerHTML = '<div style="font-size:13px;color:#888;padding:8px 0;">Reading files...</div>';
+  for (const file of files.slice(0, 20)) {
+    try {
+      const text = await extractTextFromFile(file);
+      if (text && text.trim().length > 50) {
+        bulkFiles.push({ name: file.name, text });
       }
-    } else if (ext === 'doc' || ext === 'docx') {
-      progressText.textContent = 'Extracting text from Word document...';
-      const ab     = await file.arrayBuffer();
-      const result = await mammoth.extractRawText({ arrayBuffer: ab });
-      extractedText = result.value;
-    } else {
-      alert('Unsupported file. Please use PDF, DOC, DOCX, or TXT.');
-      progress.classList.remove('show');
-      return;
-    }
-
-    if (!extractedText || extractedText.trim().length < 50) {
-      alert('Could not extract enough text. Please copy and paste the CV text directly.');
-      progress.classList.remove('show');
-      return;
-    }
-
-    document.getElementById('cvText').value = extractedText;
-    progressText.textContent = '✓ Extracted ' + extractedText.length + ' characters from ' + file.name;
-    fileNameDiv.style.display = 'block';
-    fileNameDiv.textContent   = '✓ ' + file.name + ' loaded (' + Math.round(file.size/1024) + ' KB)';
-    setTimeout(() => { switchTab('paste'); progress.classList.remove('show'); }, 1500);
-
-  } catch (err) {
-    progress.classList.remove('show');
-    alert('Error reading file: ' + err.message + '\n\nPlease copy and paste the CV text directly.');
+    } catch(e) { console.log('Could not read:', file.name); }
   }
+  listEl.innerHTML = bulkFiles.map((f,i) => `
+    <div class="bulk-file-item">
+      <span>📄 ${f.name}</span>
+      <button class="bulk-file-remove" onclick="removeBulkFile(${i})">✕</button>
+    </div>`).join('');
+  if (bulkFiles.length > 0) {
+    listEl.innerHTML += `<div style="font-size:13px;color:#006640;padding:8px 0;font-weight:600;">✓ ${bulkFiles.length} files ready to screen</div>`;
+  }
+}
+
+function removeBulkFile(i) {
+  bulkFiles.splice(i, 1);
+  handleBulkFiles({ target: { files: [] } });
+  document.getElementById('bulkFileList').innerHTML = bulkFiles.map((f,j) => `
+    <div class="bulk-file-item">
+      <span>📄 ${f.name}</span>
+      <button class="bulk-file-remove" onclick="removeBulkFile(${j})">✕</button>
+    </div>`).join('');
+}
+
+async function extractTextFromFile(file) {
+  const ext = file.name.toLowerCase().split('.').pop();
+  if (ext === 'txt') {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.onerror = () => rej(new Error('Read failed'));
+      r.readAsText(file);
+    });
+  } else if (ext === 'pdf') {
+    const ab = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(item => item.str).join(' ') + '\n';
+    }
+    return text;
+  } else if (ext === 'doc' || ext === 'docx') {
+    const ab = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: ab });
+    return result.value;
+  }
+  throw new Error('Unsupported file type');
 }
 
 function clearAll() {
@@ -436,125 +596,290 @@ function clearAll() {
   currentResult = null;
 }
 
-function updateStats() {
-  document.getElementById('stat-total').textContent = stats.total;
-  document.getElementById('stat-pass').textContent  = stats.pass;
-  document.getElementById('stat-park').textContent  = stats.park;
-  const rate = stats.total > 0 ? Math.round((stats.pass / stats.total) * 100) : 0;
-  document.getElementById('stat-rate').textContent  = rate + '%';
+function clearBulk() {
+  document.getElementById('bulkCvText').value = '';
+  bulkFiles = [];
+  bulkResults = [];
+  document.getElementById('bulkFileList').innerHTML = '';
+  document.getElementById('bulkResultsList').innerHTML = '';
+  document.getElementById('bulkProgressArea').style.display = 'none';
+  document.getElementById('bulkSummaryArea').style.display = 'none';
+  document.getElementById('cvCountLabel').textContent = 'CVs detected: 0';
 }
 
+function updateStats() {
+  document.getElementById('stat-total').textContent = stats.total;
+  document.getElementById('stat-pass').textContent = stats.pass;
+  document.getElementById('stat-park').textContent = stats.park;
+  const rate = stats.total > 0 ? Math.round((stats.pass/stats.total)*100) : 0;
+  document.getElementById('stat-rate').textContent = rate + '%';
+}
+
+function getFilterParams() {
+  return {
+    minAge: parseInt(document.getElementById('minAge').value),
+    maxAge: parseInt(document.getElementById('maxAge').value),
+    reqNat: document.getElementById('reqNationality').value,
+    reqGender: document.getElementById('reqGender').value,
+    minExp: parseInt(document.getElementById('minExp').value),
+    reqGulf: document.getElementById('reqGulf').value,
+    jdText: document.getElementById('jdText').value.trim()
+  };
+}
+
+function buildPrompt(cvText, f) {
+  return `You are an AI recruitment screening agent for Al Yousuf Enterprises LLP, an Indian overseas manpower agency for Gulf/GCC countries.
+
+Analyse this CV and return ONLY a JSON object. No explanation, no markdown, just raw JSON.
+
+FILTER CRITERIA:
+- Age: ${f.minAge} to ${f.maxAge} years
+- Nationality: ${f.reqNat}
+- Gender: ${f.reqGender}
+- Min experience: ${f.minExp} years
+- Gulf experience: ${f.reqGulf}
+${f.jdText ? '- JD: ' + f.jdText : ''}
+
+SCORING (100 total):
+Qualification(25): Degree=25,Diploma=20,ITI=15,Certificate=10,None=5
+Experience(30): scale by years
+Gulf exp(20): Gulf=20,Other overseas=10,None=0
+Industry(15): exact=15,related=8,other=3
+Certs(10): relevant certs found
+
+DECISION: 80-100+passes=TOP SHORTLIST, 60-79+passes=SHORTLIST, 40-59=MARGINAL, below40/fails=PARK
+
+CV: ${cvText.substring(0,3500)}
+
+Return ONLY:
+{"name":"","age":0,"nationality":"","gender":"male","has_passport":true,"trade":"","department":"","industry":"","specialization":"","years_experience":0,"gulf_experience":false,"gulf_countries":[],"qualification":"","certifications":[],"phone":"","email":"","current_location":"","qualification_score":0,"experience_score":0,"gulf_score":0,"industry_score":0,"certification_score":0,"total_score":0,"decision":"SHORTLIST","filter_passes":true,"filter_failures":[],"summary":"","strengths":[],"concerns":[]}`;
+}
+
+async function callClaudeAPI(prompt) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1200,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!response.ok) { const err = await response.json(); throw new Error(err.error?.message || 'API error'); }
+  const data = await response.json();
+  let raw = data.content[0].text.trim().replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+  return JSON.parse(raw);
+}
+
+// ── Single CV Analysis ─────────────────────────────────────────────────────
 async function analyseCV() {
   const cvText = document.getElementById('cvText').value.trim();
-  if (!cvText) { alert('Please paste a CV or upload a file first'); return; }
-  if (!apiKey) { alert('Please enter your Claude API key and click Save Keys'); return; }
-
-  const minAge    = parseInt(document.getElementById('minAge').value);
-  const maxAge    = parseInt(document.getElementById('maxAge').value);
-  const reqNat    = document.getElementById('reqNationality').value;
-  const reqGender = document.getElementById('reqGender').value;
-  const minExp    = parseInt(document.getElementById('minExp').value);
-  const reqGulf   = document.getElementById('reqGulf').value;
-  const jdText    = document.getElementById('jdText').value.trim();
-
+  if (!cvText) { alert('Please paste a CV first'); return; }
+  if (!apiKey) { alert('Please enter your Claude API key'); return; }
+  const f = getFilterParams();
   document.getElementById('loadingCard').classList.add('show');
   document.getElementById('resultCard').classList.remove('show');
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('analyseBtn').disabled = true;
-
-  const prompt = `You are an AI recruitment screening agent for Al Yousuf Enterprises LLP, an Indian overseas manpower agency recruiting for Gulf and GCC countries.
-
-Analyse this CV and return ONLY a JSON object. No explanation, no markdown, no text before or after. Just raw JSON.
-
-FILTER CRITERIA:
-- Age range: ${minAge} to ${maxAge} years
-- Required nationality: ${reqNat}
-- Gender requirement: ${reqGender}
-- Minimum experience: ${minExp} years
-- Gulf experience: ${reqGulf}
-${jdText ? `- Job Description: ${jdText}` : '- No JD provided, do general Gulf recruitment screening'}
-
-SCORING (total 100):
-- Qualification: max 25 (Degree=25, Diploma=20, ITI=15, Certificate=10, None=5)
-- Experience: max 30 (scale by years vs requirement)
-- Gulf experience: max 20 (Gulf=20, Other overseas=10, None=0)
-- Industry match: max 15 (exact=15, related=8, unrelated=3)
-- Certifications: max 10 (relevant certs found)
-
-DECISION:
-- 80-100 + passes all filters = TOP SHORTLIST
-- 60-79 + passes filters = SHORTLIST
-- 40-59 or minor issue = MARGINAL
-- Below 40 or fails passport/nationality = PARK
-
-CV:
-${cvText.substring(0, 4000)}
-
-Return ONLY this JSON:
-{"name":"","age":0,"nationality":"","gender":"male","has_passport":true,"trade":"","department":"","industry":"","specialization":"","years_experience":0,"gulf_experience":true,"gulf_countries":[],"qualification":"","certifications":[],"phone":"","email":"","current_location":"","qualification_score":0,"experience_score":0,"gulf_score":0,"industry_score":0,"certification_score":0,"total_score":0,"decision":"SHORTLIST","filter_passes":true,"filter_failures":[],"summary":"","strengths":[],"concerns":[]}`;
-
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error?.message || 'API error ' + response.status);
-    }
-
-    const data = await response.json();
-    let rawText = data.content[0].text.trim();
-    rawText = rawText.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-
-    const result = JSON.parse(rawText);
+    const result = await callClaudeAPI(buildPrompt(cvText, f));
     currentResult = result;
     displayResult(result);
     saveToHistory(result);
-
-  } catch (error) {
+  } catch(err) {
     document.getElementById('loadingCard').classList.remove('show');
     document.getElementById('emptyState').style.display = 'block';
-    alert('Error: ' + error.message + '\n\nCheck your API key is correct.');
+    alert('Error: ' + err.message);
   }
   document.getElementById('analyseBtn').disabled = false;
+}
+
+// ── Bulk Analysis ──────────────────────────────────────────────────────────
+async function runBulkAnalysis() {
+  if (!apiKey) { alert('Please enter your Claude API key first'); return; }
+  const f = getFilterParams();
+  let cvList = [];
+  const activeBulkTab = document.getElementById('bulk-paste-area').style.display !== 'none';
+
+  if (activeBulkTab) {
+    const rawText = document.getElementById('bulkCvText').value.trim();
+    if (!rawText) { alert('Please paste CV text first'); return; }
+    cvList = rawText.split(/\n---\n/).map((t,i) => ({ name: 'CV '+(i+1), text: t.trim() })).filter(c => c.text.length > 50);
+  } else {
+    if (bulkFiles.length === 0) { alert('Please upload files first'); return; }
+    cvList = bulkFiles.map(f => ({ name: f.name, text: f.text }));
+  }
+
+  if (cvList.length === 0) { alert('No valid CVs found. Make sure CVs are separated by --- on a new line.'); return; }
+  if (cvList.length > 20) { alert('Maximum 20 CVs at once. You have ' + cvList.length + '. Please reduce.'); return; }
+
+  document.getElementById('bulkAnalyseBtn').disabled = true;
+  document.getElementById('bulkProgressArea').style.display = 'block';
+  document.getElementById('bulkSummaryArea').style.display = 'none';
+  document.getElementById('bulkResultsList').innerHTML = '';
+  bulkResults = [];
+
+  // Show placeholder cards
+  document.getElementById('bulkResultsList').innerHTML = cvList.map((cv,i) => `
+    <div class="bulk-result-item processing" id="bulk-item-${i}">
+      <div class="bulk-left">
+        <div class="bulk-rank">${i+1}</div>
+        <div class="bulk-score" style="background:#f0f4f8;color:#aaa;">—</div>
+        <div>
+          <div class="bulk-name">${cv.name}</div>
+          <div class="bulk-detail">Waiting to be screened...</div>
+        </div>
+      </div>
+    </div>`).join('');
+
+  for (let i = 0; i < cvList.length; i++) {
+    document.getElementById('bulkStatusText').textContent = `Screening CV ${i+1} of ${cvList.length}: ${cvList[i].name}...`;
+    document.getElementById('bulkProgressFill').style.width = ((i/cvList.length)*100) + '%';
+
+    try {
+      const result = await callClaudeAPI(buildPrompt(cvList[i].text, f));
+      result.fileName = cvList[i].name;
+      bulkResults.push(result);
+      saveToHistory(result);
+
+      const score = result.total_score || 0;
+      const bg  = score>=70?'#E8F8F0':score>=45?'#FFF8E8':'#FFF0F0';
+      const txt = score>=70?'#006640':score>=45?'#885500':'#CC0000';
+      const cls = result.decision==='TOP SHORTLIST'?'top':result.decision==='SHORTLIST'?'shortlist':result.decision==='MARGINAL'?'marginal':'park';
+      const badgeCls = result.decision==='TOP SHORTLIST'?'badge-pass':result.decision==='SHORTLIST'?'badge-shortlist':result.decision==='MARGINAL'?'badge-marginal':'badge-park';
+
+      document.getElementById('bulk-item-'+i).outerHTML = `
+        <div class="bulk-result-item ${cls}" id="bulk-item-${i}" onclick="viewBulkResult(${bulkResults.length-1})">
+          <div class="bulk-left">
+            <div class="bulk-rank">${i+1}</div>
+            <div class="bulk-score" style="background:${bg};color:${txt}">${score}</div>
+            <div>
+              <div class="bulk-name">${result.name || cvList[i].name}</div>
+              <div class="bulk-detail">${result.trade||'—'} · ${result.nationality||'—'} · ${result.years_experience||0} yrs · ${result.gulf_experience?'Gulf exp ✓':'No Gulf exp'}</div>
+            </div>
+          </div>
+          <div class="bulk-right">
+            <span class="history-badge ${badgeCls}">${result.decision}</span>
+            <div style="font-size:11px;color:#888;margin-top:4px;">${result.certification_score>0?result.certifications.slice(0,2).join(', '):''}</div>
+          </div>
+        </div>`;
+
+    } catch(err) {
+      bulkResults.push({ name: cvList[i].name, error: err.message, total_score: 0, decision: 'ERROR' });
+      document.getElementById('bulk-item-'+i).outerHTML = `
+        <div class="bulk-result-item park" id="bulk-item-${i}">
+          <div class="bulk-left">
+            <div class="bulk-rank">${i+1}</div>
+            <div class="bulk-score" style="background:#FFF0F0;color:#CC0000;">ERR</div>
+            <div>
+              <div class="bulk-name">${cvList[i].name}</div>
+              <div class="bulk-detail" style="color:#CC0000;">Error: ${err.message}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    // Small delay to avoid rate limiting
+    if (i < cvList.length-1) await new Promise(r => setTimeout(r, 1000));
+  }
+
+  // Sort results by score
+  const sortedResults = [...bulkResults].sort((a,b) => (b.total_score||0)-(a.total_score||0));
+  const listEl = document.getElementById('bulkResultsList');
+  listEl.innerHTML = sortedResults.map((result, i) => {
+    const score = result.total_score || 0;
+    const bg  = score>=70?'#E8F8F0':score>=45?'#FFF8E8':'#FFF0F0';
+    const txt = score>=70?'#006640':score>=45?'#885500':'#CC0000';
+    const cls = result.decision==='TOP SHORTLIST'?'top':result.decision==='SHORTLIST'?'shortlist':result.decision==='MARGINAL'?'marginal':'park';
+    const badgeCls = result.decision==='TOP SHORTLIST'?'badge-pass':result.decision==='SHORTLIST'?'badge-shortlist':result.decision==='MARGINAL'?'badge-marginal':'badge-park';
+    const idx = bulkResults.indexOf(result);
+    return `
+      <div class="bulk-result-item ${cls}" onclick="viewBulkResult(${idx})">
+        <div class="bulk-left">
+          <div class="bulk-rank" style="background:${score>=70?'#006640':score>=45?'#885500':'#CC0000'}">${i+1}</div>
+          <div class="bulk-score" style="background:${bg};color:${txt}">${score}</div>
+          <div>
+            <div class="bulk-name">${result.name||result.fileName||'Unknown'}</div>
+            <div class="bulk-detail">${result.trade||'—'} · ${result.nationality||'—'} · ${result.years_experience||0} yrs exp${result.gulf_experience?' · Gulf ✓':''}</div>
+          </div>
+        </div>
+        <div class="bulk-right">
+          <span class="history-badge ${badgeCls}">${result.decision||'—'}</span>
+          ${result.summary ? '<div style="font-size:11px;color:#888;margin-top:4px;max-width:200px;text-align:right;">' + result.summary.substring(0,80) + '...</div>' : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Summary
+  const top   = bulkResults.filter(r => r.decision==='TOP SHORTLIST').length;
+  const short = bulkResults.filter(r => r.decision==='SHORTLIST').length;
+  const park  = bulkResults.filter(r => r.decision==='PARK' || r.decision==='MARGINAL').length;
+  document.getElementById('bs-total').textContent = bulkResults.length;
+  document.getElementById('bs-top').textContent   = top;
+  document.getElementById('bs-short').textContent = short;
+  document.getElementById('bs-park').textContent  = park;
+  document.getElementById('bulkSummaryArea').style.display = 'block';
+  document.getElementById('bulkProgressArea').style.display = 'none';
+  document.getElementById('bulkAnalyseBtn').disabled = false;
+}
+
+function viewBulkResult(i) {
+  currentResult = bulkResults[i];
+  displayResult(bulkResults[i]);
+  switchTab('paste');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function exportBulkResults() {
+  if (!bulkResults.length) return;
+  const headers = ['Rank','Name','Score','Decision','Trade','Nationality','Age','Experience(yrs)','Gulf Experience','Qualification','Certifications','Phone','Email','Summary'];
+  const sorted = [...bulkResults].sort((a,b)=>(b.total_score||0)-(a.total_score||0));
+  const rows = sorted.map((r,i) => [
+    i+1, r.name||'', r.total_score||0, r.decision||'',
+    r.trade||'', r.nationality||'', r.age||'', r.years_experience||0,
+    r.gulf_experience?'Yes':'No', r.qualification||'',
+    (r.certifications||[]).join('; '), r.phone||'', r.email||'',
+    (r.summary||'').replace(/,/g,' ')
+  ]);
+  const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'bulk_screening_results_' + new Date().toLocaleDateString('en-IN').replace(/\//g,'-') + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function displayResult(r) {
   document.getElementById('loadingCard').classList.remove('show');
   document.getElementById('resultCard').classList.add('show');
   document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('bulkResultsCard').classList.remove('show');
 
-  const score  = r.total_score || 0;
+  const score = r.total_score || 0;
   const circle = document.getElementById('scoreCircle');
   document.getElementById('scoreNum').textContent = score;
   circle.className = 'score-circle ' + (score>=70?'score-high':score>=45?'score-mid':'score-low');
 
-  document.getElementById('candidateName').textContent  = r.name || 'Unknown';
+  document.getElementById('candidateName').textContent = r.name || 'Unknown';
   document.getElementById('candidateTrade').textContent = [r.trade,r.specialization].filter(Boolean).join(' — ') || 'Trade not identified';
 
   const badge = document.getElementById('decisionBadge');
   badge.textContent = r.decision || '—';
-  badge.className   = 'decision-badge ' +
-    (r.decision==='TOP SHORTLIST'?'badge-pass':r.decision==='SHORTLIST'?'badge-shortlist':r.decision==='MARGINAL'?'badge-marginal':'badge-park');
+  badge.className = 'decision-badge ' + (r.decision==='TOP SHORTLIST'?'badge-pass':r.decision==='SHORTLIST'?'badge-shortlist':r.decision==='MARGINAL'?'badge-marginal':'badge-park');
 
-  document.getElementById('detAge').textContent      = r.age ? r.age+' yrs' : 'Not found';
-  document.getElementById('detNat').textContent      = r.nationality || 'Unknown';
+  document.getElementById('detAge').textContent = r.age ? r.age+' yrs' : 'Not found';
+  document.getElementById('detNat').textContent = r.nationality || 'Unknown';
   document.getElementById('detPassport').textContent = r.has_passport===true?'✓ Yes':r.has_passport===false?'✗ No':'? Unknown';
-  document.getElementById('detExp').textContent      = r.years_experience ? r.years_experience+' years' : 'Not found';
-  document.getElementById('detGulf').textContent     = r.gulf_experience ? '✓ '+(r.gulf_countries?.join(', ')||'Yes') : '✗ No Gulf exp';
-  document.getElementById('detQual').textContent     = r.qualification || 'Not found';
+  document.getElementById('detExp').textContent = r.years_experience ? r.years_experience+' years' : 'Not found';
+  document.getElementById('detGulf').textContent = r.gulf_experience ? '✓ '+(r.gulf_countries?.join(', ')||'Yes') : '✗ No Gulf exp';
+  document.getElementById('detQual').textContent = r.qualification || 'Not found';
 
   setBar('qual', r.qualification_score||0, 25);
   setBar('exp',  r.experience_score||0,    30);
@@ -567,16 +892,12 @@ function displayResult(r) {
   if (r.certifications && r.certifications.length > 0) {
     document.getElementById('certsSection').style.display = 'block';
     document.getElementById('certsList').innerHTML = r.certifications.map(c=>`<span class="cert-tag">${c}</span>`).join('');
-  } else {
-    document.getElementById('certsSection').style.display = 'none';
-  }
+  } else { document.getElementById('certsSection').style.display = 'none'; }
 
   if (r.filter_failures && r.filter_failures.length > 0) {
     document.getElementById('filterFailSection').style.display = 'block';
     document.getElementById('filterFailList').innerHTML = r.filter_failures.map(f=>`• ${f}`).join('<br>');
-  } else {
-    document.getElementById('filterFailSection').style.display = 'none';
-  }
+  } else { document.getElementById('filterFailSection').style.display = 'none'; }
 }
 
 function setBar(id, val, max) {
@@ -599,10 +920,7 @@ function saveToHistory(r) {
 
 function renderHistory() {
   const list = document.getElementById('historyList');
-  if (!sessionData.length) {
-    list.innerHTML = '<div style="text-align:center;padding:30px;color:#aaa;font-size:14px;">No candidates screened yet.</div>';
-    return;
-  }
+  if (!sessionData.length) { list.innerHTML = '<div style="text-align:center;padding:30px;color:#aaa;font-size:14px;">No candidates screened yet.</div>'; return; }
   list.innerHTML = sessionData.map((r,i) => {
     const score = r.total_score||0;
     const bg  = score>=70?'#E8F8F0':score>=45?'#FFF8E8':'#FFF0F0';
@@ -621,11 +939,7 @@ function renderHistory() {
   }).join('');
 }
 
-function viewHistory(i) {
-  currentResult = sessionData[i];
-  displayResult(currentResult);
-  window.scrollTo({top:0,behavior:'smooth'});
-}
+function viewHistory(i) { currentResult = sessionData[i]; displayResult(currentResult); window.scrollTo({top:0,behavior:'smooth'}); }
 
 function clearHistory() {
   if (!confirm('Clear all screened candidates?')) return;
@@ -635,25 +949,16 @@ function clearHistory() {
   updateStats(); renderHistory();
 }
 
-function moveToShortlist() {
-  if (!currentResult) return;
-  alert('✓ '+(currentResult.name||'Candidate')+' moved to SHORTLIST\nScore: '+(currentResult.total_score||0)+'/100\n\nCRM sync coming in next update.');
-}
-
-function parkCandidate() {
-  if (!currentResult) return;
-  alert('⏸ '+(currentResult.name||'Candidate')+' parked in DATABASE\nWill appear in future searches.');
-}
+function moveToShortlist() { if (!currentResult) return; alert('✓ '+(currentResult.name||'Candidate')+' moved to SHORTLIST\nScore: '+(currentResult.total_score||0)+'/100'); }
+function parkCandidate()   { if (!currentResult) return; alert('⏸ '+(currentResult.name||'Candidate')+' parked in DATABASE'); }
 
 function saveResult() {
   if (!currentResult) return;
   const blob = new Blob([JSON.stringify(currentResult,null,2)],{type:'application/json'});
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url;
-  a.download = (currentResult.name||'candidate').replace(/\s+/g,'_')+'_screening.json';
-  a.click();
-  URL.revokeObjectURL(url);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=(currentResult.name||'candidate').replace(/\s+/g,'_')+'_screening.json';
+  a.click(); URL.revokeObjectURL(url);
 }
 </script>
 </body>
