@@ -3,146 +3,153 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Al Yousuf Enterprises — CV Screening System</title>
+<title>Al Yousuf Enterprises — CV Screening Engine</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Segoe UI',Arial,sans-serif; background:#f0f4f8; min-height:100vh; }
-.header { background:linear-gradient(135deg,#1B2A4A 0%,#2C4A7C 100%); color:white; padding:18px 40px; display:flex; align-items:center; justify-content:space-between; }
-.header h1 { font-size:21px; font-weight:600; }
-.header p { font-size:12px; opacity:0.8; margin-top:3px; }
-.header-right { text-align:right; font-size:12px; opacity:0.7; }
-.container { max-width:1300px; margin:0 auto; padding:24px 20px; }
-.stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
-.stat-card { background:white; border-radius:12px; padding:18px; text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.07); }
-.stat-card .number { font-size:28px; font-weight:700; color:#1B2A4A; }
-.stat-card .label { font-size:11px; color:#888; margin-top:4px; }
-.main-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-.card { background:white; border-radius:14px; padding:24px; box-shadow:0 2px 10px rgba(0,0,0,0.07); }
-.card h2 { font-size:15px; font-weight:600; color:#1B2A4A; margin-bottom:18px; padding-bottom:10px; border-bottom:2px solid #f0f4f8; }
-.section-label { font-size:11px; font-weight:700; color:#2C4A7C; text-transform:uppercase; letter-spacing:0.8px; margin:16px 0 10px; padding:6px 10px; background:#f0f4ff; border-radius:6px; }
-.form-group { margin-bottom:12px; }
-.form-group label { display:block; font-size:12px; font-weight:500; color:#555; margin-bottom:4px; }
-.form-group label .req { color:#CC0000; margin-left:2px; }
-.form-group label .primary-tag { background:#1B2A4A; color:white; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:4px; }
-.form-group label .secondary-tag { background:#E8F0FF; color:#1B2A9A; font-size:10px; padding:1px 6px; border-radius:10px; margin-left:4px; }
-.form-group input, .form-group select { width:100%; padding:9px 12px; border:1.5px solid #e0e0e0; border-radius:7px; font-size:13px; color:#333; transition:border-color 0.2s; background:white; }
-.form-group input:focus, .form-group select:focus { outline:none; border-color:#2C4A7C; }
-.form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.form-row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
-textarea { width:100%; padding:12px; border:1.5px solid #e0e0e0; border-radius:7px; font-size:13px; color:#333; resize:vertical; min-height:180px; font-family:inherit; line-height:1.6; transition:border-color 0.2s; }
-textarea:focus { outline:none; border-color:#2C4A7C; }
-.btn { width:100%; padding:13px; border:none; border-radius:9px; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; margin-top:8px; }
-.btn-primary { background:#1B2A4A; color:white; }
-.btn-primary:hover { background:#2C4A7C; }
-.btn-primary:disabled { background:#aaa; cursor:not-allowed; }
-.btn-secondary { background:#f0f4f8; color:#1B2A4A; border:1.5px solid #ddd; }
-.btn-secondary:hover { background:#e4eaf2; }
-.btn-bulk { background:#0F6E56; color:white; }
-.btn-bulk:hover { background:#0A5240; }
-.btn-bulk:disabled { background:#aaa; cursor:not-allowed; }
-.result-card { background:white; border-radius:14px; padding:24px; box-shadow:0 2px 10px rgba(0,0,0,0.07); display:none; }
-.result-card.show { display:block; }
-.result-header { display:flex; align-items:center; gap:18px; padding-bottom:18px; border-bottom:2px solid #f0f4f8; margin-bottom:18px; }
-.score-circle { width:84px; height:84px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; font-weight:700; flex-shrink:0; }
-.score-circle .score-num { font-size:26px; line-height:1; }
-.score-circle .score-label { font-size:10px; opacity:0.8; }
-.score-high { background:#E8F8F0; color:#006640; border:3px solid #00A86B; }
-.score-mid { background:#FFF8E8; color:#885500; border:3px solid #FFA500; }
-.score-low { background:#FFF0F0; color:#CC0000; border:3px solid #FF4444; }
-.decision-badge { display:inline-block; padding:7px 18px; border-radius:18px; font-size:13px; font-weight:700; margin-top:7px; }
-.badge-pass { background:#E8F8F0; color:#006640; }
-.badge-shortlist { background:#E8F0FF; color:#1B2A9A; }
-.badge-park { background:#FFF0F0; color:#CC0000; }
-.badge-marginal { background:#FFF8E8; color:#885500; }
-.candidate-name { font-size:20px; font-weight:700; color:#1B2A4A; }
-.candidate-trade { font-size:13px; color:#666; margin-top:3px; }
-.details-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px; }
-.detail-item { background:#f8fafc; border-radius:9px; padding:12px; }
-.detail-item .detail-label { font-size:10px; color:#888; text-transform:uppercase; letter-spacing:0.5px; }
-.detail-item .detail-value { font-size:14px; font-weight:600; color:#1B2A4A; margin-top:3px; }
-.score-breakdown { margin-bottom:18px; }
-.score-breakdown h3 { font-size:13px; font-weight:600; color:#444; margin-bottom:10px; }
-.score-bar-row { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
-.score-bar-label { font-size:11px; color:#666; min-width:160px; }
-.score-bar-track { flex:1; height:7px; background:#f0f4f8; border-radius:3px; overflow:hidden; }
-.score-bar-fill { height:100%; border-radius:3px; transition:width 0.8s ease; }
-.score-bar-val { font-size:11px; font-weight:600; color:#444; min-width:38px; text-align:right; }
-.ai-summary { background:#F0F4FF; border-radius:9px; padding:14px; border-left:4px solid #2C4A7C; margin-bottom:18px; }
-.ai-summary h3 { font-size:12px; font-weight:600; color:#2C4A7C; margin-bottom:6px; }
-.ai-summary p { font-size:12px; color:#444; line-height:1.6; }
-.certs-found { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
-.cert-tag { background:#E8F0FF; color:#1B2A9A; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:500; }
-.action-buttons { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:8px; margin-top:18px; }
-.btn-action { padding:9px; border:none; border-radius:7px; font-size:12px; font-weight:600; cursor:pointer; transition:all 0.2s; }
-.btn-shortlist { background:#1B2A4A; color:white; }
-.btn-park { background:#FFF0F0; color:#CC0000; border:1.5px solid #FFAAAA; }
-.btn-push-tobu { background:#F0E8FF; color:#7C2C7C; border:1.5px solid #DDB8DD; }
-.btn-save { background:#E8F8F0; color:#006640; border:1.5px solid #AADDCC; }
-.tobu-status { margin-top:8px; padding:9px 12px; border-radius:7px; font-size:12px; display:none; }
-.tobu-status.success { background:#E8F8F0; color:#006640; display:block; }
-.tobu-status.error { background:#FFF0F0; color:#CC0000; display:block; }
-.tobu-status.loading { background:#F0F4FF; color:#2C4A7C; display:block; }
-.history-item { background:white; border-radius:9px; padding:14px; margin-bottom:8px; box-shadow:0 1px 4px rgba(0,0,0,0.06); display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:box-shadow 0.2s; }
-.history-item:hover { box-shadow:0 3px 10px rgba(0,0,0,0.12); }
-.history-left { display:flex; align-items:center; gap:12px; }
-.history-score { width:42px; height:42px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; flex-shrink:0; }
-.history-name { font-size:13px; font-weight:600; color:#1B2A4A; }
-.history-trade { font-size:11px; color:#888; margin-top:2px; }
-.history-badge { padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; }
-.tobu-synced { font-size:10px; color:#7C2C7C; font-weight:600; margin-left:4px; }
-.loading { display:none; text-align:center; padding:40px; }
-.loading.show { display:block; }
-.spinner { width:44px; height:44px; border:4px solid #f0f4f8; border-top:4px solid #1B2A4A; border-radius:50%; animation:spin 0.8s linear infinite; margin:0 auto 14px; }
-@keyframes spin { to { transform:rotate(360deg); } }
-.tab-buttons { display:flex; gap:6px; margin-bottom:18px; flex-wrap:wrap; }
-.tab-btn { padding:7px 18px; border:1.5px solid #ddd; border-radius:18px; background:white; font-size:12px; cursor:pointer; font-weight:500; transition:all 0.2s; }
-.tab-btn.active { background:#1B2A4A; color:white; border-color:#1B2A4A; }
-.tab-btn.bulk-btn.active { background:#0F6E56; border-color:#0F6E56; }
-.upload-zone { border:2px dashed #ddd; border-radius:9px; padding:36px; text-align:center; color:#888; cursor:pointer; transition:all 0.2s; }
-.upload-zone:hover { border-color:#2C4A7C; background:#f8faff; }
-.upload-progress { display:none; margin-top:10px; padding:9px 12px; background:#f0f4f8; border-radius:7px; font-size:12px; color:#444; }
-.upload-progress.show { display:block; }
-.api-notice { background:#FFF8E8; border:1.5px solid #FFD080; border-radius:9px; padding:12px 16px; margin-bottom:18px; font-size:12px; color:#885500; }
-.tobu-connected { background:#F0E8FF; border:1.5px solid #DDB8DD; border-radius:9px; padding:12px 16px; margin-bottom:18px; font-size:12px; color:#7C2C7C; display:none; }
-.tobu-connected.show { display:block; }
-.bulk-progress-bar { width:100%; height:7px; background:#f0f4f8; border-radius:3px; margin:10px 0; overflow:hidden; }
-.bulk-progress-fill { height:100%; background:#0F6E56; border-radius:3px; transition:width 0.4s ease; }
-.bulk-status { font-size:12px; color:#444; margin-bottom:6px; }
-.bulk-result-item { background:white; border-radius:11px; padding:14px; margin-bottom:8px; box-shadow:0 2px 7px rgba(0,0,0,0.07); display:flex; align-items:center; justify-content:space-between; cursor:pointer; border-left:4px solid #ddd; transition:box-shadow 0.2s; }
-.bulk-result-item:hover { box-shadow:0 4px 14px rgba(0,0,0,0.12); }
-.bulk-result-item.top { border-left-color:#00A86B; }
-.bulk-result-item.shortlist { border-left-color:#378ADD; }
-.bulk-result-item.marginal { border-left-color:#FFA500; }
-.bulk-result-item.park { border-left-color:#FF4444; }
-.bulk-left { display:flex; align-items:center; gap:12px; }
-.bulk-rank { width:30px; height:30px; border-radius:50%; background:#1B2A4A; color:white; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; }
-.bulk-score { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; flex-shrink:0; }
-.bulk-name { font-size:13px; font-weight:600; color:#1B2A4A; }
-.bulk-detail { font-size:11px; color:#888; margin-top:2px; }
-.bulk-summary-box { background:#F0F7FF; border-radius:11px; padding:18px; margin-bottom:14px; }
-.bulk-summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:10px; }
-.bulk-summary-item { text-align:center; }
-.bulk-summary-num { font-size:22px; font-weight:700; }
-.bulk-summary-label { font-size:11px; color:#666; margin-top:2px; }
-.cv-separator-hint { background:#E8F8F0; border-radius:7px; padding:10px 14px; font-size:11px; color:#006640; margin-bottom:10px; line-height:1.6; }
-.bulk-file-item { display:flex; align-items:center; justify-content:space-between; padding:7px 10px; background:#f8fafc; border-radius:5px; margin-bottom:5px; font-size:12px; }
-.bulk-file-remove { background:none; border:none; color:#CC0000; cursor:pointer; font-size:15px; }
-.export-btn { background:#2C4A7C; color:white; border:none; border-radius:7px; padding:9px 18px; font-size:12px; font-weight:600; cursor:pointer; margin-top:10px; margin-right:6px; }
-.push-all-btn { background:#7C2C7C; color:white; border:none; border-radius:7px; padding:9px 18px; font-size:12px; font-weight:600; cursor:pointer; margin-top:10px; }
-.tobu-indicator { display:inline-block; width:7px; height:7px; border-radius:50%; background:#CC0000; margin-right:5px; vertical-align:middle; }
-.tobu-indicator.connected { background:#00A86B; }
-.filter-note { font-size:11px; color:#888; font-style:italic; margin-top:4px; }
-@media(max-width:768px){
-  .main-grid{grid-template-columns:1fr;}
-  .stats-row{grid-template-columns:repeat(2,1fr);}
-  .details-grid{grid-template-columns:repeat(2,1fr);}
-  .action-buttons{grid-template-columns:1fr 1fr;}
-  .header{padding:14px 16px;}
-  .form-row-3{grid-template-columns:1fr 1fr;}
-  .bulk-summary-grid{grid-template-columns:repeat(2,1fr);}
-}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;min-height:100vh;}
+.header{background:linear-gradient(135deg,#1B2A4A 0%,#2C4A7C 100%);color:white;padding:16px 36px;display:flex;align-items:center;justify-content:space-between;}
+.header h1{font-size:20px;font-weight:600;}
+.header p{font-size:12px;opacity:0.8;margin-top:2px;}
+.header-right{text-align:right;font-size:11px;opacity:0.75;}
+.container{max-width:1340px;margin:0 auto;padding:22px 18px;}
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;}
+.stat-card{background:white;border-radius:11px;padding:16px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.07);}
+.stat-card .number{font-size:26px;font-weight:700;color:#1B2A4A;}
+.stat-card .label{font-size:11px;color:#888;margin-top:3px;}
+.layout{display:grid;grid-template-columns:420px 1fr;gap:18px;}
+.card{background:white;border-radius:13px;padding:22px;box-shadow:0 2px 10px rgba(0,0,0,0.07);}
+.card h2{font-size:14px;font-weight:600;color:#1B2A4A;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #f0f4f8;}
+.section-label{font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;padding:5px 9px;border-radius:5px;margin:14px 0 8px;}
+.sl-red{background:#FFF0F0;color:#CC0000;}
+.sl-yellow{background:#FFF8E8;color:#885500;}
+.sl-blue{background:#EBF3FA;color:#1B3A5C;}
+.form-group{margin-bottom:10px;}
+.form-group label{display:block;font-size:11px;font-weight:500;color:#555;margin-bottom:3px;}
+.form-group label .req{color:#CC0000;margin-left:2px;}
+.tag{font-size:9px;padding:1px 5px;border-radius:8px;margin-left:3px;font-weight:600;}
+.tag-hard{background:#FFE0E0;color:#CC0000;}
+.tag-score{background:#E0F0FF;color:#1B3A5C;}
+.form-group input,.form-group select{width:100%;padding:8px 10px;border:1.5px solid #e0e0e0;border-radius:6px;font-size:12px;color:#333;background:white;transition:border-color 0.2s;}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:#2C4A7C;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+textarea{width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:6px;font-size:12px;color:#333;resize:vertical;min-height:160px;font-family:inherit;line-height:1.5;transition:border-color 0.2s;}
+textarea:focus{outline:none;border-color:#2C4A7C;}
+.btn{width:100%;padding:11px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;margin-top:6px;}
+.btn-primary{background:#1B2A4A;color:white;}
+.btn-primary:hover{background:#2C4A7C;}
+.btn-primary:disabled{background:#aaa;cursor:not-allowed;}
+.btn-secondary{background:#f0f4f8;color:#1B2A4A;border:1.5px solid #ddd;}
+.btn-bulk{background:#0F6E56;color:white;}
+.btn-bulk:disabled{background:#aaa;cursor:not-allowed;}
+/* Result panel */
+.result-panel{display:none;}
+.result-panel.show{display:block;}
+.result-header{display:flex;align-items:flex-start;gap:16px;padding-bottom:16px;border-bottom:2px solid #f0f4f8;margin-bottom:16px;}
+.score-circle{width:80px;height:80px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;}
+.score-circle .sn{font-size:24px;line-height:1;}
+.score-circle .sl{font-size:10px;opacity:0.8;}
+.score-high{background:#E8F8F0;color:#006640;border:3px solid #00A86B;}
+.score-mid{background:#FFF8E8;color:#885500;border:3px solid #FFA500;}
+.score-low{background:#FFF0F0;color:#CC0000;border:3px solid #FF4444;}
+.decision-badge{display:inline-block;padding:6px 16px;border-radius:16px;font-size:13px;font-weight:700;margin-top:6px;}
+.badge-top{background:#E8F8F0;color:#006640;}
+.badge-review{background:#E8F0FF;color:#1B2A9A;}
+.badge-reject{background:#FFF0F0;color:#CC0000;}
+.badge-park{background:#FFF8E8;color:#885500;}
+.cname{font-size:19px;font-weight:700;color:#1B2A4A;}
+.ctrade{font-size:13px;color:#666;margin-top:2px;}
+.details-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+.di{background:#f8fafc;border-radius:8px;padding:10px;}
+.di .dl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px;}
+.di .dv{font-size:13px;font-weight:600;color:#1B2A4A;margin-top:2px;}
+.score-section{margin-bottom:16px;}
+.score-section h3{font-size:12px;font-weight:600;color:#444;margin-bottom:8px;}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.bar-label{font-size:11px;color:#555;min-width:155px;}
+.bar-track{flex:1;height:6px;background:#f0f4f8;border-radius:3px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:3px;transition:width 0.8s ease;}
+.bar-val{font-size:11px;font-weight:600;color:#444;min-width:36px;text-align:right;}
+.ai-box{background:#F0F4FF;border-radius:8px;padding:12px;border-left:4px solid #2C4A7C;margin-bottom:14px;}
+.ai-box h3{font-size:11px;font-weight:600;color:#2C4A7C;margin-bottom:5px;}
+.ai-box p{font-size:12px;color:#444;line-height:1.6;}
+.cert-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
+.cert-tag{background:#E8F0FF;color:#1B2A9A;padding:3px 9px;border-radius:9px;font-size:11px;font-weight:500;}
+.boost-tag{background:#E8F8F0;color:#006640;padding:3px 9px;border-radius:9px;font-size:11px;font-weight:600;}
+.fail-box{background:#FFF0F0;border-radius:8px;padding:10px;margin-bottom:12px;}
+.fail-box h3{font-size:11px;font-weight:600;color:#CC0000;margin-bottom:4px;}
+.fail-box p{font-size:11px;color:#AA0000;line-height:1.6;}
+.warn-box{background:#FFF8E8;border-radius:8px;padding:10px;margin-bottom:12px;}
+.warn-box h3{font-size:11px;font-weight:600;color:#885500;margin-bottom:4px;}
+.warn-box p{font-size:11px;color:#664400;line-height:1.6;}
+.dup-box{background:#FFF0FF;border-radius:8px;padding:10px;margin-bottom:12px;border:1.5px solid #DDB8DD;}
+.dup-box h3{font-size:11px;font-weight:600;color:#7C2C7C;margin-bottom:4px;}
+.action-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-top:16px;}
+.btn-a{padding:9px;border:none;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.btn-shortlist{background:#1B2A4A;color:white;}
+.btn-park{background:#FFF0F0;color:#CC0000;border:1.5px solid #FFAAAA;}
+.btn-tobu{background:#F0E8FF;color:#7C2C7C;border:1.5px solid #DDB8DD;}
+.btn-dl{background:#E8F8F0;color:#006640;border:1.5px solid #AADDCC;}
+.tobu-msg{margin-top:8px;padding:8px 11px;border-radius:7px;font-size:12px;display:none;}
+.tobu-msg.ok{background:#E8F8F0;color:#006640;display:block;}
+.tobu-msg.err{background:#FFF0F0;color:#CC0000;display:block;}
+.tobu-msg.wait{background:#F0F4FF;color:#2C4A7C;display:block;}
+/* Tabs */
+.tabs{display:flex;gap:5px;margin-bottom:14px;flex-wrap:wrap;}
+.tab{padding:6px 14px;border:1.5px solid #ddd;border-radius:14px;background:white;font-size:11px;cursor:pointer;font-weight:500;transition:all 0.2s;}
+.tab.active{background:#1B2A4A;color:white;border-color:#1B2A4A;}
+.tab.active.bulk{background:#0F6E56;border-color:#0F6E56;}
+/* Upload */
+.drop-zone{border:2px dashed #ddd;border-radius:8px;padding:30px;text-align:center;color:#888;cursor:pointer;transition:all 0.2s;}
+.drop-zone:hover{border-color:#2C4A7C;background:#f8faff;}
+.drop-zone.over{border-color:#2C4A7C;background:#EEF3FF;}
+.up-prog{display:none;margin-top:8px;padding:8px 10px;background:#f0f4f8;border-radius:6px;font-size:11px;color:#444;}
+.up-prog.show{display:block;}
+/* Bulk */
+.bulk-prog-bar{width:100%;height:6px;background:#f0f4f8;border-radius:3px;margin:8px 0;overflow:hidden;}
+.bulk-prog-fill{height:100%;background:#0F6E56;border-radius:3px;transition:width 0.4s;}
+.bulk-status-txt{font-size:11px;color:#444;margin-bottom:5px;}
+.bri{background:white;border-radius:10px;padding:13px;margin-bottom:7px;box-shadow:0 2px 7px rgba(0,0,0,0.07);display:flex;align-items:center;justify-content:space-between;cursor:pointer;border-left:4px solid #ddd;transition:box-shadow 0.2s;}
+.bri:hover{box-shadow:0 4px 14px rgba(0,0,0,0.12);}
+.bri.top{border-left-color:#00A86B;}
+.bri.review{border-left-color:#378ADD;}
+.bri.park{border-left-color:#FFA500;}
+.bri.reject{border-left-color:#FF4444;}
+.bri-left{display:flex;align-items:center;gap:10px;}
+.bri-rank{width:28px;height:28px;border-radius:50%;background:#1B2A4A;color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;}
+.bri-score{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.bri-name{font-size:13px;font-weight:600;color:#1B2A4A;}
+.bri-detail{font-size:11px;color:#888;margin-top:1px;}
+.bulk-summary{background:#F0F7FF;border-radius:10px;padding:16px;margin-bottom:12px;}
+.bs-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px;}
+.bs-item{text-align:center;}
+.bs-num{font-size:20px;font-weight:700;}
+.bs-label{font-size:10px;color:#666;margin-top:1px;}
+/* History */
+.hi{background:white;border-radius:8px;padding:12px;margin-bottom:7px;box-shadow:0 1px 4px rgba(0,0,0,0.06);display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:box-shadow 0.2s;}
+.hi:hover{box-shadow:0 3px 10px rgba(0,0,0,0.12);}
+.hi-left{display:flex;align-items:center;gap:10px;}
+.hi-score{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;}
+.hi-name{font-size:13px;font-weight:600;color:#1B2A4A;}
+.hi-detail{font-size:11px;color:#888;margin-top:1px;}
+.hi-badge{padding:3px 9px;border-radius:9px;font-size:11px;font-weight:600;}
+.tobu-dot{font-size:10px;color:#7C2C7C;font-weight:600;margin-left:4px;}
+.hint{font-size:10px;color:#888;font-style:italic;margin-top:3px;}
+/* API strip */
+.api-strip{background:#FFF8E8;border:1.5px solid #FFD080;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#885500;}
+.tobu-strip{background:#F0E8FF;border:1.5px solid #DDB8DD;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#7C2C7C;display:none;}
+.tobu-strip.show{display:block;}
+.tobu-ind{display:inline-block;width:7px;height:7px;border-radius:50%;background:#CC0000;margin-right:4px;vertical-align:middle;}
+.tobu-ind.on{background:#00A86B;}
+/* Response tracker */
+.resp-row{display:flex;gap:6px;margin-top:10px;}
+.resp-btn{padding:6px 12px;border:1.5px solid #ddd;border-radius:14px;background:white;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s;}
+.resp-btn.confirmed{background:#E8F8F0;color:#006640;border-color:#AADDCC;}
+.resp-btn.not-interested{background:#FFF0F0;color:#CC0000;border-color:#FFAAAA;}
+.resp-btn.no-response{background:#FFF8E8;color:#885500;border-color:#FFD080;}
+@media(max-width:900px){.layout{grid-template-columns:1fr;}.stats-row{grid-template-columns:repeat(2,1fr);}.details-grid{grid-template-columns:repeat(2,1fr);}.action-row{grid-template-columns:1fr 1fr;}.bs-grid{grid-template-columns:repeat(3,1fr);}}
 </style>
 </head>
 <body>
@@ -150,189 +157,169 @@ textarea:focus { outline:none; border-color:#2C4A7C; }
 <div class="header">
   <div>
     <h1>Al Yousuf Enterprises LLP</h1>
-    <p>Gulf Recruitment — AI CV Screening &amp; ATS</p>
+    <p>Gulf Recruitment — Final Screening Engine v3.0</p>
   </div>
   <div class="header-right">
     <div id="currentTime"></div>
-    <div><span class="tobu-indicator" id="tobuIndicator"></span><span id="tobuStatusText">Tobu: Not connected</span> | Claude AI</div>
+    <div><span class="tobu-ind" id="tobuInd"></span><span id="tobuTxt">Tobu: Not connected</span> &nbsp;|&nbsp; Claude AI</div>
   </div>
 </div>
 
 <div class="container">
 
   <div class="stats-row">
-    <div class="stat-card"><div class="number" id="stat-total">0</div><div class="label">CVs Screened Today</div></div>
-    <div class="stat-card"><div class="number" id="stat-pass" style="color:#006640">0</div><div class="label">Shortlisted</div></div>
-    <div class="stat-card"><div class="number" id="stat-park" style="color:#CC0000">0</div><div class="label">Parked</div></div>
-    <div class="stat-card"><div class="number" id="stat-tobu" style="color:#7C2C7C">0</div><div class="label">Pushed to Tobu</div></div>
+    <div class="stat-card"><div class="number" id="st-total">0</div><div class="label">CVs Screened</div></div>
+    <div class="stat-card"><div class="number" id="st-auto" style="color:#006640">0</div><div class="label">Auto Shortlisted (80+)</div></div>
+    <div class="stat-card"><div class="number" id="st-review" style="color:#1B2A9A">0</div><div class="label">For Review (60–79)</div></div>
+    <div class="stat-card"><div class="number" id="st-reject" style="color:#CC0000">0</div><div class="label">Rejected (&lt;60)</div></div>
+    <div class="stat-card"><div class="number" id="st-tobu" style="color:#7C2C7C">0</div><div class="label">In Tobu CRM</div></div>
   </div>
 
-  <div class="api-notice" id="apiNotice"><strong>Setup Required:</strong> Enter your Claude API key below to activate.</div>
-  <div class="tobu-connected" id="tobuConnected"><strong>✓ Tobu CRM Connected</strong> — Shortlisted candidates auto-push to "New CV Received"</div>
+  <div class="api-strip" id="apiStrip"><strong>Setup:</strong> Enter Claude API key below to activate the screening engine.</div>
+  <div class="tobu-strip" id="tobuStrip"><strong>✓ Tobu CRM Connected</strong> — Auto-shortlisted candidates push to "New CV Received" automatically.</div>
 
-  <div class="card" style="margin-bottom:20px;">
-    <h2>🔑 API Configuration</h2>
+  <!-- API Keys -->
+  <div class="card" style="margin-bottom:18px;">
+    <h2>🔑 Configuration</h2>
     <div class="form-row">
-      <div class="form-group"><label>Claude API Key</label><input type="password" id="apiKeyInput" placeholder="sk-ant-api03-..."/></div>
-      <div class="form-group"><label>Tobu CRM API Key</label><input type="password" id="crmKeyInput" placeholder="Your Tobu App ID"/></div>
+      <div class="form-group"><label>Claude API Key</label><input type="password" id="apiKey" placeholder="sk-ant-api03-..."/></div>
+      <div class="form-group"><label>Tobu CRM API Key</label><input type="password" id="crmKey" placeholder="Your Tobu App ID"/></div>
     </div>
-    <div class="form-row">
-      <div><button class="btn btn-primary" onclick="saveKeys()" style="width:auto;padding:9px 24px;">Save &amp; Activate</button><span id="keyStatus" style="margin-left:10px;font-size:12px;color:#006640;"></span></div>
-      <div><button style="background:#7C2C7C;color:white;border:none;border-radius:7px;padding:9px 18px;font-size:12px;font-weight:600;cursor:pointer;margin-top:8px;" onclick="testTobuConnection()">Test Tobu Connection</button><span id="tobuTestStatus" style="margin-left:8px;font-size:11px;"></span></div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="saveKeys()" style="width:auto;padding:8px 22px;">Save &amp; Activate</button>
+      <span id="keyMsg" style="font-size:12px;color:#006640;"></span>
+      <button onclick="testTobu()" style="background:#7C2C7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;">Test Tobu</button>
+      <span id="tobuTestMsg" style="font-size:11px;"></span>
     </div>
   </div>
 
-  <div class="main-grid">
+  <div class="layout">
 
-    <!-- LEFT: Input + Filters -->
-    <div class="card">
-      <h2>📋 Screen a CV</h2>
-      <div class="tab-buttons">
-        <button class="tab-btn active" id="tabPasteBtn" onclick="switchTab('paste')">Paste CV</button>
-        <button class="tab-btn" id="tabUploadBtn" onclick="switchTab('upload')">Upload File</button>
-        <button class="tab-btn bulk-btn" id="tabBulkBtn" onclick="switchTab('bulk')">⚡ Bulk Screen</button>
+    <!-- LEFT: Filter Panel -->
+    <div class="card" style="height:fit-content;">
+      <h2>⚙️ Screening Engine — Filter Panel</h2>
+
+      <div class="tabs">
+        <button class="tab active" id="t-paste" onclick="swTab('paste')">Paste CV</button>
+        <button class="tab" id="t-upload" onclick="swTab('upload')">Upload File</button>
+        <button class="tab bulk" id="t-bulk" onclick="swTab('bulk')">⚡ Bulk Screen</button>
       </div>
 
-      <!-- Paste Tab -->
       <div id="tab-paste">
-        <div class="form-group"><label>Paste CV Text Here</label>
-          <textarea id="cvText" placeholder="Paste full CV text — name, trade, experience, qualifications, certifications, Gulf history, contact details..."></textarea>
-        </div>
+        <div class="form-group"><label>Paste CV Text</label><textarea id="cvText" placeholder="Paste full CV — name, trade, experience, qualifications, certifications, contact..."></textarea></div>
       </div>
 
-      <!-- Upload Tab -->
       <div id="tab-upload" style="display:none;">
-        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
-          <div style="font-size:32px;margin-bottom:6px;">📄</div>
-          <div style="font-weight:600;margin-bottom:4px;color:#444;">Click or drag and drop</div>
-          <div style="font-size:11px;">PDF, DOC, DOCX, TXT</div>
-          <input type="file" id="fileInput" style="display:none" accept=".txt,.pdf,.doc,.docx" onchange="handleFile(event)">
+        <div class="drop-zone" id="dz" onclick="document.getElementById('fi').click()" ondragover="dov(event)" ondragleave="dol(event)" ondrop="ddr(event)">
+          <div style="font-size:30px;margin-bottom:5px;">📄</div>
+          <div style="font-weight:600;font-size:13px;color:#444;">Click or drag to upload</div>
+          <div style="font-size:11px;margin-top:3px;">PDF · DOC · DOCX · TXT</div>
+          <input type="file" id="fi" style="display:none" accept=".txt,.pdf,.doc,.docx" onchange="handleFile(event)">
         </div>
-        <div class="upload-progress" id="uploadProgress"><span id="uploadProgressText">Reading...</span></div>
-        <div id="uploadedFileName" style="display:none;margin-top:8px;padding:7px 10px;background:#E8F8F0;border-radius:7px;font-size:12px;color:#006640;"></div>
+        <div class="up-prog" id="upProg"><span id="upTxt">Reading...</span></div>
+        <div id="upName" style="display:none;margin-top:7px;padding:6px 10px;background:#E8F8F0;border-radius:6px;font-size:11px;color:#006640;"></div>
       </div>
 
-      <!-- Bulk Tab -->
       <div id="tab-bulk" style="display:none;">
-        <div class="cv-separator-hint"><strong>Bulk:</strong> Paste multiple CVs separated by --- OR upload up to 20 files. Shortlisted candidates auto-push to Tobu.</div>
-        <div class="tab-buttons" style="margin-bottom:10px;">
-          <button class="tab-btn active" id="bulkPasteBtn" onclick="switchBulkTab('paste')">Paste Multiple</button>
-          <button class="tab-btn" id="bulkFileBtn" onclick="switchBulkTab('files')">Upload Files</button>
+        <div style="background:#E8F8F0;border-radius:6px;padding:9px 12px;font-size:11px;color:#006640;margin-bottom:9px;line-height:1.6;"><strong>Bulk:</strong> Separate CVs with --- OR upload multiple files. Max 20. Shortlisted auto-push to Tobu.</div>
+        <div class="tabs" style="margin-bottom:9px;">
+          <button class="tab active" id="bt-paste" onclick="swBulk('paste')">Paste Multiple</button>
+          <button class="tab" id="bt-files" onclick="swBulk('files')">Upload Files</button>
         </div>
-        <div id="bulk-paste-area">
-          <div class="form-group"><label>Paste CVs — separate each with: ---</label>
-            <textarea id="bulkCvText" style="min-height:220px;" placeholder="CV 1 text...&#10;&#10;---&#10;&#10;CV 2 text...&#10;&#10;---&#10;&#10;CV 3 text..."></textarea>
-          </div>
-          <div style="font-size:11px;color:#888;margin-top:-6px;margin-bottom:10px;" id="cvCountLabel">CVs detected: 0</div>
+        <div id="bulk-paste">
+          <textarea id="bulkText" style="min-height:200px;" placeholder="CV 1 text...&#10;&#10;---&#10;&#10;CV 2 text...&#10;&#10;---&#10;&#10;CV 3 text..."></textarea>
+          <div style="font-size:10px;color:#888;margin-top:4px;" id="cvCount">CVs detected: 0</div>
         </div>
-        <div id="bulk-files-area" style="display:none;">
-          <div class="upload-zone" onclick="document.getElementById('bulkFileInput').click()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleBulkDrop(event)">
-            <div style="font-size:32px;margin-bottom:6px;">📁</div>
-            <div style="font-weight:600;color:#444;margin-bottom:4px;">Select multiple files</div>
-            <div style="font-size:11px;">Up to 20 PDF / Word / TXT files</div>
-            <input type="file" id="bulkFileInput" style="display:none" accept=".txt,.pdf,.doc,.docx" multiple onchange="handleBulkFiles(event)">
+        <div id="bulk-files" style="display:none;">
+          <div class="drop-zone" onclick="document.getElementById('bfi').click()" ondragover="dov(event)" ondragleave="dol(event)" ondrop="bdrop(event)">
+            <div style="font-size:28px;margin-bottom:4px;">📁</div>
+            <div style="font-weight:600;font-size:13px;color:#444;">Select multiple files</div>
+            <div style="font-size:11px;margin-top:2px;">Up to 20 PDF / Word / TXT</div>
+            <input type="file" id="bfi" style="display:none" accept=".txt,.pdf,.doc,.docx" multiple onchange="handleBulkFiles(event)">
           </div>
-          <div id="bulkFileList" style="margin-top:10px;"></div>
+          <div id="bfList" style="margin-top:8px;"></div>
         </div>
       </div>
 
-      <!-- ═══════════════════════════════════════════════════ -->
-      <!-- ATS FILTER PANEL — FULL FIELD STRUCTURE            -->
-      <!-- ═══════════════════════════════════════════════════ -->
-
-      <div class="section-label">PRIMARY FILTERS — Hard criteria (fails = Park)</div>
+      <!-- ═══════════════════════════════ -->
+      <!-- PRIMARY FILTERS — HARD REJECT  -->
+      <!-- ═══════════════════════════════ -->
+      <div class="section-label sl-red">🔴 PRIMARY FILTERS — Hard Reject on Failure</div>
 
       <div class="form-row">
         <div class="form-group">
-          <label>Trade <span class="req">*</span><span class="primary-tag">PRIMARY</span></label>
-          <select id="f_trade" onchange="updateTradeType()">
+          <label>Trade <span class="req">*</span><span class="tag tag-hard">HARD</span></label>
+          <select id="f-trade" onchange="updateTradeType()">
             <option value="any">Any Trade</option>
-            <optgroup label="── Oil &amp; Gas / Mechanical ──">
+            <optgroup label="Oil & Gas / Mechanical">
               <option>Welder</option><option>Pipe Fitter</option><option>Mechanical Fitter</option>
-              <option>Rigger</option><option>Millwright</option><option>Valve Technician</option>
+              <option>Rigger</option><option>Millwright</option><option>Bolt Torquing Technician</option>
             </optgroup>
-            <optgroup label="── Electrical / Instrumentation ──">
+            <optgroup label="Electrical / Instrumentation">
               <option>Electrician</option><option>Instrument Technician</option>
               <option>DCS / SCADA Technician</option><option>Calibration Technician</option>
+              <option>Fire & Gas Technician</option>
             </optgroup>
-            <optgroup label="── Construction / Civil ──">
+            <optgroup label="Construction / Civil">
               <option>Mason</option><option>Carpenter / Shuttering</option><option>Steel Fixer / Rebar</option>
               <option>Scaffolder</option><option>Painter</option><option>Plumber</option>
-              <option>HVAC Technician</option><option>Tile / Marble Fixer</option>
+              <option>HVAC Technician</option><option>Tile / Marble Fixer</option><option>Gypsum / Drywall</option>
             </optgroup>
-            <optgroup label="── Equipment Operators ──">
+            <optgroup label="Equipment Operators">
               <option>Excavator Operator</option><option>Crane Operator</option>
-              <option>Forklift Operator</option><option>Backhoe Loader Operator</option>
-              <option>Heavy Equipment Mechanic</option>
+              <option>Forklift Operator</option><option>Backhoe / JCB Operator</option>
+              <option>Heavy Equipment Mechanic</option><option>Bulldozer Operator</option>
             </optgroup>
-            <optgroup label="── Drivers ──">
+            <optgroup label="Drivers">
               <option>Heavy Truck Driver</option><option>Trailer Driver</option>
-              <option>Bus Driver</option><option>Forklift Driver</option>
+              <option>Bus Driver</option><option>Tanker Driver</option>
             </optgroup>
-            <optgroup label="── QA/QC / Inspection ──">
+            <optgroup label="QA/QC">
               <option>Welding Inspector</option><option>NDT Technician</option>
               <option>QA/QC Inspector</option><option>Coating Inspector</option>
             </optgroup>
-            <optgroup label="── HSE / Safety ──">
+            <optgroup label="HSE">
               <option>Safety Officer</option><option>Safety Supervisor</option><option>Fire Watch</option>
             </optgroup>
-            <optgroup label="── Hospitality ──">
-              <option>Chef</option><option>Cook</option><option>F&amp;B Steward</option>
-              <option>Housekeeping</option><option>Barista</option>
+            <optgroup label="Hospitality">
+              <option>Chef</option><option>Cook</option><option>F&B Steward</option><option>Housekeeping</option>
             </optgroup>
-            <optgroup label="── Healthcare ──">
+            <optgroup label="Healthcare">
               <option>Staff Nurse</option><option>Lab Technician</option><option>Pharmacist</option>
             </optgroup>
-            <optgroup label="── Corporate / Admin ──">
-              <option>HR Officer</option><option>Accountant</option><option>PRO</option>
-              <option>IT Support</option><option>Project Engineer</option>
+            <optgroup label="Corporate">
+              <option>HR Officer</option><option>Accountant</option><option>PRO</option><option>Project Engineer</option>
             </optgroup>
             <option value="other">Other (specify in JD)</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Trade Type / Specialization <span class="primary-tag">PRIMARY</span></label>
-          <select id="f_trade_type">
-            <option value="any">Any / Not Specified</option>
-          </select>
+          <label>Trade Type <span class="tag tag-hard">HARD if JD specific</span></label>
+          <select id="f-ttype"><option value="any">Any / Not Specified</option></select>
         </div>
+      </div>
+
+      <div class="form-group">
+        <label>Current Position must align with Trade <span class="tag tag-hard">HARD</span></label>
+        <input type="text" id="f-currpos" placeholder="e.g. Welder, Pipe Fitter, Scaffolder — mismatch = REJECT">
+        <div class="hint">Leave blank to skip. If filled: Helper applying for Welder = REJECT</div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label>Passport Status <span class="req">*</span><span class="primary-tag">PRIMARY</span></label>
-          <select id="f_passport">
-            <option value="valid">Valid Passport Only</option>
-            <option value="valid_or_applied">Valid or Applied</option>
-            <option value="any">Any Status</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Gulf Experience <span class="primary-tag">PRIMARY</span></label>
-          <select id="f_gulf">
-            <option value="mandatory">Mandatory</option>
-            <option value="preferred">Preferred (adds score)</option>
-            <option value="not_required">Not Required</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label>Experience in Applied Role <span class="req">*</span><span class="primary-tag">PRIMARY</span></label>
-          <select id="f_role_exp">
-            <option value="0-1">0–1 years</option>
+          <label>Experience in Applied Role (min) <span class="req">*</span><span class="tag tag-hard">HARD</span></label>
+          <select id="f-roleexp">
+            <option value="0-1">0–1 years (Fresher OK)</option>
             <option value="2-4">2–4 years</option>
             <option value="5-7" selected>5–7 years</option>
             <option value="8-10">8–10 years</option>
             <option value="11-14">11–14 years</option>
             <option value="16+">16+ years</option>
           </select>
-          <div class="filter-note">Minimum required in this specific role</div>
         </div>
         <div class="form-group">
-          <label>Total Experience</label>
-          <select id="f_total_exp">
+          <label>Total Experience <span class="tag tag-hard">LOGIC CHECK</span></label>
+          <select id="f-totalexp">
             <option value="any">Any</option>
             <option value="fresher">Fresher</option>
             <option value="1-3">1–3 years</option>
@@ -342,27 +329,72 @@ textarea:focus { outline:none; border-color:#2C4A7C; }
             <option value="13-15">13–15 years</option>
             <option value="16+">16+ years</option>
           </select>
+          <div class="hint">AI auto-checks: Total ≥ Role exp. If not → DATA INVALID → REJECT</div>
         </div>
       </div>
 
-      <div class="section-label">SECONDARY FILTERS — Scoring criteria</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Passport Status <span class="req">*</span><span class="tag tag-hard">HARD</span></label>
+          <select id="f-passport">
+            <option value="valid_6m">Valid — min 6 months remaining</option>
+            <option value="valid">Valid (any validity)</option>
+            <option value="valid_or_applied">Valid or Applied</option>
+            <option value="any">Any status</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Gulf Experience <span class="tag tag-hard">HARD if required</span></label>
+          <select id="f-gulf">
+            <option value="mandatory">Mandatory — No Gulf = REJECT</option>
+            <option value="preferred">Preferred — adds score</option>
+            <option value="not_required">Not required</option>
+          </select>
+        </div>
+      </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label>Nationality <span class="secondary-tag">SECONDARY</span></label>
-          <select id="f_nationality">
-            <option value="any">Any Nationality</option>
+          <label>Age Min <span class="tag tag-hard">HARD</span></label>
+          <input type="number" id="f-agemin" value="21" min="18" max="60">
+        </div>
+        <div class="form-group">
+          <label>Age Max <span class="tag tag-hard">HARD</span></label>
+          <input type="number" id="f-agemax" value="50" min="18" max="70">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Qualification Required <span class="tag tag-hard">HARD if mandatory</span></label>
+        <select id="f-qual">
+          <option value="any">No requirement (scoring only)</option>
+          <option value="iti_min">ITI minimum (mandatory)</option>
+          <option value="diploma_min">Diploma minimum (mandatory)</option>
+          <option value="degree_min">Degree minimum (mandatory)</option>
+        </select>
+        <div class="hint">Mandatory roles only. Others = scoring.</div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SECONDARY FILTERS — SCORING    -->
+      <!-- ═══════════════════════════════ -->
+      <div class="section-label sl-yellow">🟡 SECONDARY FILTERS — Scoring &amp; Ranking</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nationality <span class="tag tag-score">SCORE</span></label>
+          <select id="f-nat">
+            <option value="any">Any</option>
             <option value="Indian" selected>Indian</option>
             <option value="Nepali">Nepali</option>
             <option value="Sri Lankan">Sri Lankan</option>
             <option value="Bangladeshi">Bangladeshi</option>
             <option value="Indian or Nepali">Indian or Nepali</option>
-            <option value="Indian or Sri Lankan">Indian or Sri Lankan</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Gender <span class="secondary-tag">SECONDARY</span></label>
-          <select id="f_gender">
+          <label>Gender <span class="tag tag-score">SCORE</span></label>
+          <select id="f-gender">
             <option value="male">Male Only</option>
             <option value="female">Female Only</option>
             <option value="any">Any</option>
@@ -372,698 +404,760 @@ textarea:focus { outline:none; border-color:#2C4A7C; }
 
       <div class="form-row">
         <div class="form-group">
-          <label>Age Range <span class="secondary-tag">SECONDARY</span></label>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="number" id="f_age_min" value="21" style="width:80px;" placeholder="Min">
-            <span style="font-size:12px;color:#888;">to</span>
-            <input type="number" id="f_age_max" value="50" style="width:80px;" placeholder="Max">
-          </div>
+          <label>Industry <span class="tag tag-score">SCORE</span></label>
+          <select id="f-industry">
+            <option value="any">Any</option>
+            <option value="Oil & Gas">Oil &amp; Gas / Petrochemical</option>
+            <option value="Construction">Construction</option>
+            <option value="Shipyard">Shipyard / Marine</option>
+            <option value="Manufacturing">Manufacturing / Fabrication</option>
+            <option value="Power Plant">Power &amp; Utilities</option>
+            <option value="Facilities Management">Facilities Management</option>
+            <option value="Hospitality">Hospitality</option>
+            <option value="Healthcare">Healthcare</option>
+          </select>
         </div>
         <div class="form-group">
-          <label>Availability <span class="secondary-tag">SECONDARY</span></label>
-          <select id="f_availability">
+          <label>Availability <span class="tag tag-score">SCORE</span></label>
+          <select id="f-avail">
             <option value="any">Any</option>
-            <option value="immediate">Immediate</option>
-            <option value="15days">Within 15 Days</option>
-            <option value="1month">Within 1 Month</option>
+            <option value="immediate">Immediate (HIGH)</option>
+            <option value="15days">15 Days (MEDIUM)</option>
+            <option value="1month">1 Month (LOW)</option>
           </select>
         </div>
       </div>
 
+      <div class="form-row">
+        <div class="form-group">
+          <label>Candidate Location <span class="tag tag-score">SCORE</span></label>
+          <input type="text" id="f-location" placeholder="e.g. Kerala, Mumbai, Tamil Nadu">
+          <div class="hint">Same region = HIGH, Different = MEDIUM</div>
+        </div>
+        <div class="form-group">
+          <label>Max Salary Budget <span class="tag tag-score">SCORE</span></label>
+          <select id="f-salary">
+            <option value="any">Not specified</option>
+            <option value="50k">Up to ₹50K</option>
+            <option value="80k">Up to ₹80K</option>
+            <option value="120k">Up to ₹1.2L</option>
+            <option value="150k">Up to ₹1.5L</option>
+            <option value="150k+">₹1.5L+</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SMART MATCHING LAYER           -->
+      <!-- ═══════════════════════════════ -->
+      <div class="section-label sl-blue">🔵 SMART MATCHING — Skills &amp; JD</div>
+
       <div class="form-group">
-        <label>Industry Experience <span class="secondary-tag">SECONDARY</span></label>
-        <select id="f_industry">
-          <option value="any">Any Industry</option>
-          <option value="Oil & Gas">Oil &amp; Gas / Petrochemical</option>
-          <option value="Construction">Construction &amp; Infrastructure</option>
-          <option value="Shipyard">Shipyard &amp; Marine</option>
-          <option value="Manufacturing">Manufacturing / Fabrication</option>
-          <option value="Power Plant">Power &amp; Utilities</option>
-          <option value="Facilities Management">Facilities Management (FM)</option>
-          <option value="Hospitality">Hospitality &amp; Catering</option>
-          <option value="Healthcare">Healthcare &amp; Medical</option>
-          <option value="Logistics">Logistics &amp; Transport</option>
-        </select>
+        <label>Key Skills / JD Keywords <span class="tag tag-score">SKILL MATCH</span></label>
+        <input type="text" id="f-skills" placeholder="e.g. 6G TIG Stainless Steel, ASME IX, Aramco approved">
+        <div class="hint">Comma separated. Match % boosts score. Aramco/ADNOC/PDO = auto boost.</div>
       </div>
 
       <div class="form-group">
-        <label>Expected Salary Range <span class="secondary-tag">SECONDARY</span></label>
-        <select id="f_salary">
-          <option value="any">Any / Not Specified</option>
-          <option value="below50k">Below ₹50K / month</option>
-          <option value="50-80k">₹50K – ₹80K</option>
-          <option value="80-120k">₹80K – ₹1.2L</option>
-          <option value="120-150k">₹1.2L – ₹1.5L</option>
-          <option value="150k+">₹1.5L+</option>
-        </select>
+        <label>Full Client JD (optional — max accuracy)</label>
+        <textarea id="jdText" style="min-height:70px;" placeholder="Paste full client JD here for precise skill matching..."></textarea>
       </div>
 
-      <div class="form-group">
-        <label>Client JD / Required Skills <span class="secondary-tag">SECONDARY</span></label>
-        <textarea id="jdText" style="min-height:80px;" placeholder="Paste client JD here for precise matching against your requirements..."></textarea>
-      </div>
-
-      <div id="single-btn-area">
-        <button class="btn btn-primary" id="analyseBtn" onclick="analyseCV()">⚡ Analyse CV with Claude AI</button>
+      <div id="single-btns">
+        <button class="btn btn-primary" id="analyseBtn" onclick="analyseCV()">⚡ Run Screening Engine</button>
         <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
       </div>
-      <div id="bulk-btn-area" style="display:none;">
-        <button class="btn btn-bulk" id="bulkAnalyseBtn" onclick="runBulkAnalysis()">⚡ Screen All CVs</button>
-        <button class="btn btn-secondary" onclick="clearBulk()">Clear All</button>
+      <div id="bulk-btns" style="display:none;">
+        <button class="btn btn-bulk" id="bulkBtn" onclick="runBulk()">⚡ Screen All CVs</button>
+        <button class="btn btn-secondary" onclick="clearBulk()">Clear</button>
       </div>
     </div>
 
     <!-- RIGHT: Results -->
     <div>
-      <div class="loading card" id="loadingCard">
-        <div class="spinner"></div>
-        <p><strong>Claude AI is reading this CV...</strong></p>
-        <p style="margin-top:6px;font-size:11px;color:#999;">Matching trade type, experience in role, Gulf history, certifications...</p>
+
+      <!-- Loading -->
+      <div class="card" id="loadCard" style="display:none;text-align:center;padding:50px;">
+        <div style="width:44px;height:44px;border:4px solid #f0f4f8;border-top:4px solid #1B2A4A;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 14px;"></div>
+        <p style="font-weight:600;color:#1B2A4A;font-size:14px;">Screening engine running...</p>
+        <p style="font-size:11px;color:#999;margin-top:5px;">Checking all 18 filters · Scoring against JD · Validating experience logic</p>
       </div>
 
-      <div class="result-card" id="resultCard">
+      <!-- Single Result -->
+      <div class="card result-panel" id="resultPanel">
         <div class="result-header">
-          <div class="score-circle" id="scoreCircle">
-            <span class="score-num" id="scoreNum">--</span>
-            <span class="score-label">/ 100</span>
-          </div>
+          <div class="score-circle" id="sc"><span class="sn" id="sn">--</span><span class="sl">/ 100</span></div>
           <div>
-            <div class="candidate-name" id="candidateName">—</div>
-            <div class="candidate-trade" id="candidateTrade">—</div>
-            <div class="decision-badge" id="decisionBadge">—</div>
+            <div class="cname" id="cname">—</div>
+            <div class="ctrade" id="ctrade">—</div>
+            <div class="decision-badge" id="dbadge">—</div>
           </div>
         </div>
 
         <div class="details-grid">
-          <div class="detail-item"><div class="detail-label">Age</div><div class="detail-value" id="detAge">—</div></div>
-          <div class="detail-item"><div class="detail-label">Nationality</div><div class="detail-value" id="detNat">—</div></div>
-          <div class="detail-item"><div class="detail-label">Passport</div><div class="detail-value" id="detPassport">—</div></div>
-          <div class="detail-item"><div class="detail-label">Role Experience</div><div class="detail-value" id="detRoleExp">—</div></div>
-          <div class="detail-item"><div class="detail-label">Total Experience</div><div class="detail-value" id="detTotalExp">—</div></div>
-          <div class="detail-item"><div class="detail-label">Gulf Countries</div><div class="detail-value" id="detGulf">—</div></div>
-          <div class="detail-item"><div class="detail-label">Trade Type</div><div class="detail-value" id="detTradeType">—</div></div>
-          <div class="detail-item"><div class="detail-label">Industry</div><div class="detail-value" id="detIndustry">—</div></div>
-          <div class="detail-item"><div class="detail-label">Availability</div><div class="detail-value" id="detAvail">—</div></div>
+          <div class="di"><div class="dl">Age</div><div class="dv" id="d-age">—</div></div>
+          <div class="di"><div class="dl">Nationality</div><div class="dv" id="d-nat">—</div></div>
+          <div class="di"><div class="dl">Passport</div><div class="dv" id="d-pass">—</div></div>
+          <div class="di"><div class="dl">Current Position</div><div class="dv" id="d-currpos">—</div></div>
+          <div class="di"><div class="dl">Role Experience</div><div class="dv" id="d-roleexp">—</div></div>
+          <div class="di"><div class="dl">Total Experience</div><div class="dv" id="d-totalexp">—</div></div>
+          <div class="di"><div class="dl">Gulf Countries</div><div class="dv" id="d-gulf">—</div></div>
+          <div class="di"><div class="dl">Industry</div><div class="dv" id="d-ind">—</div></div>
+          <div class="di"><div class="dl">Location</div><div class="dv" id="d-loc">—</div></div>
+          <div class="di"><div class="dl">Availability</div><div class="dv" id="d-avail">—</div></div>
+          <div class="di"><div class="dl">Expected Salary</div><div class="dv" id="d-sal">—</div></div>
+          <div class="di"><div class="dl">Qualification</div><div class="dv" id="d-qual">—</div></div>
         </div>
 
-        <div class="score-breakdown">
-          <h3>Score Breakdown (100 points)</h3>
-          <div class="score-bar-row"><span class="score-bar-label">Trade &amp; Type Match</span><div class="score-bar-track"><div class="score-bar-fill" id="bar-trade" style="background:#1B2A4A;width:0%"></div></div><span class="score-bar-val" id="val-trade">0/25</span></div>
-          <div class="score-bar-row"><span class="score-bar-label">Experience in Role</span><div class="score-bar-track"><div class="score-bar-fill" id="bar-role" style="background:#2C7C4A;width:0%"></div></div><span class="score-bar-val" id="val-role">0/25</span></div>
-          <div class="score-bar-row"><span class="score-bar-label">Gulf Experience</span><div class="score-bar-track"><div class="score-bar-fill" id="bar-gulf" style="background:#7C4A2C;width:0%"></div></div><span class="score-bar-val" id="val-gulf">0/20</span></div>
-          <div class="score-bar-row"><span class="score-bar-label">Qualification</span><div class="score-bar-track"><div class="score-bar-fill" id="bar-qual" style="background:#4A2C7C;width:0%"></div></div><span class="score-bar-val" id="val-qual">0/15</span></div>
-          <div class="score-bar-row"><span class="score-bar-label">Certifications</span><div class="score-bar-track"><div class="score-bar-fill" id="bar-cert" style="background:#7C2C4A;width:0%"></div></div><span class="score-bar-val" id="val-cert">0/15</span></div>
+        <div class="score-section">
+          <h3>Score Breakdown — 100 points</h3>
+          <div class="bar-row"><span class="bar-label">Trade + Trade Type (25)</span><div class="bar-track"><div class="bar-fill" id="b-trade" style="background:#1B2A4A;width:0%"></div></div><span class="bar-val" id="v-trade">0/25</span></div>
+          <div class="bar-row"><span class="bar-label">Role Experience (20)</span><div class="bar-track"><div class="bar-fill" id="b-role" style="background:#2C7C4A;width:0%"></div></div><span class="bar-val" id="v-role">0/20</span></div>
+          <div class="bar-row"><span class="bar-label">Passport + Gulf (15)</span><div class="bar-track"><div class="bar-fill" id="b-pg" style="background:#7C4A2C;width:0%"></div></div><span class="bar-val" id="v-pg">0/15</span></div>
+          <div class="bar-row"><span class="bar-label">Skills Match (15)</span><div class="bar-track"><div class="bar-fill" id="b-skills" style="background:#4A2C7C;width:0%"></div></div><span class="bar-val" id="v-skills">0/15</span></div>
+          <div class="bar-row"><span class="bar-label">Salary Fit (10)</span><div class="bar-track"><div class="bar-fill" id="b-sal" style="background:#7C2C4A;width:0%"></div></div><span class="bar-val" id="v-sal">0/10</span></div>
+          <div class="bar-row"><span class="bar-label">Availability (5)</span><div class="bar-track"><div class="bar-fill" id="b-avail" style="background:#2C4A7C;width:0%"></div></div><span class="bar-val" id="v-avail">0/5</span></div>
+          <div class="bar-row"><span class="bar-label">Location (5)</span><div class="bar-track"><div class="bar-fill" id="b-loc" style="background:#4A7C2C;width:0%"></div></div><span class="bar-val" id="v-loc">0/5</span></div>
+          <div class="bar-row"><span class="bar-label">Industry Match (5)</span><div class="bar-track"><div class="bar-fill" id="b-ind" style="background:#7C7C2C;width:0%"></div></div><span class="bar-val" id="v-ind">0/5</span></div>
         </div>
 
-        <div class="ai-summary"><h3>AI Assessment</h3><p id="aiSummary">—</p></div>
+        <div class="ai-box"><h3>AI Assessment</h3><p id="aiAssess">—</p></div>
 
-        <div id="certsSection" style="display:none;margin-bottom:14px;">
-          <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px;">Certifications Found</div>
-          <div class="certs-found" id="certsList"></div>
+        <div id="boostSection" style="display:none;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:600;color:#006640;margin-bottom:5px;">Premium Approvals / Boosts</div>
+          <div id="boostList" class="cert-tags"></div>
         </div>
 
-        <div id="filterFailSection" style="display:none;background:#FFF0F0;border-radius:8px;padding:12px;margin-bottom:14px;">
-          <div style="font-size:12px;font-weight:600;color:#CC0000;margin-bottom:5px;">Filter Failures (Hard Criteria Not Met)</div>
-          <div id="filterFailList" style="font-size:12px;color:#AA0000;"></div>
+        <div id="certSection" style="display:none;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:600;color:#444;margin-bottom:5px;">Certifications Found</div>
+          <div id="certList" class="cert-tags"></div>
         </div>
 
-        <div class="action-buttons">
-          <button class="btn-action btn-shortlist" onclick="moveToShortlist()">✓ Shortlist</button>
-          <button class="btn-action btn-park" onclick="parkCandidate()">⏸ Park</button>
-          <button class="btn-action btn-push-tobu" onclick="pushCurrentToTobu()">📤 Push to Tobu</button>
-          <button class="btn-action btn-save" onclick="saveResult()">⬇ Save</button>
+        <div id="failSection" style="display:none;">
+          <div class="fail-box"><h3>Hard Filter Failures — Reason for REJECT / PARK</h3><p id="failList">—</p></div>
         </div>
-        <div class="tobu-status" id="tobuPushStatus"></div>
+
+        <div id="warnSection" style="display:none;">
+          <div class="warn-box"><h3>Warnings (Did not fail but flagged)</h3><p id="warnList">—</p></div>
+        </div>
+
+        <div id="dupSection" style="display:none;">
+          <div class="dup-box"><h3>⚠️ Possible Duplicate</h3><p id="dupMsg" style="font-size:11px;color:#7C2C7C;">—</p></div>
+        </div>
+
+        <!-- Response Tracker -->
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #f0f4f8;">
+          <div style="font-size:11px;font-weight:600;color:#444;margin-bottom:5px;">Post-Contact Response Status</div>
+          <div class="resp-row">
+            <button class="resp-btn confirmed" onclick="setResponse('confirmed')">✓ Confirmed — Move Forward</button>
+            <button class="resp-btn not-interested" onclick="setResponse('not_interested')">✗ Not Interested — Reject</button>
+            <button class="resp-btn no-response" onclick="setResponse('no_response')">⏳ No Response — Park</button>
+          </div>
+          <div id="respMsg" style="font-size:11px;color:#888;margin-top:5px;"></div>
+        </div>
+
+        <div class="action-row">
+          <button class="btn-a btn-shortlist" onclick="moveShortlist()">✓ Shortlist</button>
+          <button class="btn-a btn-park" onclick="parkCand()">⏸ Park</button>
+          <button class="btn-a btn-tobu" onclick="pushOne()">📤 Push to Tobu</button>
+          <button class="btn-a btn-dl" onclick="dlResult()">⬇ Save</button>
+        </div>
+        <div class="tobu-msg" id="tobuMsg"></div>
       </div>
 
       <!-- Bulk Results -->
-      <div class="card" id="bulkResultsCard" style="display:none;">
-        <h2>⚡ Bulk Results</h2>
-        <div id="bulkProgressArea" style="display:none;">
-          <div class="bulk-status" id="bulkStatusText">Starting...</div>
-          <div class="bulk-progress-bar"><div class="bulk-progress-fill" id="bulkProgressFill" style="width:0%"></div></div>
+      <div class="card" id="bulkPanel" style="display:none;">
+        <h2>⚡ Bulk Screening Results</h2>
+        <div id="bulkProg" style="display:none;">
+          <div class="bulk-status-txt" id="bulkProgTxt">Starting...</div>
+          <div class="bulk-prog-bar"><div class="bulk-prog-fill" id="bulkFill" style="width:0%"></div></div>
         </div>
-        <div id="bulkSummaryArea" style="display:none;">
-          <div class="bulk-summary-box">
-            <div style="font-size:13px;font-weight:600;color:#1B2A4A;">Screening Complete — Ranked by Score</div>
-            <div class="bulk-summary-grid">
-              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-total" style="color:#1B2A4A;">0</div><div class="bulk-summary-label">Screened</div></div>
-              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-top" style="color:#006640;">0</div><div class="bulk-summary-label">Top Shortlist</div></div>
-              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-short" style="color:#1B2A9A;">0</div><div class="bulk-summary-label">Shortlist</div></div>
-              <div class="bulk-summary-item"><div class="bulk-summary-num" id="bs-park" style="color:#CC0000;">0</div><div class="bulk-summary-label">Parked</div></div>
+        <div id="bulkSummary" style="display:none;">
+          <div class="bulk-summary">
+            <div style="font-size:13px;font-weight:600;color:#1B2A4A;">Complete — Ranked by Score</div>
+            <div class="bs-grid">
+              <div class="bs-item"><div class="bs-num" id="bs-total" style="color:#1B2A4A;">0</div><div class="bs-label">Screened</div></div>
+              <div class="bs-item"><div class="bs-num" id="bs-auto" style="color:#006640;">0</div><div class="bs-label">Auto (80+)</div></div>
+              <div class="bs-item"><div class="bs-num" id="bs-rev" style="color:#1B2A9A;">0</div><div class="bs-label">Review (60–79)</div></div>
+              <div class="bs-item"><div class="bs-num" id="bs-rej" style="color:#CC0000;">0</div><div class="bs-label">Rejected</div></div>
+              <div class="bs-item"><div class="bs-num" id="bs-tobu" style="color:#7C2C7C;">0</div><div class="bs-label">In Tobu</div></div>
             </div>
           </div>
-          <button class="export-btn" onclick="exportBulkResults()">⬇ Export CSV</button>
-          <button class="push-all-btn" onclick="pushAllToTobu()">📤 Push All to Tobu</button>
-          <div id="bulkTobuStatus" style="margin-top:8px;font-size:12px;color:#7C2C7C;"></div>
+          <button onclick="exportCSV()" style="background:#2C4A7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">⬇ Export CSV</button>
+          <button onclick="pushAll()" style="background:#7C2C7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;">📤 Push All to Tobu</button>
+          <div id="bulkTobuMsg" style="margin-top:6px;font-size:11px;color:#7C2C7C;"></div>
         </div>
-        <div id="bulkResultsList"></div>
+        <div id="bulkList"></div>
       </div>
 
-      <div class="card" id="emptyState" style="text-align:center;padding:50px 24px;">
-        <div style="font-size:56px;margin-bottom:14px;">🎯</div>
-        <div style="font-size:17px;font-weight:600;color:#1B2A4A;margin-bottom:7px;">Ready to Screen</div>
-        <div style="font-size:13px;color:#888;line-height:1.8;">
-          Set your filters → Paste CV or upload file<br>
-          Use <strong>Bulk Screen</strong> for multiple CVs<br>
-          Shortlisted candidates auto-push to Tobu
+      <!-- Empty state -->
+      <div class="card" id="emptyState" style="text-align:center;padding:50px 22px;">
+        <div style="font-size:52px;margin-bottom:12px;">🎯</div>
+        <div style="font-size:16px;font-weight:600;color:#1B2A4A;margin-bottom:6px;">Screening Engine Ready</div>
+        <div style="font-size:12px;color:#888;line-height:1.9;">
+          Set filters → Paste CV or upload file<br>
+          <strong>80+</strong> = Auto Shortlist &nbsp;|&nbsp; <strong>60–79</strong> = Review &nbsp;|&nbsp; <strong>&lt;60</strong> = Reject<br>
+          All hard filter failures = immediate PARK / REJECT
         </div>
       </div>
+
+      <!-- History -->
+      <div class="card" style="margin-top:18px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h2 style="margin:0;border:none;padding:0;">📁 Today's Session</h2>
+          <div style="display:flex;gap:5px;">
+            <button onclick="pushAllHistory()" style="font-size:11px;color:#7C2C7C;background:none;border:1px solid #DDB8DD;border-radius:5px;padding:3px 9px;cursor:pointer;">📤 Push All to Tobu</button>
+            <button onclick="clearHistory()" style="font-size:11px;color:#CC0000;background:none;border:1px solid #FFAAAA;border-radius:5px;padding:3px 9px;cursor:pointer;">Clear</button>
+          </div>
+        </div>
+        <div id="histList"><div style="text-align:center;padding:20px;color:#aaa;font-size:12px;">No candidates screened yet.</div></div>
+      </div>
+
     </div>
   </div>
-
-  <!-- History -->
-  <div class="card" style="margin-top:20px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-      <h2 style="margin-bottom:0;border-bottom:none;padding-bottom:0;">📁 Today's Screened Candidates</h2>
-      <div style="display:flex;gap:6px;">
-        <button onclick="pushAllHistoryToTobu()" style="font-size:11px;color:#7C2C7C;background:none;border:1px solid #DDB8DD;border-radius:5px;padding:4px 10px;cursor:pointer;">📤 Push All to Tobu</button>
-        <button onclick="clearHistory()" style="font-size:11px;color:#CC0000;background:none;border:1px solid #FFAAAA;border-radius:5px;padding:4px 10px;cursor:pointer;">Clear</button>
-      </div>
-    </div>
-    <div id="historyList"><div style="text-align:center;padding:24px;color:#aaa;font-size:13px;">No candidates screened yet.</div></div>
-  </div>
-
 </div>
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-// Trade Type Map
-const TRADE_TYPES = {
-  'Welder':['Any','6G Pipe Welder','5G Pipe Welder','TIG / GTAW','MIG / MAG / GMAW','SMAW / Electrode','Structural Welder','Pressure Vessel Welder','Cross Country Pipeline Welder','Orbital Welder'],
-  'Pipe Fitter':['Any','Pipeline Fitter','Fabricator / Fitter','Pipe Fitter & Fabricator'],
-  'Mechanical Fitter':['Any','General Fitter','Rotating Equipment','Pump Technician','Valve Technician'],
-  'Rigger':['Any','Level I','Level II','Level III'],
-  'Electrician':['Any','Industrial / LV','HV / MV','Ex-Proof / Hazardous Area','Building Electrician','Auto Electrician'],
+const TRADE_TYPES={
+  'Welder':['Any','6G Pipe Welder','5G Pipe Welder','TIG / GTAW (Root)','MIG / MAG / GMAW','SMAW / Electrode / ARC','Structural Welder','Pressure Vessel Welder','Cross Country Pipeline Welder','Orbital Welder','Underwater / Hyperbaric'],
+  'Pipe Fitter':['Any','Pipeline Fitter','Fabricator / Fitter','Mainline / Tie-in'],
+  'Electrician':['Any','Industrial / LV','HV / MV','Ex-Proof / Hazardous Area','Building Electrician','Panel / MCC Technician'],
   'Instrument Technician':['Any','Calibration','Analyzer','DCS / SCADA','Fire & Gas','SIS / ESD'],
   'Scaffolder':['Any','Level I','Level II','Level III / Inspector'],
   'Mason':['Any','Block / Plaster','Tile / Marble / Granite','Stone Mason'],
-  'Carpenter / Shuttering':['Any','Shuttering / Formwork','Finishing Carpenter','Steel Formwork'],
   'NDT Technician':['Any','RT Level II','UT Level II','MT / PT Level II','TOFD / PAUT','MPI / LPT'],
-  'Safety Officer':['Any','HSE Officer','NEBOSH Certified','Offshore HSE','Fire Safety'],
-  'Crane Operator':['Any','Mobile Crane','Tower Crane','Crawler Crane','Overhead / EOT'],
-  'Heavy Truck Driver':['Any','Flatbed Trailer','Lowbed','Tipper / Dump Truck','Tanker Driver','Container Trailer'],
-  'Chef':['Any','Executive Chef','Sous Chef','Indian / Asian Cuisine','Continental','Pastry / Baker'],
+  'Crane Operator':['Any','Mobile Crane (25T–500T)','Tower Crane','Crawler Crane','Overhead / EOT','Hydra Crane'],
+  'Chef':['Any','Executive Chef','Sous Chef','Indian / Asian','Continental','Pastry / Baker'],
   'Staff Nurse':['Any','ICU / CCU','ER / Casualty','OT / Theatre','General Ward','Haemodialysis'],
+  'Safety Officer':['Any','NEBOSH Certified','Offshore HSE (BOSIET)','Fire Safety'],
 };
 
-let apiKey=localStorage.getItem('ay_claude_key')||'';
-let crmKey=localStorage.getItem('ay_crm_key')||'';
-let sessionData=JSON.parse(localStorage.getItem('ay_session')||'[]');
-let stats=JSON.parse(localStorage.getItem('ay_stats')||'{"total":0,"pass":0,"park":0,"tobu":0}');
-let currentResult=null;
-let bulkFiles=[];
-let bulkResults=[];
-const TOBU_BASE='https://api.recruitcrm.io/v1';
+const PREMIUM_ORGS=['aramco','adnoc','pdo','qatarenergy','kpc','knpc','gasco','adco','total','shell','bp','exxon','bechtel','petrofac','wood group','mcdermott','technip','saipem','samsung engineering','hyundai engineering'];
+
+let apiKey=localStorage.getItem('ay_key')||'';
+let crmKey=localStorage.getItem('ay_crm')||'';
+let session=JSON.parse(localStorage.getItem('ay_sess')||'[]');
+let stats=JSON.parse(localStorage.getItem('ay_stat')||'{"total":0,"auto":0,"review":0,"reject":0,"tobu":0}');
+let curr=null;
+let bFiles=[];
+let bResults=[];
+const TOBU='https://api.recruitcrm.io/v1';
 
 window.onload=function(){
-  updateClock(); setInterval(updateClock,1000);
-  updateStats(); renderHistory();
-  if(apiKey){document.getElementById('apiKeyInput').value=apiKey;document.getElementById('apiNotice').style.display='none';document.getElementById('keyStatus').textContent='✓ Keys loaded';}
-  if(crmKey){document.getElementById('crmKeyInput').value=crmKey;updateTobuStatus(true);}
-  document.getElementById('bulkCvText').addEventListener('input',updateCvCount);
+  tick();setInterval(tick,1000);
+  updStats();renderHist();
+  if(apiKey){document.getElementById('apiKey').value=apiKey;document.getElementById('apiStrip').style.display='none';document.getElementById('keyMsg').textContent='✓ Active';}
+  if(crmKey){document.getElementById('crmKey').value=crmKey;updTobu(true);}
+  document.getElementById('bulkText').addEventListener('input',updCvCount);
 };
 
-function updateClock(){
-  const now=new Date();
-  document.getElementById('currentTime').textContent=now.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'})+'  '+now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+function tick(){
+  const n=new Date();
+  document.getElementById('currentTime').textContent=n.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'})+'  '+n.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
 }
 
-function updateTobuStatus(connected){
-  document.getElementById('tobuIndicator').className='tobu-indicator'+(connected?' connected':'');
-  document.getElementById('tobuStatusText').textContent=connected?'Tobu: Connected ✓':'Tobu: Not connected';
-  document.getElementById('tobuConnected').classList.toggle('show',connected);
+function updTobu(on){
+  document.getElementById('tobuInd').className='tobu-ind'+(on?' on':'');
+  document.getElementById('tobuTxt').textContent=on?'Tobu: Connected ✓':'Tobu: Not connected';
+  document.getElementById('tobuStrip').classList.toggle('show',on);
 }
 
 function saveKeys(){
-  apiKey=document.getElementById('apiKeyInput').value.trim();
-  crmKey=document.getElementById('crmKeyInput').value.trim();
+  apiKey=document.getElementById('apiKey').value.trim();
+  crmKey=document.getElementById('crmKey').value.trim();
   if(!apiKey){alert('Please enter your Claude API key');return;}
-  localStorage.setItem('ay_claude_key',apiKey);
-  localStorage.setItem('ay_crm_key',crmKey);
-  document.getElementById('keyStatus').textContent='✓ Keys saved';
-  document.getElementById('apiNotice').style.display='none';
-  if(crmKey) updateTobuStatus(true);
+  localStorage.setItem('ay_key',apiKey);
+  localStorage.setItem('ay_crm',crmKey);
+  document.getElementById('keyMsg').textContent='✓ Saved';
+  document.getElementById('apiStrip').style.display='none';
+  if(crmKey)updTobu(true);
 }
 
-async function testTobuConnection(){
-  if(!crmKey){alert('Enter Tobu API key first');return;}
-  const s=document.getElementById('tobuTestStatus');
-  s.textContent='Testing...'; s.style.color='#2C4A7C';
+async function testTobu(){
+  if(!crmKey){alert('Enter Tobu key first');return;}
+  const m=document.getElementById('tobuTestMsg');
+  m.textContent='Testing...';m.style.color='#2C4A7C';
   try{
-    const res=await fetch(TOBU_BASE+'/candidates?per_page=1',{headers:{'Authorization':'Bearer '+crmKey,'Accept':'application/json'}});
-    if(res.ok){s.textContent='✓ Connected!';s.style.color='#006640';updateTobuStatus(true);}
-    else{s.textContent='✗ Error '+res.status;s.style.color='#CC0000';updateTobuStatus(false);}
-  }catch(err){s.textContent='✗ Failed: '+err.message;s.style.color='#CC0000';}
+    const r=await fetch(TOBU+'/candidates?per_page=1',{headers:{'Authorization':'Bearer '+crmKey,'Accept':'application/json'}});
+    if(r.ok){m.textContent='✓ Connected!';m.style.color='#006640';updTobu(true);}
+    else{m.textContent='✗ Error '+r.status;m.style.color='#CC0000';}
+  }catch(e){m.textContent='✗ '+e.message;m.style.color='#CC0000';}
 }
 
 function updateTradeType(){
-  const trade=document.getElementById('f_trade').value;
-  const sel=document.getElementById('f_trade_type');
-  const types=TRADE_TYPES[trade]||['Any','Not Specified'];
-  sel.innerHTML=types.map(t=>`<option value="${t}">${t}</option>`).join('');
+  const t=document.getElementById('f-trade').value;
+  const s=document.getElementById('f-ttype');
+  const opts=(TRADE_TYPES[t]||['Any','Not Specified']);
+  s.innerHTML=opts.map(o=>`<option value="${o}">${o}</option>`).join('');
 }
 
-function switchTab(tab){
+function swTab(tab){
   ['paste','upload','bulk'].forEach(t=>document.getElementById('tab-'+t).style.display=t===tab?'block':'none');
-  document.getElementById('tabPasteBtn').classList.toggle('active',tab==='paste');
-  document.getElementById('tabUploadBtn').classList.toggle('active',tab==='upload');
-  document.getElementById('tabBulkBtn').classList.toggle('active',tab==='bulk');
-  document.getElementById('single-btn-area').style.display=tab==='bulk'?'none':'block';
-  document.getElementById('bulk-btn-area').style.display=tab==='bulk'?'block':'none';
-  if(tab==='bulk'){document.getElementById('bulkResultsCard').style.display='block';document.getElementById('emptyState').style.display='none';document.getElementById('resultCard').classList.remove('show');}
-  else{document.getElementById('bulkResultsCard').style.display='none';if(!currentResult)document.getElementById('emptyState').style.display='block';}
+  ['t-paste','t-upload','t-bulk'].forEach((id,i)=>document.getElementById(id).classList.toggle('active',['paste','upload','bulk'][i]===tab));
+  document.getElementById('single-btns').style.display=tab==='bulk'?'none':'block';
+  document.getElementById('bulk-btns').style.display=tab==='bulk'?'block':'none';
+  if(tab==='bulk'){document.getElementById('bulkPanel').style.display='block';document.getElementById('emptyState').style.display='none';document.getElementById('resultPanel').classList.remove('show');}
+  else{document.getElementById('bulkPanel').style.display='none';if(!curr)document.getElementById('emptyState').style.display='block';}
 }
 
-function switchBulkTab(tab){
-  document.getElementById('bulk-paste-area').style.display=tab==='paste'?'block':'none';
-  document.getElementById('bulk-files-area').style.display=tab==='files'?'block':'none';
-  document.getElementById('bulkPasteBtn').classList.toggle('active',tab==='paste');
-  document.getElementById('bulkFileBtn').classList.toggle('active',tab==='files');
+function swBulk(tab){
+  document.getElementById('bulk-paste').style.display=tab==='paste'?'block':'none';
+  document.getElementById('bulk-files').style.display=tab==='files'?'block':'none';
+  document.getElementById('bt-paste').classList.toggle('active',tab==='paste');
+  document.getElementById('bt-files').classList.toggle('active',tab==='files');
 }
 
-function updateCvCount(){
-  const parts=document.getElementById('bulkCvText').value.split(/\n---\n/).filter(p=>p.trim().length>50);
-  document.getElementById('cvCountLabel').textContent='CVs detected: '+parts.length;
+function updCvCount(){
+  const p=document.getElementById('bulkText').value.split(/\n---\n/).filter(x=>x.trim().length>50);
+  document.getElementById('cvCount').textContent='CVs detected: '+p.length;
 }
 
-function handleDragOver(e){e.preventDefault();e.currentTarget.classList.add('dragover');}
-function handleDragLeave(e){e.currentTarget.classList.remove('dragover');}
-function handleDrop(e){e.preventDefault();e.currentTarget.classList.remove('dragover');if(e.dataTransfer.files[0])processFile(e.dataTransfer.files[0]);}
-function handleBulkDrop(e){e.preventDefault();e.currentTarget.classList.remove('dragover');handleBulkFiles({target:{files:e.dataTransfer.files}});}
-function handleFile(event){if(event.target.files[0])processFile(event.target.files[0]);}
+function dov(e){e.preventDefault();e.currentTarget.classList.add('over');}
+function dol(e){e.currentTarget.classList.remove('over');}
+function ddr(e){e.preventDefault();e.currentTarget.classList.remove('over');if(e.dataTransfer.files[0])pFile(e.dataTransfer.files[0]);}
+function bdrop(e){e.preventDefault();e.currentTarget.classList.remove('over');handleBulkFiles({target:{files:e.dataTransfer.files}});}
+function handleFile(ev){if(ev.target.files[0])pFile(ev.target.files[0]);}
 
-async function processFile(file){
-  const prog=document.getElementById('uploadProgress');
-  prog.classList.add('show');
-  document.getElementById('uploadProgressText').textContent='Reading '+file.name+'...';
+async function pFile(file){
+  const p=document.getElementById('upProg');
+  p.classList.add('show');document.getElementById('upTxt').textContent='Reading '+file.name+'...';
   try{
-    const text=await extractTextFromFile(file);
-    if(!text||text.trim().length<50){alert('Could not extract text. Please paste the CV directly.');prog.classList.remove('show');return;}
-    document.getElementById('cvText').value=text;
-    document.getElementById('uploadedFileName').style.display='block';
-    document.getElementById('uploadedFileName').textContent='✓ '+file.name+' loaded';
-    document.getElementById('uploadProgressText').textContent='✓ Done';
-    setTimeout(()=>{switchTab('paste');prog.classList.remove('show');},1200);
-  }catch(err){prog.classList.remove('show');alert('Error: '+err.message);}
+    const t=await extractText(file);
+    if(!t||t.trim().length<50){alert('Could not extract text. Please paste CV directly.');p.classList.remove('show');return;}
+    document.getElementById('cvText').value=t;
+    document.getElementById('upName').style.display='block';
+    document.getElementById('upName').textContent='✓ '+file.name+' loaded';
+    document.getElementById('upTxt').textContent='✓ Done';
+    setTimeout(()=>{swTab('paste');p.classList.remove('show');},1200);
+  }catch(e){p.classList.remove('show');alert('Error: '+e.message);}
 }
 
-async function handleBulkFiles(event){
-  const files=Array.from(event.target.files);
-  bulkFiles=[];
-  document.getElementById('bulkFileList').innerHTML='<div style="font-size:12px;color:#888;padding:6px 0;">Reading files...</div>';
-  for(const file of files.slice(0,20)){
-    try{const text=await extractTextFromFile(file);if(text&&text.trim().length>50)bulkFiles.push({name:file.name,text});}catch(e){}
-  }
-  document.getElementById('bulkFileList').innerHTML=bulkFiles.map((f,i)=>`<div class="bulk-file-item"><span>📄 ${f.name}</span><button class="bulk-file-remove" onclick="removeBulkFile(${i})">✕</button></div>`).join('')+(bulkFiles.length?`<div style="font-size:12px;color:#006640;padding:6px 0;font-weight:600;">✓ ${bulkFiles.length} files ready</div>`:'');
+async function handleBulkFiles(ev){
+  const files=Array.from(ev.target.files);bFiles=[];
+  document.getElementById('bfList').innerHTML='<div style="font-size:11px;color:#888;padding:5px;">Reading files...</div>';
+  for(const f of files.slice(0,20)){try{const t=await extractText(f);if(t&&t.trim().length>50)bFiles.push({name:f.name,text:t});}catch(e){}}
+  document.getElementById('bfList').innerHTML=bFiles.map((f,i)=>`<div class="bulk-file-item"><span>📄 ${f.name}</span><button style="background:none;border:none;color:#CC0000;cursor:pointer;" onclick="rmBFile(${i})">✕</button></div>`).join('')+(bFiles.length?`<div style="font-size:11px;color:#006640;padding:5px;font-weight:600;">✓ ${bFiles.length} files ready</div>`:'');
 }
+function rmBFile(i){bFiles.splice(i,1);document.getElementById('bfList').innerHTML=bFiles.map((f,j)=>`<div class="bulk-file-item"><span>📄 ${f.name}</span><button style="background:none;border:none;color:#CC0000;cursor:pointer;" onclick="rmBFile(${j})">✕</button></div>`).join('');}
 
-function removeBulkFile(i){bulkFiles.splice(i,1);document.getElementById('bulkFileList').innerHTML=bulkFiles.map((f,j)=>`<div class="bulk-file-item"><span>📄 ${f.name}</span><button class="bulk-file-remove" onclick="removeBulkFile(${j})">✕</button></div>`).join('');}
-
-async function extractTextFromFile(file){
+async function extractText(file){
   const ext=file.name.toLowerCase().split('.').pop();
-  if(ext==='txt') return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('Read failed'));r.readAsText(file);});
-  if(ext==='pdf'){const ab=await file.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:ab}).promise;let t='';for(let i=1;i<=pdf.numPages;i++){const p=await pdf.getPage(i);const c=await p.getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n';}return t;}
+  if(ext==='txt')return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('fail'));r.readAsText(file);});
+  if(ext==='pdf'){const ab=await file.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:ab}).promise;let t='';for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const c=await pg.getTextContent();t+=c.items.map(x=>x.str).join(' ')+'\n';}return t;}
   if(ext==='doc'||ext==='docx'){const ab=await file.arrayBuffer();const r=await mammoth.extractRawText({arrayBuffer:ab});return r.value;}
-  throw new Error('Unsupported file type');
+  throw new Error('Unsupported');
 }
 
 function clearAll(){
   document.getElementById('cvText').value='';document.getElementById('jdText').value='';
-  document.getElementById('fileInput').value='';document.getElementById('uploadedFileName').style.display='none';
-  document.getElementById('uploadProgress').classList.remove('show');
-  document.getElementById('resultCard').classList.remove('show');document.getElementById('emptyState').style.display='block';
-  document.getElementById('loadingCard').classList.remove('show');document.getElementById('tobuPushStatus').className='tobu-status';
-  currentResult=null;
+  document.getElementById('fi').value='';document.getElementById('upName').style.display='none';
+  document.getElementById('upProg').classList.remove('show');
+  document.getElementById('resultPanel').classList.remove('show');
+  document.getElementById('emptyState').style.display='block';
+  document.getElementById('loadCard').style.display='none';
+  document.getElementById('tobuMsg').className='tobu-msg';
+  curr=null;
 }
 
 function clearBulk(){
-  document.getElementById('bulkCvText').value='';bulkFiles=[];bulkResults=[];
-  document.getElementById('bulkFileList').innerHTML='';document.getElementById('bulkResultsList').innerHTML='';
-  document.getElementById('bulkProgressArea').style.display='none';document.getElementById('bulkSummaryArea').style.display='none';
-  document.getElementById('cvCountLabel').textContent='CVs detected: 0';
+  document.getElementById('bulkText').value='';bFiles=[];bResults=[];
+  document.getElementById('bfList').innerHTML='';document.getElementById('bulkList').innerHTML='';
+  document.getElementById('bulkProg').style.display='none';document.getElementById('bulkSummary').style.display='none';
+  document.getElementById('cvCount').textContent='CVs detected: 0';
 }
 
-function updateStats(){
-  document.getElementById('stat-total').textContent=stats.total||0;
-  document.getElementById('stat-pass').textContent=stats.pass||0;
-  document.getElementById('stat-park').textContent=stats.park||0;
-  document.getElementById('stat-tobu').textContent=stats.tobu||0;
+function updStats(){
+  document.getElementById('st-total').textContent=stats.total||0;
+  document.getElementById('st-auto').textContent=stats.auto||0;
+  document.getElementById('st-review').textContent=stats.review||0;
+  document.getElementById('st-reject').textContent=stats.reject||0;
+  document.getElementById('st-tobu').textContent=stats.tobu||0;
 }
 
 function getFilters(){
-  return {
-    trade: document.getElementById('f_trade').value,
-    trade_type: document.getElementById('f_trade_type').value,
-    passport: document.getElementById('f_passport').value,
-    gulf: document.getElementById('f_gulf').value,
-    role_exp: document.getElementById('f_role_exp').value,
-    total_exp: document.getElementById('f_total_exp').value,
-    nationality: document.getElementById('f_nationality').value,
-    gender: document.getElementById('f_gender').value,
-    age_min: parseInt(document.getElementById('f_age_min').value)||18,
-    age_max: parseInt(document.getElementById('f_age_max').value)||60,
-    availability: document.getElementById('f_availability').value,
-    industry: document.getElementById('f_industry').value,
-    salary: document.getElementById('f_salary').value,
-    jd: document.getElementById('jdText').value.trim()
+  return{
+    trade:document.getElementById('f-trade').value,
+    ttype:document.getElementById('f-ttype').value,
+    currpos:document.getElementById('f-currpos').value.trim(),
+    roleexp:document.getElementById('f-roleexp').value,
+    totalexp:document.getElementById('f-totalexp').value,
+    passport:document.getElementById('f-passport').value,
+    gulf:document.getElementById('f-gulf').value,
+    agemin:parseInt(document.getElementById('f-agemin').value)||18,
+    agemax:parseInt(document.getElementById('f-agemax').value)||60,
+    qual:document.getElementById('f-qual').value,
+    nat:document.getElementById('f-nat').value,
+    gender:document.getElementById('f-gender').value,
+    industry:document.getElementById('f-industry').value,
+    avail:document.getElementById('f-avail').value,
+    location:document.getElementById('f-location').value.trim(),
+    salary:document.getElementById('f-salary').value,
+    skills:document.getElementById('f-skills').value.trim(),
+    jd:document.getElementById('jdText').value.trim()
   };
 }
 
-function buildPrompt(cvText,f){
-  return `You are an expert Gulf recruitment AI screening agent for Al Yousuf Enterprises LLP, Indian overseas manpower agency placing candidates in Saudi Arabia, UAE, Qatar, Kuwait, Oman, Bahrain.
+function buildPrompt(cv,f){
+  return `You are the final screening engine for Al Yousuf Enterprises LLP, Indian overseas manpower agency (Gulf/GCC).
 
-Analyse this CV carefully. Return ONLY raw JSON — no markdown, no explanation, nothing else.
+Apply ALL 18 filters. Return ONLY raw JSON. No markdown. No explanation.
 
-═══ ATS FILTER CRITERIA ═══
+═══ PRIMARY FILTERS (HARD REJECT — any failure = reject/park) ═══
 
-PRIMARY FILTERS (hard criteria — failure = PARK regardless of score):
-- Trade required: ${f.trade==='any'?'Any trade':f.trade}
-- Trade type / specialization: ${f.trade_type==='any'||f.trade_type==='Any'?'Any specialization':f.trade_type}
-- Passport: ${f.passport==='valid'?'Must have VALID passport — Applied or No = PARK':f.passport==='valid_or_applied'?'Valid or Applied acceptable — No passport = PARK':'Any status acceptable'}
-- Gulf experience: ${f.gulf==='mandatory'?'MANDATORY — No Gulf experience = PARK':f.gulf==='preferred'?'Preferred — adds 20 points if present':'Not required'}
-- Experience in applied role (minimum): ${f.role_exp} years
+1. TRADE: ${f.trade==='any'?'Any trade acceptable':f.trade}
+2. TRADE TYPE: ${f.ttype==='any'||f.ttype==='Any'?'Any specialization':f.ttype+' STRICT MATCH required'}
+3. CURRENT POSITION vs TRADE: ${f.currpos?'Current position must align with trade: '+f.currpos+'. Mismatch (e.g. Helper applying for Welder) = REJECT':'Not checked'}
+4. EXPERIENCE IN APPLIED ROLE (minimum): ${f.roleexp} years. Below minimum = REJECT
+5. TOTAL EXPERIENCE LOGIC: Total exp must be ≥ role-specific exp. If not = DATA INVALID = REJECT
+6. PASSPORT: ${f.passport==='valid_6m'?'Must be VALID with min 6 months remaining':f.passport==='valid'?'Must be VALID':f.passport==='valid_or_applied'?'Valid or Applied OK':'Any status'}. No passport = PARK
+7. GULF EXPERIENCE: ${f.gulf==='mandatory'?'MANDATORY — No Gulf exp = REJECT':f.gulf==='preferred'?'Preferred — adds to score':'Not required'}
+8. AGE: Must be ${f.agemin}–${f.agemax} years. Outside = REJECT
+9. QUALIFICATION: ${f.qual==='iti_min'?'ITI minimum mandatory — below ITI = REJECT':f.qual==='diploma_min'?'Diploma minimum mandatory — ITI or below = REJECT':f.qual==='degree_min'?'Degree minimum mandatory':'Scoring only — no hard rejection for qualification'}
 
-SECONDARY FILTERS (scoring criteria):
-- Total experience preferred: ${f.total_exp}
-- Nationality: ${f.nationality}
-- Gender: ${f.gender}
-- Age range: ${f.age_min} to ${f.age_max} years
-- Availability: ${f.availability}
-- Industry background: ${f.industry}
-- Salary expectation: ${f.salary}
-${f.jd?'- Client JD / Requirements: '+f.jd:''}
+═══ SECONDARY FILTERS (SCORING) ═══
 
-═══ SCORING SYSTEM (total 100 points) ═══
+10. LOCATION: Candidate location vs preferred region: ${f.location||'Not specified'}. Same region = HIGH(5pts), different = MEDIUM(3pts), unknown = LOW(1pt)
+11. NATIONALITY: ${f.nat}
+12. INDUSTRY: ${f.industry}. Same = HIGH(5pts), related = MEDIUM(3pts), irrelevant = LOW(1pt)
+13. SALARY: Client budget ${f.salary==='any'?'not specified':f.salary}. Within = HIGH(10pts), slightly above = MEDIUM(5pts), too high = LOW(0pts)
+14. AVAILABILITY: ${f.avail}. Immediate = 5pts, 15days = 3pts, 1month = 1pt
 
-1. Trade & Trade Type Match (25 points):
-   - Exact trade + exact specialization match = 25
-   - Exact trade + related specialization = 18
-   - Exact trade + any specialization = 12
-   - Related trade = 6
-   - Wrong trade = 0
+═══ SMART MATCHING ═══
 
-2. Experience in Applied Role (25 points):
-   - Meets or exceeds required role experience = 25
-   - Within 1 year below required = 18
-   - Within 2 years below required = 12
-   - Far below required = 5
-   - No specific role experience found = 3
+15. KEY SKILLS: ${f.skills||'Not specified'}. Match % against these keywords. High match = 10-15pts
+16. CERTIFICATIONS: Check for Aramco/ADNOC/PDO/QatarEnergy approvals = BOOST +5pts each
+17. DUPLICATE: Note if phone or email might match existing (flag only)
 
-3. Gulf Experience (20 points):
-   - Direct Gulf country experience (KSA/UAE/Qatar/Kuwait/Oman/Bahrain) = 20
-   - Other overseas experience (Malaysia/Singapore/Maldives etc) = 10
-   - No overseas experience = 0
+═══ SCORING WEIGHTS ═══
+Trade + Trade Type: 25pts
+Role Experience: 20pts
+Passport + Gulf: 15pts
+Skills Match: 15pts
+Salary Fit: 10pts
+Availability: 5pts
+Location: 5pts
+Industry: 5pts
+TOTAL: 100pts
 
-4. Qualification (15 points):
-   - Degree (BE/BTech/BSc/MBBS etc) = 15
-   - Diploma (3-year polytechnic) = 12
-   - ITI certificate = 9
-   - Short trade certificate = 6
-   - No formal qualification = 3
+═══ DECISION ═══
+Any primary filter failure → REJECT or PARK
+80–100 + all primary pass → AUTO SHORTLIST
+60–79 + all primary pass → REVIEW
+<60 → REJECT
 
-5. Certifications (15 points):
-   - Highly relevant certs present (ASME/NEBOSH/CSWIP/API/6G/BOSIET etc) = 15
-   - Some relevant certs = 8-12
-   - Basic certs only = 4
-   - No certs = 0
+CV TEXT:
+${cv.substring(0,4000)}
 
-═══ DECISION RULES ═══
-- Any PRIMARY filter failure = PARK (regardless of score)
-- Score 80-100 + all primary filters pass = TOP SHORTLIST
-- Score 60-79 + all primary filters pass = SHORTLIST
-- Score 40-59 = MARGINAL
-- Score below 40 = PARK
+${f.jd?'CLIENT JD:\n'+f.jd:''}
 
-═══ CV TO ANALYSE ═══
-${cvText.substring(0,4000)}
-
-Return ONLY this JSON (no other text):
-{"name":"","age":0,"nationality":"","gender":"male","has_passport":true,"passport_status":"valid","trade":"","trade_type":"","department":"","industry":"","specialization":"","years_experience_total":0,"years_experience_in_role":0,"gulf_experience":false,"gulf_countries":[],"other_overseas":false,"qualification":"","certifications":[],"phone":"","email":"","current_location":"","availability":"","expected_salary":"","trade_score":0,"role_exp_score":0,"gulf_score":0,"qualification_score":0,"certification_score":0,"total_score":0,"decision":"SHORTLIST","filter_passes":true,"filter_failures":[],"summary":"","strengths":[],"concerns":[]}`;
+Return ONLY this JSON:
+{"name":"","age":0,"nationality":"","gender":"male","has_passport":true,"passport_status":"valid","passport_months_remaining":0,"current_position":"","trade_identified":"","trade_type_identified":"","position_trade_aligned":true,"industry":"","years_experience_total":0,"years_experience_in_role":0,"experience_logic_valid":true,"gulf_experience":false,"gulf_countries":[],"other_overseas":false,"qualification":"","qualification_level":"iti","certifications":[],"premium_approvals":[],"phone":"","email":"","current_location":"","availability":"","expected_salary":"","skills_matched":[],"skills_match_pct":0,"trade_score":0,"role_exp_score":0,"pg_score":0,"skills_score":0,"salary_score":0,"avail_score":0,"location_score":0,"industry_score":0,"total_score":0,"decision":"REVIEW","filter_passes":true,"filter_failures":[],"warnings":[],"possible_duplicate":false,"duplicate_note":"","summary":"","strengths":[],"concerns":[]}`;
 }
 
-async function callClaudeAPI(prompt){
-  const res=await fetch('https://api.anthropic.com/v1/messages',{
+async function callAPI(prompt){
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1400,messages:[{role:'user',content:prompt}]})
+    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]})
   });
-  if(!res.ok){const e=await res.json();throw new Error(e.error?.message||'API error '+res.status);}
-  const data=await res.json();
-  let raw=data.content[0].text.trim().replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'API error '+r.status);}
+  const d=await r.json();
+  let raw=d.content[0].text.trim().replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
   return JSON.parse(raw);
 }
 
 async function analyseCV(){
-  const cvText=document.getElementById('cvText').value.trim();
-  if(!cvText){alert('Please paste a CV first');return;}
+  const cv=document.getElementById('cvText').value.trim();
+  if(!cv){alert('Please paste a CV first');return;}
   if(!apiKey){alert('Please enter your Claude API key');return;}
   const f=getFilters();
-  document.getElementById('loadingCard').classList.add('show');
-  document.getElementById('resultCard').classList.remove('show');
+  document.getElementById('loadCard').style.display='block';
+  document.getElementById('resultPanel').classList.remove('show');
   document.getElementById('emptyState').style.display='none';
   document.getElementById('analyseBtn').disabled=true;
-  document.getElementById('tobuPushStatus').className='tobu-status';
+  document.getElementById('tobuMsg').className='tobu-msg';
   try{
-    const result=await callClaudeAPI(buildPrompt(cvText,f));
-    currentResult=result; displayResult(result); saveToHistory(result);
-    if(crmKey&&(result.decision==='TOP SHORTLIST'||result.decision==='SHORTLIST')){
-      const tr=await pushToTobu(result);
-      if(tr.success){document.getElementById('tobuPushStatus').className='tobu-status success';document.getElementById('tobuPushStatus').textContent='✓ Auto-pushed to Tobu CRM under "New CV Received"';result.tobuSynced=true;renderHistory();}
+    const result=await callAPI(buildPrompt(cv,f));
+    curr=result;showResult(result);saveHist(result);
+    if(crmKey&&(result.decision==='AUTO SHORTLIST'||result.decision==='REVIEW')){
+      const tr=await pushTobu(result);
+      if(tr.success){document.getElementById('tobuMsg').className='tobu-msg ok';document.getElementById('tobuMsg').textContent='✓ Auto-pushed to Tobu "New CV Received"';result.tobuSynced=true;renderHist();}
     }
-  }catch(err){document.getElementById('loadingCard').classList.remove('show');document.getElementById('emptyState').style.display='block';alert('Error: '+err.message);}
+  }catch(e){document.getElementById('loadCard').style.display='none';document.getElementById('emptyState').style.display='block';alert('Error: '+e.message);}
   document.getElementById('analyseBtn').disabled=false;
 }
 
-async function runBulkAnalysis(){
-  if(!apiKey){alert('Please enter your Claude API key first');return;}
+async function runBulk(){
+  if(!apiKey){alert('Please enter your Claude API key');return;}
   const f=getFilters();
   let cvList=[];
-  const pasteActive=document.getElementById('bulk-paste-area').style.display!=='none';
-  if(pasteActive){
-    const raw=document.getElementById('bulkCvText').value.trim();
-    if(!raw){alert('Please paste CV text first');return;}
+  const pasteOn=document.getElementById('bulk-paste').style.display!=='none';
+  if(pasteOn){
+    const raw=document.getElementById('bulkText').value.trim();
+    if(!raw){alert('Please paste CVs first');return;}
     cvList=raw.split(/\n---\n/).map((t,i)=>({name:'CV '+(i+1),text:t.trim()})).filter(c=>c.text.length>50);
   }else{
-    if(!bulkFiles.length){alert('Please upload files first');return;}
-    cvList=bulkFiles.map(f=>({name:f.name,text:f.text}));
+    if(!bFiles.length){alert('Please upload files');return;}
+    cvList=bFiles.map(f=>({name:f.name,text:f.text}));
   }
   if(!cvList.length){alert('No valid CVs found');return;}
-  if(cvList.length>20){alert('Maximum 20 CVs at once');return;}
-  document.getElementById('bulkAnalyseBtn').disabled=true;
-  document.getElementById('bulkProgressArea').style.display='block';
-  document.getElementById('bulkSummaryArea').style.display='none';
-  document.getElementById('bulkResultsList').innerHTML=cvList.map((_,i)=>`<div class="bulk-result-item" id="bulk-item-${i}" style="opacity:0.5;"><div class="bulk-left"><div class="bulk-rank">${i+1}</div><div class="bulk-score" style="background:#f0f4f8;color:#aaa;">—</div><div><div class="bulk-name">${cvList[i].name}</div><div class="bulk-detail">Waiting...</div></div></div></div>`).join('');
-  bulkResults=[];
+  if(cvList.length>20){alert('Max 20 CVs at once');return;}
+
+  document.getElementById('bulkBtn').disabled=true;
+  document.getElementById('bulkProg').style.display='block';
+  document.getElementById('bulkSummary').style.display='none';
+  document.getElementById('bulkList').innerHTML=cvList.map((_,i)=>`<div class="bri" id="bi${i}" style="opacity:0.4;"><div class="bri-left"><div class="bri-rank">${i+1}</div><div class="bri-score" style="background:#f0f4f8;color:#aaa;">—</div><div><div class="bri-name">${cvList[i].name}</div><div class="bri-detail">Waiting...</div></div></div></div>`).join('');
+  bResults=[];
+
   for(let i=0;i<cvList.length;i++){
-    document.getElementById('bulkStatusText').textContent=`Screening ${i+1} of ${cvList.length}: ${cvList[i].name}...`;
-    document.getElementById('bulkProgressFill').style.width=((i/cvList.length)*100)+'%';
+    document.getElementById('bulkProgTxt').textContent=`Screening ${i+1} of ${cvList.length}: ${cvList[i].name}...`;
+    document.getElementById('bulkFill').style.width=((i/cvList.length)*100)+'%';
     try{
-      const result=await callClaudeAPI(buildPrompt(cvList[i].text,f));
-      result.fileName=cvList[i].name; bulkResults.push(result); saveToHistory(result);
-      const score=result.total_score||0;
-      const bg=score>=70?'#E8F8F0':score>=45?'#FFF8E8':'#FFF0F0';
-      const txt=score>=70?'#006640':score>=45?'#885500':'#CC0000';
-      const cls=result.decision==='TOP SHORTLIST'?'top':result.decision==='SHORTLIST'?'shortlist':result.decision==='MARGINAL'?'marginal':'park';
-      const bc=result.decision==='TOP SHORTLIST'?'badge-pass':result.decision==='SHORTLIST'?'badge-shortlist':result.decision==='MARGINAL'?'badge-marginal':'badge-park';
-      document.getElementById('bulk-item-'+i).outerHTML=`<div class="bulk-result-item ${cls}" id="bulk-item-${i}" onclick="viewBulkResult(${bulkResults.length-1})"><div class="bulk-left"><div class="bulk-rank">${i+1}</div><div class="bulk-score" style="background:${bg};color:${txt}">${score}</div><div><div class="bulk-name">${result.name||cvList[i].name}</div><div class="bulk-detail">${result.trade||'—'} ${result.trade_type&&result.trade_type!=='any'?'('+result.trade_type+')':''} · ${result.nationality||'—'} · Role exp: ${result.years_experience_in_role||0} yrs${result.gulf_experience?' · Gulf ✓':''}</div></div></div><div style="text-align:right;"><span class="history-badge ${bc}">${result.decision}</span></div></div>`;
-      if(crmKey&&(result.decision==='TOP SHORTLIST'||result.decision==='SHORTLIST')){const tr=await pushToTobu(result);if(tr.success)result.tobuSynced=true;}
-    }catch(err){bulkResults.push({name:cvList[i].name,error:err.message,total_score:0,decision:'ERROR'});}
-    if(i<cvList.length-1)await new Promise(r=>setTimeout(r,1200));
+      const r=await callAPI(buildPrompt(cvList[i].text,f));
+      r.fileName=cvList[i].name;bResults.push(r);saveHist(r);
+      const score=r.total_score||0;
+      const bg=score>=80?'#E8F8F0':score>=60?'#E8F0FF':'#FFF0F0';
+      const tc=score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000';
+      const cls=r.decision==='AUTO SHORTLIST'?'top':r.decision==='REVIEW'?'review':r.decision==='REJECT'?'reject':'park';
+      const bc=r.decision==='AUTO SHORTLIST'?'badge-top':r.decision==='REVIEW'?'badge-review':'badge-reject';
+      document.getElementById('bi'+i).outerHTML=`<div class="bri ${cls}" id="bi${i}" onclick="viewBulk(${bResults.length-1})"><div class="bri-left"><div class="bri-rank">${i+1}</div><div class="bri-score" style="background:${bg};color:${tc}">${score}</div><div><div class="bri-name">${r.name||cvList[i].name}</div><div class="bri-detail">${r.trade_identified||'—'} ${r.trade_type_identified?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}${r.tobuSynced?' · 📤':''}</div></div></div><div><span class="hi-badge ${bc}">${r.decision}</span></div></div>`;
+      if(crmKey&&(r.decision==='AUTO SHORTLIST'||r.decision==='REVIEW')){const tr=await pushTobu(r);if(tr.success)r.tobuSynced=true;}
+    }catch(e){bResults.push({name:cvList[i].name,total_score:0,decision:'ERROR',error:e.message});}
+    if(i<cvList.length-1)await new Promise(res=>setTimeout(res,1200));
   }
-  const sorted=[...bulkResults].sort((a,b)=>(b.total_score||0)-(a.total_score||0));
-  document.getElementById('bulkResultsList').innerHTML=sorted.map((r,i)=>{
+
+  const sorted=[...bResults].sort((a,b)=>(b.total_score||0)-(a.total_score||0));
+  document.getElementById('bulkList').innerHTML=sorted.map((r,i)=>{
     const score=r.total_score||0;
-    const bg=score>=70?'#E8F8F0':score>=45?'#FFF8E8':'#FFF0F0';
-    const txt=score>=70?'#006640':score>=45?'#885500':'#CC0000';
-    const cls=r.decision==='TOP SHORTLIST'?'top':r.decision==='SHORTLIST'?'shortlist':r.decision==='MARGINAL'?'marginal':'park';
-    const bc=r.decision==='TOP SHORTLIST'?'badge-pass':r.decision==='SHORTLIST'?'badge-shortlist':r.decision==='MARGINAL'?'badge-marginal':'badge-park';
-    const idx=bulkResults.indexOf(r);
-    return `<div class="bulk-result-item ${cls}" onclick="viewBulkResult(${idx})"><div class="bulk-left"><div class="bulk-rank" style="background:${score>=70?'#006640':score>=45?'#885500':'#CC0000'}">${i+1}</div><div class="bulk-score" style="background:${bg};color:${txt}">${score}</div><div><div class="bulk-name">${r.name||r.fileName||'Unknown'}</div><div class="bulk-detail">${r.trade||'—'} ${r.trade_type&&r.trade_type!=='any'?'('+r.trade_type+')':''} · ${r.nationality||'—'} · ${r.years_experience_in_role||0} yrs role exp${r.gulf_experience?' · Gulf ✓':''}${r.tobuSynced?' · 📤':''}</div></div></div><div style="text-align:right;"><span class="history-badge ${bc}">${r.decision||'—'}</span></div></div>`;
+    const bg=score>=80?'#E8F8F0':score>=60?'#E8F0FF':'#FFF0F0';
+    const tc=score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000';
+    const cls=r.decision==='AUTO SHORTLIST'?'top':r.decision==='REVIEW'?'review':r.decision==='REJECT'?'reject':'park';
+    const bc=r.decision==='AUTO SHORTLIST'?'badge-top':r.decision==='REVIEW'?'badge-review':'badge-reject';
+    const idx=bResults.indexOf(r);
+    return `<div class="bri ${cls}" onclick="viewBulk(${idx})"><div class="bri-left"><div class="bri-rank" style="background:${score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000'}">${i+1}</div><div class="bri-score" style="background:${bg};color:${tc}">${score}</div><div><div class="bri-name">${r.name||r.fileName||'Unknown'}</div><div class="bri-detail">${r.trade_identified||'—'} ${r.trade_type_identified?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}${r.tobuSynced?' · 📤':''}</div></div></div><div><span class="hi-badge ${bc}">${r.decision||'—'}</span></div></div>`;
   }).join('');
-  const top=bulkResults.filter(r=>r.decision==='TOP SHORTLIST').length;
-  const short=bulkResults.filter(r=>r.decision==='SHORTLIST').length;
-  const park=bulkResults.filter(r=>r.decision==='PARK'||r.decision==='MARGINAL'||r.decision==='ERROR').length;
-  document.getElementById('bs-total').textContent=bulkResults.length;
-  document.getElementById('bs-top').textContent=top;
-  document.getElementById('bs-short').textContent=short;
-  document.getElementById('bs-park').textContent=park;
-  document.getElementById('bulkSummaryArea').style.display='block';
-  document.getElementById('bulkProgressArea').style.display='none';
-  document.getElementById('bulkProgressFill').style.width='100%';
-  document.getElementById('bulkAnalyseBtn').disabled=false;
+
+  const auto=bResults.filter(r=>r.decision==='AUTO SHORTLIST').length;
+  const rev=bResults.filter(r=>r.decision==='REVIEW').length;
+  const rej=bResults.filter(r=>r.decision==='REJECT'||r.decision==='PARK'||r.decision==='ERROR').length;
+  const tobuCount=bResults.filter(r=>r.tobuSynced).length;
+  document.getElementById('bs-total').textContent=bResults.length;
+  document.getElementById('bs-auto').textContent=auto;
+  document.getElementById('bs-rev').textContent=rev;
+  document.getElementById('bs-rej').textContent=rej;
+  document.getElementById('bs-tobu').textContent=tobuCount;
+  document.getElementById('bulkSummary').style.display='block';
+  document.getElementById('bulkProg').style.display='none';
+  document.getElementById('bulkFill').style.width='100%';
+  document.getElementById('bulkBtn').disabled=false;
 }
 
-function viewBulkResult(i){currentResult=bulkResults[i];displayResult(bulkResults[i]);switchTab('paste');window.scrollTo({top:0,behavior:'smooth'});}
+function viewBulk(i){curr=bResults[i];showResult(bResults[i]);swTab('paste');window.scrollTo({top:0,behavior:'smooth'});}
 
-function exportBulkResults(){
-  if(!bulkResults.length)return;
-  const headers=['Rank','Name','Score','Decision','Trade','Trade Type','Nationality','Age','Role Exp(yrs)','Total Exp(yrs)','Gulf Exp','Passport','Qualification','Certifications','Phone','Email','Availability','Tobu Synced','Summary'];
-  const sorted=[...bulkResults].sort((a,b)=>(b.total_score||0)-(a.total_score||0));
-  const rows=sorted.map((r,i)=>[i+1,r.name||'',r.total_score||0,r.decision||'',r.trade||'',r.trade_type||'',r.nationality||'',r.age||'',r.years_experience_in_role||0,r.years_experience_total||0,r.gulf_experience?'Yes':'No',r.passport_status||'',r.qualification||'',(r.certifications||[]).join('; '),r.phone||'',r.email||'',r.availability||'',r.tobuSynced?'Yes':'No',(r.summary||'').replace(/,/g,' ')]);
-  const csv=[headers,...rows].map(r=>r.join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download='screening_'+new Date().toLocaleDateString('en-IN').replace(/\//g,'-')+'.csv';
-  a.click();URL.revokeObjectURL(url);
-}
-
-async function pushToTobu(result){
-  if(!crmKey)return{success:false,error:'No Tobu API key'};
-  const parts=(result.name||'Unknown Candidate').split(' ');
-  const notes=[
-    '=== AL YOUSUF AI SCREENING ===',
-    'Score: '+(result.total_score||0)+'/100',
-    'Decision: '+(result.decision||'—'),
-    'Trade: '+(result.trade||'—'),
-    'Trade Type: '+(result.trade_type||'—'),
-    'Industry: '+(result.industry||'—'),
-    'Experience in Role: '+(result.years_experience_in_role||0)+' years',
-    'Total Experience: '+(result.years_experience_total||0)+' years',
-    'Gulf Experience: '+(result.gulf_experience?'Yes — '+(result.gulf_countries||[]).join(', '):'No'),
-    'Qualification: '+(result.qualification||'—'),
-    'Certifications: '+(result.certifications||[]).join(', '),
-    'Passport: '+(result.passport_status||'—'),
-    'Availability: '+(result.availability||'—'),
-    'Assessment: '+(result.summary||'—'),
-    'Screened by Al Yousuf AI System on '+new Date().toLocaleDateString('en-IN')
-  ].filter(Boolean).join('\n');
-  const payload={
-    first_name:parts[0]||'Unknown',
-    last_name:parts.slice(1).join(' ')||'Candidate',
-    email:result.email||'',
-    contact_number:result.phone||'',
-    current_location:result.current_location||'',
-    total_experience:result.years_experience_total||0,
-    current_designation:result.trade+(result.trade_type&&result.trade_type!=='any'?' ('+result.trade_type+')':''),
-    note:notes,
-    tag_list:[result.decision||'Screened',result.trade||'',result.nationality||'',result.gulf_experience?'Gulf-Exp':'No-Gulf-Exp','Score-'+(result.total_score||0)].filter(Boolean)
-  };
-  try{
-    const res=await fetch(TOBU_BASE+'/candidates',{method:'POST',headers:{'Authorization':'Bearer '+crmKey,'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
-    if(res.ok){stats.tobu=(stats.tobu||0)+1;localStorage.setItem('ay_stats',JSON.stringify(stats));updateStats();return{success:true};}
-    const err=await res.json();return{success:false,error:err.message||'Error '+res.status};
-  }catch(err){return{success:false,error:err.message};}
-}
-
-async function pushCurrentToTobu(){
-  if(!currentResult)return;
-  if(!crmKey){alert('Please enter your Tobu API key first');return;}
-  const s=document.getElementById('tobuPushStatus');
-  s.className='tobu-status loading';s.textContent='Pushing to Tobu...';
-  const r=await pushToTobu(currentResult);
-  if(r.success){s.className='tobu-status success';s.textContent='✓ Pushed to Tobu CRM — "New CV Received"';currentResult.tobuSynced=true;renderHistory();}
-  else{s.className='tobu-status error';s.textContent='✗ Failed: '+r.error;}
-}
-
-async function pushAllToTobu(){
-  if(!crmKey){alert('Please enter your Tobu API key first');return;}
-  if(!bulkResults.length)return;
-  const s=document.getElementById('bulkTobuStatus');
-  s.textContent='Pushing to Tobu...';
-  let pushed=0;
-  for(const r of bulkResults){
-    if(!r.tobuSynced){const res=await pushToTobu(r);if(res.success){r.tobuSynced=true;pushed++;}}
-    await new Promise(r=>setTimeout(r,500));
-  }
-  s.textContent='✓ '+pushed+' candidates pushed to Tobu!';
-}
-
-async function pushAllHistoryToTobu(){
-  if(!crmKey){alert('Please enter your Tobu API key first');return;}
-  if(!sessionData.length){alert('No candidates in history');return;}
-  if(!confirm('Push all '+sessionData.length+' candidates to Tobu CRM?'))return;
-  let pushed=0;
-  for(const r of sessionData){
-    if(!r.tobuSynced){const res=await pushToTobu(r);if(res.success){r.tobuSynced=true;pushed++;}}
-    await new Promise(r=>setTimeout(r,600));
-  }
-  localStorage.setItem('ay_session',JSON.stringify(sessionData));
-  renderHistory();
-  alert('✓ '+pushed+' candidates pushed to Tobu!');
-}
-
-function displayResult(r){
-  document.getElementById('loadingCard').classList.remove('show');
-  document.getElementById('resultCard').classList.add('show');
+function showResult(r){
+  document.getElementById('loadCard').style.display='none';
+  document.getElementById('resultPanel').classList.add('show');
   document.getElementById('emptyState').style.display='none';
   const score=r.total_score||0;
-  document.getElementById('scoreNum').textContent=score;
-  document.getElementById('scoreCircle').className='score-circle '+(score>=70?'score-high':score>=45?'score-mid':'score-low');
-  document.getElementById('candidateName').textContent=r.name||'Unknown';
-  document.getElementById('candidateTrade').textContent=[r.trade,r.trade_type&&r.trade_type!=='any'?'('+r.trade_type+')':''].filter(Boolean).join(' ')||'Trade not identified';
-  const badge=document.getElementById('decisionBadge');
-  badge.textContent=r.decision||'—';
-  badge.className='decision-badge '+(r.decision==='TOP SHORTLIST'?'badge-pass':r.decision==='SHORTLIST'?'badge-shortlist':r.decision==='MARGINAL'?'badge-marginal':'badge-park');
-  document.getElementById('detAge').textContent=r.age?r.age+' yrs':'Not found';
-  document.getElementById('detNat').textContent=r.nationality||'Unknown';
-  document.getElementById('detPassport').textContent=r.passport_status==='valid'?'✓ Valid':r.passport_status==='applied'?'⏳ Applied':'✗ No Passport';
-  document.getElementById('detRoleExp').textContent=r.years_experience_in_role?r.years_experience_in_role+' years':'Not found';
-  document.getElementById('detTotalExp').textContent=r.years_experience_total?r.years_experience_total+' years':'Not found';
-  document.getElementById('detGulf').textContent=r.gulf_experience?'✓ '+(r.gulf_countries?.join(', ')||'Yes'):'✗ No Gulf exp';
-  document.getElementById('detTradeType').textContent=r.trade_type||'Not specified';
-  document.getElementById('detIndustry').textContent=r.industry||'Not identified';
-  document.getElementById('detAvail').textContent=r.availability||'Not mentioned';
+  document.getElementById('sn').textContent=score;
+  document.getElementById('sc').className='score-circle '+(score>=80?'score-high':score>=60?'score-mid':'score-low');
+  document.getElementById('cname').textContent=r.name||'Unknown';
+  document.getElementById('ctrade').textContent=[r.trade_identified,r.trade_type_identified&&r.trade_type_identified!=='any'?'('+r.trade_type_identified+')':''].filter(Boolean).join(' ')||'Trade not identified';
+  const bd=document.getElementById('dbadge');
+  bd.textContent=r.decision||'—';
+  bd.className='decision-badge '+(r.decision==='AUTO SHORTLIST'?'badge-top':r.decision==='REVIEW'?'badge-review':r.decision==='REJECT'?'badge-reject':'badge-park');
+  document.getElementById('d-age').textContent=r.age?r.age+' yrs':'Not found';
+  document.getElementById('d-nat').textContent=r.nationality||'Unknown';
+  document.getElementById('d-pass').textContent=r.passport_status==='valid'?'✓ Valid'+(r.passport_months_remaining?'  ('+r.passport_months_remaining+'mo)':''):r.passport_status==='applied'?'⏳ Applied':'✗ No Passport';
+  document.getElementById('d-currpos').textContent=r.current_position||'Not found';
+  document.getElementById('d-roleexp').textContent=r.years_experience_in_role?r.years_experience_in_role+' yrs':'Not found';
+  document.getElementById('d-totalexp').textContent=r.years_experience_total?r.years_experience_total+' yrs':'Not found';
+  document.getElementById('d-gulf').textContent=r.gulf_experience?'✓ '+(r.gulf_countries?.join(', ')||'Yes'):'✗ No Gulf';
+  document.getElementById('d-ind').textContent=r.industry||'Unknown';
+  document.getElementById('d-loc').textContent=r.current_location||'Not found';
+  document.getElementById('d-avail').textContent=r.availability||'Not mentioned';
+  document.getElementById('d-sal').textContent=r.expected_salary||'Not mentioned';
+  document.getElementById('d-qual').textContent=r.qualification||'Not found';
+
   setBar('trade',r.trade_score||0,25);
-  setBar('role',r.role_exp_score||0,25);
-  setBar('gulf',r.gulf_score||0,20);
-  setBar('qual',r.qualification_score||0,15);
-  setBar('cert',r.certification_score||0,15);
-  document.getElementById('aiSummary').textContent=r.summary||'—';
-  if(r.certifications&&r.certifications.length>0){document.getElementById('certsSection').style.display='block';document.getElementById('certsList').innerHTML=r.certifications.map(c=>`<span class="cert-tag">${c}</span>`).join('');}
-  else document.getElementById('certsSection').style.display='none';
-  if(r.filter_failures&&r.filter_failures.length>0){document.getElementById('filterFailSection').style.display='block';document.getElementById('filterFailList').innerHTML=r.filter_failures.map(f=>`• ${f}`).join('<br>');}
-  else document.getElementById('filterFailSection').style.display='none';
+  setBar('role',r.role_exp_score||0,20);
+  setBar('pg',r.pg_score||0,15);
+  setBar('skills',r.skills_score||0,15);
+  setBar('sal',r.salary_score||0,10);
+  setBar('avail',r.avail_score||0,5);
+  setBar('loc',r.location_score||0,5);
+  setBar('ind',r.industry_score||0,5);
+
+  document.getElementById('aiAssess').textContent=r.summary||'—';
+
+  if(r.premium_approvals&&r.premium_approvals.length>0){
+    document.getElementById('boostSection').style.display='block';
+    document.getElementById('boostList').innerHTML=r.premium_approvals.map(p=>`<span class="boost-tag">⭐ ${p}</span>`).join('');
+  }else document.getElementById('boostSection').style.display='none';
+
+  if(r.certifications&&r.certifications.length>0){
+    document.getElementById('certSection').style.display='block';
+    document.getElementById('certList').innerHTML=r.certifications.map(c=>`<span class="cert-tag">${c}</span>`).join('');
+  }else document.getElementById('certSection').style.display='none';
+
+  if(r.filter_failures&&r.filter_failures.length>0){
+    document.getElementById('failSection').style.display='block';
+    document.getElementById('failList').textContent=r.filter_failures.map(x=>'• '+x).join('\n');
+  }else document.getElementById('failSection').style.display='none';
+
+  if(r.warnings&&r.warnings.length>0){
+    document.getElementById('warnSection').style.display='block';
+    document.getElementById('warnList').textContent=r.warnings.map(x=>'• '+x).join('\n');
+  }else document.getElementById('warnSection').style.display='none';
+
+  if(r.possible_duplicate){
+    document.getElementById('dupSection').style.display='block';
+    document.getElementById('dupMsg').textContent=r.duplicate_note||'Possible duplicate detected — check phone/email.';
+  }else document.getElementById('dupSection').style.display='none';
+
+  document.getElementById('respMsg').textContent='';
+  document.getElementById('tobuMsg').className='tobu-msg';
 }
 
 function setBar(id,val,max){
-  document.getElementById('bar-'+id).style.width=Math.min(100,Math.round((val/max)*100))+'%';
-  document.getElementById('val-'+id).textContent=val+'/'+max;
+  const pct=Math.min(100,Math.round((val/max)*100));
+  document.getElementById('b-'+id).style.width=pct+'%';
+  document.getElementById('v-'+id).textContent=val+'/'+max;
 }
 
-function saveToHistory(r){
-  if(!stats.total)stats.total=0;if(!stats.pass)stats.pass=0;if(!stats.park)stats.park=0;if(!stats.tobu)stats.tobu=0;
+function setResponse(status){
+  if(!curr){return;}
+  const msgs={confirmed:'✓ Confirmed — candidate moved forward',not_interested:'✗ Not interested — candidate rejected',no_response:'⏳ No response — candidate parked'};
+  document.getElementById('respMsg').textContent=msgs[status]||'';
+  curr.response_status=status;
+  const idx=session.findIndex(s=>s.phone===curr.phone&&s.name===curr.name);
+  if(idx>=0){session[idx].response_status=status;localStorage.setItem('ay_sess',JSON.stringify(session));}
+  renderHist();
+}
+
+async function pushTobu(r){
+  if(!crmKey)return{success:false,error:'No Tobu key'};
+  const parts=(r.name||'Unknown').split(' ');
+  const notes=[
+    '=== AL YOUSUF SCREENING ENGINE v3 ===',
+    'Score: '+(r.total_score||0)+'/100',
+    'Decision: '+(r.decision||'—'),
+    'Trade: '+(r.trade_identified||'—'),
+    'Trade Type: '+(r.trade_type_identified||'—'),
+    'Current Position: '+(r.current_position||'—'),
+    'Role Experience: '+(r.years_experience_in_role||0)+' years',
+    'Total Experience: '+(r.years_experience_total||0)+' years',
+    'Gulf: '+(r.gulf_experience?'Yes — '+(r.gulf_countries||[]).join(', '):'No'),
+    'Industry: '+(r.industry||'—'),
+    'Location: '+(r.current_location||'—'),
+    'Availability: '+(r.availability||'—'),
+    'Expected Salary: '+(r.expected_salary||'—'),
+    'Qualification: '+(r.qualification||'—'),
+    'Certifications: '+(r.certifications||[]).join(', '),
+    'Premium Approvals: '+(r.premium_approvals||[]).join(', '),
+    'Skills Matched: '+(r.skills_matched||[]).join(', '),
+    'Assessment: '+(r.summary||'—'),
+    'Screened: '+new Date().toLocaleDateString('en-IN')
+  ].filter(x=>!x.endsWith(': ')).join('\n');
+  const payload={
+    first_name:parts[0]||'Unknown',last_name:parts.slice(1).join(' ')||'Candidate',
+    email:r.email||'',contact_number:r.phone||'',current_location:r.current_location||'',
+    total_experience:r.years_experience_total||0,
+    current_designation:(r.trade_identified||'')+(r.trade_type_identified&&r.trade_type_identified!=='any'?' ('+r.trade_type_identified+')':''),
+    note:notes,
+    tag_list:[r.decision||'Screened',r.trade_identified||'',r.nationality||'',r.gulf_experience?'Gulf-Exp':'No-Gulf','Score-'+(r.total_score||0)].filter(Boolean)
+  };
+  try{
+    const res=await fetch(TOBU+'/candidates',{method:'POST',headers:{'Authorization':'Bearer '+crmKey,'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
+    if(res.ok){stats.tobu=(stats.tobu||0)+1;localStorage.setItem('ay_stat',JSON.stringify(stats));updStats();return{success:true};}
+    const e=await res.json();return{success:false,error:e.message||'Error '+res.status};
+  }catch(e){return{success:false,error:e.message};}
+}
+
+async function pushOne(){
+  if(!curr)return;
+  if(!crmKey){alert('Enter Tobu key first');return;}
+  const m=document.getElementById('tobuMsg');
+  m.className='tobu-msg wait';m.textContent='Pushing to Tobu...';
+  const r=await pushTobu(curr);
+  if(r.success){m.className='tobu-msg ok';m.textContent='✓ Pushed to Tobu "New CV Received"';curr.tobuSynced=true;renderHist();}
+  else{m.className='tobu-msg err';m.textContent='✗ Failed: '+r.error;}
+}
+
+async function pushAll(){
+  if(!crmKey){alert('Enter Tobu key first');return;}
+  if(!bResults.length)return;
+  const m=document.getElementById('bulkTobuMsg');m.textContent='Pushing...';
+  let pushed=0;
+  for(const r of bResults){if(!r.tobuSynced){const res=await pushTobu(r);if(res.success){r.tobuSynced=true;pushed++;}}await new Promise(res=>setTimeout(res,500));}
+  m.textContent='✓ '+pushed+' pushed to Tobu!';
+}
+
+async function pushAllHistory(){
+  if(!crmKey){alert('Enter Tobu key first');return;}
+  if(!session.length){alert('No candidates in history');return;}
+  if(!confirm('Push all '+session.length+' to Tobu?'))return;
+  let pushed=0;
+  for(const r of session){if(!r.tobuSynced){const res=await pushTobu(r);if(res.success){r.tobuSynced=true;pushed++;}}await new Promise(res=>setTimeout(res,600));}
+  localStorage.setItem('ay_sess',JSON.stringify(session));renderHist();
+  alert('✓ '+pushed+' pushed to Tobu!');
+}
+
+function exportCSV(){
+  if(!bResults.length)return;
+  const h=['Rank','Name','Score','Decision','Trade','Trade Type','Current Position','Nationality','Age','Role Exp','Total Exp','Gulf','Passport','Qualification','Industry','Location','Availability','Salary Expect','Skills Matched','Premium Approvals','Certifications','Phone','Email','Tobu','Summary'];
+  const s=[...bResults].sort((a,b)=>(b.total_score||0)-(a.total_score||0));
+  const rows=s.map((r,i)=>[i+1,r.name||'',r.total_score||0,r.decision||'',r.trade_identified||'',r.trade_type_identified||'',r.current_position||'',r.nationality||'',r.age||'',r.years_experience_in_role||0,r.years_experience_total||0,r.gulf_experience?'Yes':'No',r.passport_status||'',r.qualification||'',r.industry||'',r.current_location||'',r.availability||'',r.expected_salary||'',(r.skills_matched||[]).join('; '),(r.premium_approvals||[]).join('; '),(r.certifications||[]).join('; '),r.phone||'',r.email||'',r.tobuSynced?'Yes':'No',(r.summary||'').replace(/,/g,' ')]);
+  const csv=[h,...rows].map(r=>r.join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='screening_'+new Date().toLocaleDateString('en-IN').replace(/\//g,'-')+'.csv';a.click();URL.revokeObjectURL(url);
+}
+
+function saveHist(r){
+  if(!stats.total)stats={total:0,auto:0,review:0,reject:0,tobu:0};
   stats.total++;
-  if(r.decision==='TOP SHORTLIST'||r.decision==='SHORTLIST')stats.pass++;
-  else stats.park++;
-  localStorage.setItem('ay_stats',JSON.stringify(stats));
-  updateStats();
-  sessionData.unshift({...r,timestamp:new Date().toLocaleTimeString('en-IN')});
-  if(sessionData.length>100)sessionData=sessionData.slice(0,100);
-  localStorage.setItem('ay_session',JSON.stringify(sessionData));
-  renderHistory();
+  if(r.decision==='AUTO SHORTLIST')stats.auto++;
+  else if(r.decision==='REVIEW')stats.review++;
+  else stats.reject++;
+  localStorage.setItem('ay_stat',JSON.stringify(stats));updStats();
+  session.unshift({...r,timestamp:new Date().toLocaleTimeString('en-IN')});
+  if(session.length>100)session=session.slice(0,100);
+  localStorage.setItem('ay_sess',JSON.stringify(session));
+  renderHist();
 }
 
-function renderHistory(){
-  const list=document.getElementById('historyList');
-  if(!sessionData.length){list.innerHTML='<div style="text-align:center;padding:24px;color:#aaa;font-size:12px;">No candidates screened yet.</div>';return;}
-  list.innerHTML=sessionData.map((r,i)=>{
+function renderHist(){
+  const el=document.getElementById('histList');
+  if(!session.length){el.innerHTML='<div style="text-align:center;padding:20px;color:#aaa;font-size:12px;">No candidates screened yet.</div>';return;}
+  el.innerHTML=session.map((r,i)=>{
     const score=r.total_score||0;
-    const bg=score>=70?'#E8F8F0':score>=45?'#FFF8E8':'#FFF0F0';
-    const txt=score>=70?'#006640':score>=45?'#885500':'#CC0000';
-    const bc=r.decision==='TOP SHORTLIST'?'badge-pass':r.decision==='SHORTLIST'?'badge-shortlist':r.decision==='MARGINAL'?'badge-marginal':'badge-park';
-    return `<div class="history-item" onclick="viewHistory(${i})"><div class="history-left"><div class="history-score" style="background:${bg};color:${txt}">${score}</div><div><div class="history-name">${r.name||'Unknown'}${r.tobuSynced?'<span class="tobu-synced">📤 Tobu</span>':''}</div><div class="history-trade">${r.trade||'—'}${r.trade_type&&r.trade_type!=='any'?' ('+r.trade_type+')':''}${r.nationality?' · '+r.nationality:''}${r.years_experience_in_role?' · '+r.years_experience_in_role+'yr role':''}${r.gulf_experience?' · Gulf ✓':''}${r.timestamp?' · '+r.timestamp:''}</div></div></div><span class="history-badge ${bc}">${r.decision||'—'}</span></div>`;
+    const bg=score>=80?'#E8F8F0':score>=60?'#E8F0FF':'#FFF0F0';
+    const tc=score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000';
+    const bc=r.decision==='AUTO SHORTLIST'?'badge-top':r.decision==='REVIEW'?'badge-review':'badge-reject';
+    const resp=r.response_status?` · ${r.response_status==='confirmed'?'✓ Confirmed':r.response_status==='not_interested'?'✗ Not interested':'⏳ No response'}`:'';
+    return `<div class="hi" onclick="viewHist(${i})"><div class="hi-left"><div class="hi-score" style="background:${bg};color:${tc}">${score}</div><div><div class="hi-name">${r.name||'Unknown'}${r.tobuSynced?'<span class="tobu-dot">📤</span>':''}</div><div class="hi-detail">${r.trade_identified||'—'} ${r.trade_type_identified&&r.trade_type_identified!=='any'?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}${resp}${r.timestamp?' · '+r.timestamp:''}</div></div></div><span class="hi-badge ${bc}">${r.decision||'—'}</span></div>`;
   }).join('');
 }
 
-function viewHistory(i){currentResult=sessionData[i];displayResult(currentResult);window.scrollTo({top:0,behavior:'smooth'});}
+function viewHist(i){curr=session[i];showResult(session[i]);window.scrollTo({top:0,behavior:'smooth'});}
 
 function clearHistory(){
-  if(!confirm('Clear all screened candidates?'))return;
-  sessionData=[];stats={total:0,pass:0,park:0,tobu:0};
-  localStorage.setItem('ay_session',JSON.stringify(sessionData));
-  localStorage.setItem('ay_stats',JSON.stringify(stats));
-  updateStats();renderHistory();
+  if(!confirm('Clear all?'))return;
+  session=[];stats={total:0,auto:0,review:0,reject:0,tobu:0};
+  localStorage.setItem('ay_sess',JSON.stringify(session));localStorage.setItem('ay_stat',JSON.stringify(stats));
+  updStats();renderHist();
 }
 
-function moveToShortlist(){if(!currentResult)return;alert('✓ '+(currentResult.name||'Candidate')+' — SHORTLIST\nScore: '+(currentResult.total_score||0)+'/100\nTrade: '+(currentResult.trade||'—')+(currentResult.trade_type&&currentResult.trade_type!=='any'?' ('+currentResult.trade_type+')':''));}
-function parkCandidate(){if(!currentResult)return;alert('⏸ '+(currentResult.name||'Candidate')+' parked in DATABASE');}
-function saveResult(){
-  if(!currentResult)return;
-  const blob=new Blob([JSON.stringify(currentResult,null,2)],{type:'application/json'});
+function moveShortlist(){if(!curr)return;alert('✓ '+(curr.name||'Candidate')+' — AUTO SHORTLIST\nScore: '+(curr.total_score||0)+'/100');}
+function parkCand(){if(!curr)return;alert('⏸ '+(curr.name||'Candidate')+' parked');}
+function dlResult(){
+  if(!curr)return;
+  const blob=new Blob([JSON.stringify(curr,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
-  a.href=url;a.download=(currentResult.name||'candidate').replace(/\s+/g,'_')+'_screening.json';
+  a.href=url;a.download=(curr.name||'candidate').replace(/\s+/g,'_')+'_v3.json';
   a.click();URL.revokeObjectURL(url);
 }
 </script>
