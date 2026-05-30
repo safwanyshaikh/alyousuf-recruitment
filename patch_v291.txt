@@ -1576,3 +1576,105 @@ function backfillErrorReplies() {
 
   Logger.log('backfillErrorReplies DONE — Queued: ' + queued + ' | Skipped: ' + skipped + ' / ' + totalRows + ' total rows');
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  BACKFILL CVs — Process all unscored emails from Jan 2026 onwards
+//  Tier 1 paid Gemini settings: batch=75, delay=300ms
+//  Run autoBackfillTrigger() once to set hands-free mode.
+//  Run stopAutoBackfill() when complete.
+//  Run resetBackfill() to start over from Jan 2026.
+// ═══════════════════════════════════════════════════════════════════
+
+function backfillCVs() {
+  var BATCH    = 75;   // Tier 1 paid — 1500 RPM allows larger batches
+  var DELAY_MS = 300;  // Tier 1 paid — much faster between calls
+  var props    = PropertiesService.getScriptProperties();
+  var startIdx = parseInt(props.getProperty('bf_idx') || '0');
+
+  // Disable quota guard for duration of backfill
+  props.setProperty('BACKFILL_MODE', 'true');
+
+  var query   = 'to:ai@alyousufent.com after:2026/01/01';
+  var threads = GmailApp.search(query, startIdx, BATCH);
+
+  if (!threads || threads.length === 0) {
+    Logger.log('✅ BACKFILL COMPLETE from index ' + startIdx);
+    props.deleteProperty('bf_idx');
+    props.deleteProperty('BACKFILL_MODE');
+    return;
+  }
+
+  var processed = 0, skipped = 0, errors = 0;
+  var startTime = new Date().getTime();
+
+  for (var i = 0; i < threads.length; i++) {
+    // Stop 30s before GAS 6-min limit
+    if (new Date().getTime() - startTime > 300000) {
+      Logger.log('⏱ Time limit approaching — saving progress.');
+      break;
+    }
+
+    try {
+      var thread     = threads[i];
+      var msgs       = thread.getMessages();
+      if (!msgs || !msgs.length) { skipped++; continue; }
+
+      var from        = msgs[0].getFrom();
+      var emailMatch  = from.match(/[\w.+\-]+@[\w\-]+\.[a-z.]+/i);
+      var senderEmail = emailMatch ? emailMatch[0].toLowerCase() : '';
+
+      if (senderEmail && isAlreadyScored_(senderEmail)) {
+        skipped++;
+        continue;
+      }
+
+      Logger.log('[' + (startIdx + i + 1) + '] ' + thread.getFirstMessageSubject().slice(0, 60));
+      processThreadWithReply_(thread);
+      processed++;
+      Utilities.sleep(DELAY_MS);
+
+    } catch (e) {
+      errors++;
+      Logger.log('ERR [' + (startIdx + i) + ']: ' + e.message);
+      Utilities.sleep(500);
+    }
+  }
+
+  var nextIdx = startIdx + processed + skipped;
+  props.setProperty('bf_idx', String(nextIdx));
+  props.setProperty('BACKFILL_MODE', 'true');
+  Logger.log('⏩ [' + startIdx + '→' + nextIdx + '] Done | ✅ ' + processed + ' | ⏭ ' + skipped + ' | ❌ ' + errors);
+  Logger.log('▶ Run backfillCVs() again to continue — or autoBackfillTrigger() runs it automatically.');
+}
+
+function isAlreadyScored_(email) {
+  try {
+    var rowNum = findCandidateByEmail_v291_(email);
+    if (!rowNum) return false;
+    var score = getMasterSS_().getSheetByName(CONFIG.sheetName).getRange(rowNum, 17).getValue();
+    return !!(score && parseFloat(score) > 0);
+  } catch (e) { return false; }
+}
+
+function resetBackfill() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty('bf_idx');
+  props.deleteProperty('BACKFILL_MODE');
+  Logger.log('Reset — next backfillCVs() starts from Jan 2026.');
+}
+
+function autoBackfillTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'backfillCVs') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('backfillCVs').timeBased().everyMinutes(5).create();
+  Logger.log('✅ Auto-trigger set — backfillCVs() runs every 5 min. Check Executions tab for progress.');
+}
+
+function stopAutoBackfill() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'backfillCVs') ScriptApp.deleteTrigger(t);
+  });
+  PropertiesService.getScriptProperties().deleteProperty('BACKFILL_MODE');
+  Logger.log('✅ Auto-trigger stopped. Quota limits restored.');
+}
