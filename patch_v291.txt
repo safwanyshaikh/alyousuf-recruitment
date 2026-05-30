@@ -1461,8 +1461,47 @@ function onOpen_v291_addMenuItems() {
       .addToUi();
   } catch(e) {}
 }
-function runSetupTriggers() {
-  setupV291Triggers_();
+function computeTop3Positions_(opts) {
+  var trade = String(opts.trade||'').trim().toLowerCase();
+  var exp   = parseFloat(opts.experience)||0;
+  var TRADE_MAP = {
+    'electrician':      ['Electrician','Electrical Technician','Electrical Supervisor'],
+    'welder':           ['Welder','Welding Inspector','Welding Supervisor'],
+    'plumber':          ['Plumber','Plumbing Technician','Plumbing Supervisor'],
+    'mason':            ['Mason','Mason Foreman','Civil Supervisor'],
+    'carpenter':        ['Carpenter','Carpenter Foreman','Shuttering Carpenter'],
+    'ac technician':    ['AC Technician','HVAC Technician','MEP Technician'],
+    'hvac':             ['HVAC Technician','AC Technician','Refrigeration Technician'],
+    'fitter':           ['Fitter','Pipe Fitter','Mechanical Fitter'],
+    'driver':           ['Driver','Heavy Driver','Light Vehicle Driver'],
+    'foreman':          ['Foreman','Site Foreman','Supervisor'],
+    'supervisor':       ['Supervisor','Site Supervisor','Construction Supervisor'],
+    'painter':          ['Painter','Industrial Painter','Sandblaster Painter'],
+    'rigger':           ['Rigger','Crane Rigger','Lifting Rigger'],
+    'helper':           ['Helper','Labour','Site Helper'],
+    'safety':           ['Safety Officer','HSE Officer','Safety Supervisor'],
+    'civil':            ['Civil Technician','Civil Supervisor','Site Engineer'],
+    'mechanical':       ['Mechanical Technician','Mechanical Fitter','Mechanical Supervisor'],
+    'instrumentation':  ['Instrumentation Technician','Control Systems Technician','Instrument Fitter'],
+    'operator':         ['Equipment Operator','Plant Operator','Crane Operator']
+  };
+  var positions = [];
+  for (var key in TRADE_MAP) {
+    if (trade.indexOf(key)>=0 || key.indexOf(trade)>=0) {
+      positions = TRADE_MAP[key].slice(); break;
+    }
+  }
+  if (!positions.length && trade) {
+    var t = trade.charAt(0).toUpperCase()+trade.slice(1);
+    positions = [t, t+' Technician', t+' Supervisor'];
+  }
+  if (exp>=10 && positions.length) {
+    positions = ['Senior '+positions[0]].concat(positions.slice(0,2));
+  }
+  return positions.slice(0,3);
+}
+function clearCache() {
+  CacheService.getScriptCache().remove('kai_dashboard_v2');
 }
 
 // END OF FILE — patch_v291.gs
