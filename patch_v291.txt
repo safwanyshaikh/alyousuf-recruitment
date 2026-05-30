@@ -1,0 +1,1578 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — KARIGAR AI  |  patch_v291.gs
+ *  Purpose : Pre-SaaS bug-fix patch — all critical + high issues
+ *  Version : 2.9.1  (revised after full patch audit)
+ *  Date    : 26-May-2026
+ *  Author  : KAI Engineering
+ *  Paste   : Add as a NEW .gs file in the Apps Script editor
+ *             (File → New → Script → name it patch_v291)
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  BUGS FIXED IN THIS PATCH
+ *  ─────────────────────────────────────────────────────────────────
+ *  C1  (v282 provides) normalizeNationality_ — removed from v291
+ *      to avoid GAS duplicate-function compile error. v282.gs is authoritative.
+ *  C2  (v282 provides) isInternalDomain_     — same; removed from v291.
+ *  C3  CONFIG_V2 guard stub — harmless IIFE; runs only if V2.gs missing.
+ *
+ *  H1  callGemini_ type mismatch (v284 JD extractor passes STRING not ARRAY)
+ *      → callGeminiString_v291_(prompt): converts string → proper parts array
+ *      → extractSingleJdBlock_v291_(text,subject): fixed JD block extractor
+ *      → extractJdV284_v291_(text,subject):         fixed full JD chain
+ *      → extractJdPublicV2Fixed / extractJdFromPastePublicV2Fixed:
+ *        new dashboard entry points — update google.script.run calls to these.
+ *
+ *  H2  logQuota_ writes to wrong columns vs live _Quota sheet schema.
+ *      Live schema: Date | CV_Fresh | CV_Backlog | JD | Reply | Email
+ *      → logQuota_v291_() fixed.
+ *
+ *  H3  queuePendingEmail_ / flushPendingEmails_ wrong column schema (6 vs 8).
+ *      → queuePendingEmail_v291_() / flushPendingEmails_v291_() fixed.
+ *
+ *  H4  processThread_ hard-rejects CVs >15MB with no text-extraction fallback.
+ *      → buildGeminiPartsWithFallback_() added; processThread_v291_() uses it.
+ *
+ *  H5  v286 findCandidateByEmail_() hardcodes column 10 (wrong).
+ *      v286 findCandidateByPhone_() hardcodes column 11 (wrong).
+ *      v286 applyReplyUpdates_() uses wrong column mapping.
+ *      → findCandidateByEmail_v291_(email): uses CONFIG.inputColumns.email
+ *      → findCandidateByPhone_v291_(phone): uses CONFIG.inputColumns.mobile
+ *      → applyReplyUpdates_v291_(rowIndex,updates): correct CONFIG columns
+ *      → processReply_v291_(message): uses all three fixed helpers
+ *      Dashboard must call processReply_v291_ to get correct reply mapping.
+ *
+ *  H6  Gemini model still gemini-2.5-flash-lite → upgraded to gemini-2.0-flash.
+ *      → callGemini_v291_() uses KAI_GEMINI_MODEL_OVERRIDE Script Property.
+ *
+ *  M1  appendLog_ misses Permalink (col 10) in Logs sheet.
+ *      → appendLog_v291_() fixed.
+ *
+ *  M2  validateApiKey_() had plaintext key fallback (security issue).
+ *      → validateApiKey_v291_() removes hardcoded fallback; warns if default.
+ *
+ *  M3  v288 getSessionUser() fallback looks for KAI_Users sheet but the
+ *      login sheet is _LoginSystem (v284 setupLoginSystem creates it).
+ *      → getSessionUser_v291_(token): uses _LoginSystem as fallback.
+ *      Dashboard must call getSessionUser_v291_ instead of getSessionUser.
+ *
+ *  DATA FIXES REQUIRED (manual in Google Sheet or via menu functions)
+ *  ─────────────────────────────────────────────────────────────────
+ *  D1  _ClientRouting sheet — change Forwarder Email from
+ *      jobs@alyousufent.com  →  ai@alyousufent.com  and set Active = TRUE
+ *      (or run fixClientRoutingAlYousuf() from the KAI v291 Fixes menu)
+ *
+ *  SAAS PREP ADDED
+ *  ─────────────────────────────────────────────────────────────────
+ *  T1  resolveTenantSheet_() — routes intake+company@karigarai.com
+ *      to the correct tenant spreadsheet via _ClientRouting
+ *  T2  getTenantBrand_()     — per-tenant brand config lookup
+ *
+ *  HOW TO DEPLOY
+ *  ─────────────────────────────────────────────────────────────────
+ *  1. Open Apps Script editor (Extensions → Apps Script)
+ *  2. Click "+" next to Files → New script → name it patch_v291
+ *  3. Paste entire contents of this file
+ *  4. Click Save (all files must save without compile errors)
+ *  5. Run setupV291() ONCE from the editor
+ *  6. Run fixClientRoutingAlYousuf() to fix email routing
+ *  7. Run setupV291Triggers_() to switch pipeline trigger
+ *  8. Verify via healthCheckV291() from KAI v291 Fixes menu
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S40 · PATCH V291 SETUP
+// ═══════════════════════════════════════════════════════════════════
+
+function setupV291() {
+  var props = PropertiesService.getScriptProperties();
+
+  // Upgrade Gemini model from flash-lite to flash
+  props.setProperty('KAI_GEMINI_MODEL_OVERRIDE', 'gemini-2.0-flash');
+
+  // Security check: warn if default key still in place
+  var existingKey = props.getProperty('GEMINI_API_KEY');
+  if (!existingKey || existingKey === 'AIzaSyCZL-NEYMWK1Z18Q2BTy_vRiyIiT_Yz1Qk') {
+    Logger.log('⚠ SECURITY: Default/hardcoded Gemini API key detected. ' +
+               'Set a production key in Script Properties → GEMINI_API_KEY immediately.');
+  }
+
+  props.setProperty('KAI_PATCH_VERSION', '2.9.1');
+  props.setProperty('KAI_PATCH_DATE',    '2026-05-26');
+
+  Logger.log('✓ patch_v291 setup complete.');
+  try {
+    SpreadsheetApp.getUi().alert(
+      'KAI patch_v291 applied.\n\n' +
+      'Changes active:\n' +
+      '  ✓ Gemini model          — upgraded to gemini-2.0-flash\n' +
+      '  ✓ JD callGemini fix     — string→parts wrapper added\n' +
+      '  ✓ _Quota schema         — fixed (logQuota_v291_)\n' +
+      '  ✓ _PendingEmails schema — fixed (8-col)\n' +
+      '  ✓ Large CV fallback     — Drive text extraction before reject\n' +
+      '  ✓ Reply column mapping  — v286 findByEmail/Phone/apply fixed\n' +
+      '  ✓ appendLog_ Permalink  — col 10 now written\n' +
+      '  ✓ Session sheet name    — fixed (_LoginSystem)\n\n' +
+      'MANUAL ACTION REQUIRED:\n' +
+      '  • Run fixClientRoutingAlYousuf()\n' +
+      '    to set ai@alyousufent.com + Active=TRUE\n\n' +
+      '  • Run setupV291Triggers_() to switch pipeline trigger\n\n' +
+      '  • Update dashboard HTML: google.script.run calls\n' +
+      '    extractJdPublicV2        → extractJdPublicV2Fixed\n' +
+      '    extractJdFromPastePublicV2 → extractJdFromPastePublicV2Fixed\n' +
+      '    getSessionUser           → getSessionUser_v291_\n\n' +
+      '  • Verify GEMINI_API_KEY is a production key\n\n' +
+      'Run healthCheckV291() to verify all systems green.'
+    );
+  } catch (e) {}
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S41 · CONFIG_V2 GUARD STUB
+// Safety net only — V2.gs provides the real CONFIG_V2.
+// This IIFE is a no-op when V2.gs is loaded (which it always should be).
+// ═══════════════════════════════════════════════════════════════════
+(function() {
+  if (typeof CONFIG_V2 === 'undefined') {
+    CONFIG_V2 = {
+      extCol: {
+        kaiNo:           25,
+        currentLocation: 26,
+        empStatus:       27,
+        candidateState:  28,
+        mobilityStatus:  29,
+        passportExpiry:  30,
+        ecrStatus:       31,
+        noticeDays:      32,
+        medicalStatus:   33,
+        deployScore:     34,
+        missingFields:   35,
+        lastContact:     36,
+        reqMatch:        37,
+        timeline:        38,
+        educationEnum:   39,
+        techReview:      40,
+        reviewedBy:      41,
+        top3Positions:   42
+      }
+    };
+    Logger.log('patch_v291: CONFIG_V2 stub applied (V2.gs missing — check project files).');
+  }
+})();
+
+// NOTE: normalizeNationality_() and isInternalDomain_() are intentionally
+// NOT defined here. patch_v282.gs provides the authoritative active versions.
+// GAS does not allow duplicate function names — defining them here would
+// cause a compile error. If v282.gs is missing from the project, add it first.
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S42 · GEMINI MODEL OVERRIDE + UPGRADED callGemini (FIX H6 + H1)
+// ═══════════════════════════════════════════════════════════════════
+
+// S42.F01 — get effective Gemini model (respects Script Property override)
+function getEffectiveGeminiModel_() {
+  var override = PropertiesService.getScriptProperties()
+                                  .getProperty('KAI_GEMINI_MODEL_OVERRIDE');
+  return override || (typeof CONFIG !== 'undefined' && CONFIG.defaultModel) || 'gemini-2.0-flash';
+}
+
+// S42.F02 — security-hardened API key validator
+function validateApiKey_v291_() {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('GEMINI_API_KEY not set in Script Properties.');
+  if (key === 'AIzaSyCZL-NEYMWK1Z18Q2BTy_vRiyIiT_Yz1Qk') {
+    Logger.log('⚠ SECURITY WARNING: Default/test API key in use. Replace with production key.');
+  }
+  return key;
+}
+
+// S42.F03 — upgraded callGemini_v291_ using override model
+// Accepts parts as an ARRAY of {text:...} objects (the correct API format).
+function callGemini_v291_(parts, circuit) {
+  var apiKey    = validateApiKey_v291_();
+  var model     = getEffectiveGeminiModel_();
+  var url       = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+                  model + ':generateContent?key=' + encodeURIComponent(apiKey);
+  var maxTokens = (typeof CONFIG !== 'undefined' && CONFIG.maxOutputTokens) || 4000;
+  var retries   = (typeof CONFIG !== 'undefined' && CONFIG.geminiRetries)   || 5;
+  var payload   = {
+    contents: [{ role: 'user', parts: parts }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.1, topP: 0.1,
+      maxOutputTokens: maxTokens
+    }
+  };
+  var lastErr = null;
+  for (var attempt = 1; attempt <= retries; attempt++) {
+    try {
+      Utilities.sleep(attempt > 1 ? Math.min(Math.pow(2, attempt - 1) * 1500, 30000) : 0);
+      var resp = UrlFetchApp.fetch(url, {
+        method: 'post', contentType: 'application/json',
+        payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      var code = resp.getResponseCode();
+      var text = resp.getContentText();
+      if (code === 200) {
+        if (circuit) circuit.consecutive429 = 0;
+        return text;
+      }
+      if (code === 429) {
+        if (circuit) {
+          circuit.consecutive429 = (circuit.consecutive429 || 0) + 1;
+          var cbThreshold = (typeof CONFIG !== 'undefined' && CONFIG.geminiCircuitBreakerThreshold) || 8;
+          if (circuit.consecutive429 >= cbThreshold) {
+            circuit.broken = true;
+            throw new Error('CIRCUIT_BROKEN after ' + circuit.consecutive429 + ' 429s');
+          }
+        }
+        var retryMs = parseInt((resp.getHeaders()['retry-after'] || '0'), 10) * 1000 || 15000;
+        Utilities.sleep(Math.min(retryMs * attempt, 60000));
+      }
+      lastErr = new Error('Gemini HTTP ' + code + ': ' + text.slice(0, 300));
+    } catch (e) {
+      if (e.message && e.message.indexOf('CIRCUIT_BROKEN') === 0) throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Gemini failed after ' + retries + ' attempts');
+}
+
+// S42.F04 — STRING-to-PARTS compatibility wrapper (FIX for H1)
+// v284's extractSingleJdBlock_ calls callGemini_(prompt) where prompt is a STRING.
+// Code.gs's callGemini_ expects (parts:ARRAY, circuit). This wrapper fixes the mismatch.
+// extractSingleJdBlock_v291_ below calls this instead of callGemini_.
+function callGeminiString_v291_(prompt, circuit) {
+  if (!prompt) return null;
+  var parts = [{ text: String(prompt) }];
+  return callGemini_v291_(parts, circuit);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S43 · FIXED JD EXTRACTION CHAIN (FIX for H1)
+// v284's extractSingleJdBlock_ calls callGemini_(string) which is wrong.
+// These v291 versions fix the call and provide corrected public entry points.
+// Dashboard: switch google.script.run calls from extractJdPublicV2 →
+//            extractJdPublicV2Fixed  (and from extractJdFromPastePublicV2 →
+//            extractJdFromPastePublicV2Fixed).
+// ═══════════════════════════════════════════════════════════════════
+
+// S43.F01 — Fixed single JD block extractor (replaces v284 S73.F01 logic)
+function extractSingleJdBlock_v291_(text, subject) {
+  var jd = {};
+
+  // Step 1: Gemini with CORRECT parts array format (fixes the string/array bug)
+  try {
+    var geminiPrompt =
+      'Extract structured data from this job description. Return ONLY valid JSON, no markdown.\n\n' +
+      'Fields to extract:\n' +
+      '{"trade":"","quantity":1,"deployCountry":"","location":"","minExperience":0,"maxExperience":0,' +
+      '"educationReq":"","salary":"","clientName":"","localTransfer":false,"visitVisaOK":false,' +
+      '"gccPreference":false,"languageReq":"","certifications":[],"urgency":"NORMAL",' +
+      '"specialRequirements":{"rotation":"","accommodation":"","transport":"","iqamaTransfer":false},' +
+      '"externalRefNo":"","notes":""}\n\n' +
+      'JD Text:\n' +
+      (typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text).slice(0, 4000);
+
+    // Correct call: wrap prompt in array (callGeminiString_v291_ does this)
+    var rawResp = callGeminiString_v291_(geminiPrompt, null);
+    if (rawResp) {
+      // Extract JSON from Gemini response envelope
+      var gText = rawResp;
+      try {
+        var envelope = JSON.parse(rawResp);
+        gText = ((envelope.candidates || [])[0] || {}).content
+          ? ((envelope.candidates[0].content.parts || [])[0] || {}).text || rawResp
+          : rawResp;
+      } catch(pe) {}
+      var s = gText.indexOf('{'), e2 = gText.lastIndexOf('}') + 1;
+      if (s >= 0 && e2 > s) {
+        var parsed = JSON.parse(gText.slice(s, e2));
+        if (parsed.trade) jd = parsed;
+      }
+    }
+  } catch (gemErr) {
+    Logger.log('S43: Gemini JD extraction failed, using fuzzy fallback: ' + gemErr.message);
+  }
+
+  // Step 2: Delegate regex fallback to v284 helpers (additive)
+  // These helpers exist in v284 and v285 — call them safely
+  if (!jd.trade && typeof extractSingleJdBlock_ === 'function') {
+    // v284 extractSingleJdBlock_ has the regex fallback but wrong Gemini call.
+    // Since Gemini already failed above, the regex fallback inside v284 is safe
+    // to use as long as we catch any Gemini error inside it.
+    // We skip calling it to avoid the string/array bug — regex fallback only:
+  }
+
+  // Minimal regex trade extraction if Gemini returned nothing
+  if (!jd.trade) {
+    var cleaned = typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text;
+    var tradePatterns = [
+      /^position\s*:\s*([^\n]+)/im,
+      /job\s+title\s*[:\s]+([^\n]+)/i,
+      /role\s*:\s*([^\n]+)/i,
+      /seeking\s+(?:a\s+)?([^\n]+?)(?:\s+to\s+join|\s+for|\s*$)/i
+    ];
+    for (var ti = 0; ti < tradePatterns.length; ti++) {
+      var tm = cleaned.match(tradePatterns[ti]);
+      if (tm && tm[1] && tm[1].trim().length > 2 && tm[1].trim().length < 80) {
+        jd.trade = tm[1].trim();
+        break;
+      }
+    }
+    if (!jd.trade && subject) jd.trade = subject.replace(/^(?:re:|fwd?:|fw:)\s*/i, '').trim();
+    if (!jd.quantity)       jd.quantity = 1;
+    if (!jd.salary)         jd.salary   = 'Not Stated';
+    if (!jd.urgency)        jd.urgency  = 'NORMAL';
+    if (!jd.deployCountry) {
+      var cl = cleaned.toLowerCase();
+      if (/saudi|ksa/.test(cl))            jd.deployCountry = 'Saudi Arabia';
+      else if (/\buae\b|dubai/.test(cl))   jd.deployCountry = 'UAE';
+      else if (/qatar|doha/.test(cl))      jd.deployCountry = 'Qatar';
+      else if (/oman|muscat/.test(cl))     jd.deployCountry = 'Oman';
+      else if (/kuwait/.test(cl))          jd.deployCountry = 'Kuwait';
+      else if (/bahrain|manama/.test(cl))  jd.deployCountry = 'Bahrain';
+    }
+  }
+
+  return jd;
+}
+
+// S43.F02 — Fixed full JD extraction chain (replaces v284 S73.F02 / extractJdV284_)
+function extractJdV284_v291_(text, subject) {
+  var result = { ok: false, jds: [], count: 0, errors: [] };
+  var blocks = typeof splitMultipleJds_ === 'function' ? splitMultipleJds_(text) : [text];
+
+  blocks.forEach(function(block, idx) {
+    try {
+      var jd = extractSingleJdBlock_v291_(block, subject);
+      if (jd.trade || jd.externalRefNo) result.jds.push(jd);
+    } catch (e) {
+      result.errors.push('Block ' + (idx + 1) + ': ' + e.message);
+    }
+  });
+
+  result.ok    = result.jds.length > 0;
+  result.count = result.jds.length;
+  return result;
+}
+
+// S43.F03 — Fixed public JD file upload entry point
+// Dashboard: change google.script.run.extractJdPublicV2(...) →
+//            google.script.run.extractJdPublicV2Fixed(...)
+function extractJdPublicV2Fixed(base64Data, filename, mimeType) {
+  var result = { ok:false, count:0, jds:[], isMulti:false, msg:'', errors:[] };
+  var tempFileId = null, docFileId = null;
+  try {
+    var mime = mimeType || 'application/pdf';
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(base64Data), mime, filename || 'jd_upload');
+
+    var text = '';
+    try {
+      var tempFile = DriveApp.createFile(blob);
+      tempFileId   = tempFile.getId();
+      var docMeta  = Drive.Files.copy(
+        { title: 'kai_tmp_jd_v291_' + Date.now(),
+          mimeType: 'application/vnd.google-apps.document' },
+        tempFileId);
+      docFileId = docMeta.id;
+      text = DocumentApp.openById(docFileId).getBody().getText();
+    } catch(convErr) {
+      result.errors.push('Text extraction failed: ' + convErr.message);
+    }
+
+    if (!text || text.trim().length < 20) {
+      result.msg = 'Could not extract readable text. Please paste the JD text manually.';
+      return result;
+    }
+
+    var extracted = extractJdV284_v291_(text, filename);
+    if (!extracted.ok) {
+      result.msg = 'Could not identify a valid JD.';
+      result.errors = extracted.errors;
+      return result;
+    }
+
+    var jds = extracted.jds;
+    if (jds.length === 1) {
+      var reqId = typeof saveRequirementV284_ === 'function' ? saveRequirementV284_(jds[0]) : 'REQ-UNSAVED';
+      jds[0].reqId = reqId;
+      result.ok = true; result.count = 1; result.jds = jds; result.isMulti = false;
+      result.msg = '1 position extracted and saved';
+      return result;
+    }
+
+    // Multi-JD: cache and return previews (same pattern as v285 S86)
+    var batchId = 'B' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    try {
+      CacheService.getScriptCache().put('JD_BATCH_' + batchId, JSON.stringify(jds), 1800);
+    } catch(ce) {
+      var saved = [];
+      jds.forEach(function(jd) {
+        try { var rId = typeof saveRequirementV284_ === 'function' ? saveRequirementV284_(jd) : 'REQ-UNSAVED'; jd.reqId = rId; saved.push(jd); } catch(e) {}
+      });
+      result.ok = true; result.count = saved.length; result.jds = saved; result.isMulti = true;
+      result.msg = saved.length + ' positions saved (cache unavailable)';
+      return result;
+    }
+    var previews = jds.map(function(jd, idx) {
+      return { idx:idx, trade:jd.trade||'', clientName:jd.clientName||'',
+               deployCountry:jd.deployCountry||'', quantity:jd.quantity||1,
+               salary:jd.salary||'', urgency:jd.urgency||'' };
+    });
+    result.ok = true; result.isMulti = true; result.pendingSave = true;
+    result.batchId = batchId; result.count = jds.length; result.jds = previews;
+    result.msg = jds.length + ' positions found — please confirm which to save';
+    return result;
+
+  } catch(err) {
+    result.msg = 'Extraction error: ' + err.message;
+    return result;
+  } finally {
+    try { if (tempFileId) DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e3) {}
+    try { if (docFileId)  DriveApp.getFileById(docFileId).setTrashed(true);  } catch(e4) {}
+  }
+}
+
+// S43.F04 — Fixed public paste JD entry point
+// Dashboard: change google.script.run.extractJdFromPastePublicV2(...) →
+//            google.script.run.extractJdFromPastePublicV2Fixed(...)
+function extractJdFromPastePublicV2Fixed(text, title) {
+  var result = { ok:false, count:0, jds:[], isMulti:false, msg:'', errors:[] };
+  if (!text || text.trim().length < 15) {
+    result.msg = 'Please paste the JD text first.';
+    return result;
+  }
+  try {
+    var extracted = extractJdV284_v291_(text.trim(), title || '');
+    if (!extracted.ok) {
+      result.msg = 'Could not detect a valid JD in the pasted text.';
+      result.errors = extracted.errors;
+      return result;
+    }
+    var jds = extracted.jds;
+    if (jds.length === 1) {
+      var reqId = typeof saveRequirementV284_ === 'function' ? saveRequirementV284_(jds[0]) : 'REQ-UNSAVED';
+      jds[0].reqId = reqId;
+      result.ok = true; result.count = 1; result.jds = jds; result.isMulti = false;
+      result.msg = '1 position saved';
+      return result;
+    }
+    var batchId = 'B' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    try { CacheService.getScriptCache().put('JD_BATCH_' + batchId, JSON.stringify(jds), 1800); }
+    catch(ce) {
+      var saved = [];
+      jds.forEach(function(jd) {
+        try { var r = typeof saveRequirementV284_ === 'function' ? saveRequirementV284_(jd) : ''; jd.reqId = r; saved.push(jd); } catch(e) {}
+      });
+      result.ok = true; result.count = saved.length; result.jds = saved; result.isMulti = true;
+      result.msg = saved.length + ' positions saved (cache fallback)';
+      return result;
+    }
+    var previews = jds.map(function(jd, idx) {
+      return { idx:idx, trade:jd.trade||'', clientName:jd.clientName||'',
+               deployCountry:jd.deployCountry||'', quantity:jd.quantity||1 };
+    });
+    result.ok = true; result.isMulti = true; result.pendingSave = true;
+    result.batchId = batchId; result.count = jds.length; result.jds = previews;
+    result.msg = jds.length + ' positions found — please confirm which to save';
+    return result;
+  } catch(e) {
+    result.msg = 'Parse error: ' + e.message;
+    return result;
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S44 · V286 REPLY COLUMN MAPPING FIXES (FIX for H5)
+// v286 S77 + S81 used hardcoded column numbers that don't match the
+// live Candidates sheet schema. These replacements use CONFIG.inputColumns.
+//
+// DASHBOARD / TRIGGER UPDATE NEEDED:
+//   Any trigger or dashboard call to processReply_() should be updated
+//   to call processReply_v291_() for correct column mapping.
+// ═══════════════════════════════════════════════════════════════════
+
+// S44.F01 — Correct findCandidateByEmail (uses CONFIG.inputColumns.email)
+function findCandidateByEmail_v291_(email) {
+  try {
+    if (!email) return null;
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var emailCol = CONFIG.inputColumns.email;
+    var data     = sheet.getRange(2, emailCol, sheet.getLastRow() - 1, 1).getValues();
+    var el       = email.toLowerCase().trim();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase().trim() === el) return i + 2;
+    }
+  } catch (e) { Logger.log('S44: findCandidateByEmail_v291_ error: ' + e.message); }
+  return null;
+}
+
+// S44.F02 — Correct findCandidateByPhone (uses CONFIG.inputColumns.mobile)
+function findCandidateByPhone_v291_(phone) {
+  try {
+    if (!phone) return null;
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var mobileCol = CONFIG.inputColumns.mobile;
+    var data      = sheet.getRange(2, mobileCol, sheet.getLastRow() - 1, 1).getValues();
+    var suffix    = phone.replace(/\D/g, '').slice(-9);
+    for (var i = 0; i < data.length; i++) {
+      var rowPhone = String(data[i][0]).replace(/\D/g, '');
+      if (rowPhone && rowPhone.endsWith(suffix)) return i + 2;
+    }
+  } catch (e) { Logger.log('S44: findCandidateByPhone_v291_ error: ' + e.message); }
+  return null;
+}
+
+// S44.F03 — Correct applyReplyUpdates using CONFIG column map + V2 extended cols
+// updates object keys: dob, passportNo, passportExpiry, currentLocation,
+//                      empStatus, noticeDays, ecrStatus, mobile, gulfExpYears
+function applyReplyUpdates_v291_(rowIndex, updates) {
+  var applied = [];
+  if (!rowIndex || !updates || Object.keys(updates).length === 0) return applied;
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet) return applied;
+
+    var ic = CONFIG.inputColumns;
+    var ec = CONFIG_V2.extCol;
+
+    // Map update keys to correct sheet columns
+    var COL = {
+      dob:             ic.dob,
+      mobile:          ic.mobile,
+      currentLocation: ec.currentLocation,
+      empStatus:       ec.empStatus,
+      noticeDays:      ec.noticeDays,
+      ecrStatus:       ec.ecrStatus,
+      passportExpiry:  ec.passportExpiry,
+      gulfExpYears:    ic.gulfExp || 12
+    };
+    // passportNo — store in notes if no dedicated column exists
+    if (ic.passportNo) COL.passportNo = ic.passportNo;
+
+    var maxCol = Math.max.apply(null, Object.values(COL).filter(Number));
+    var row    = sheet.getRange(rowIndex, 1, 1, maxCol).getValues()[0];
+
+    Object.keys(updates).forEach(function(field) {
+      var col = COL[field];
+      if (!col) return;
+      var existing = String(row[col - 1] || '').trim();
+      if (!existing || existing === '—' || /^pending$/i.test(existing) || /^unknown$/i.test(existing)) {
+        sheet.getRange(rowIndex, col).setValue(updates[field]);
+        applied.push(field);
+      }
+    });
+
+    if (applied.length > 0) {
+      sheet.getRange(rowIndex, ec.lastContact).setValue(new Date());
+      SpreadsheetApp.flush();
+    }
+  } catch (e) {
+    Logger.log('S44: applyReplyUpdates_v291_ error: ' + e.message);
+  }
+  return applied;
+}
+
+// S44.F04 — Fixed processReply_ using correct column helpers
+// Replaces v286 S77.F01 processReply_. Use this in triggers / pipeline.
+function processReply_v291_(message) {
+  var result = { ok:false, kaiNo:null, updated:[], notFound:false };
+  try {
+    var from    = message.getFrom();
+    var subject = message.getSubject();
+    var body    = message.getPlainBody();
+    var allText = subject + ' ' + body;
+
+    // Step 1: Find candidate row
+    var rowIndex = null;
+    var kaiNo    = null;
+
+    // Check KAI No in text
+    var kaiMatch = allText.match(/AYE-KAI-(\d{4})-(\d{6})/i);
+    if (kaiMatch) {
+      kaiNo = kaiMatch[0].toUpperCase();
+      rowIndex = typeof findCandidateByKaiNo_ === 'function' ? findCandidateByKaiNo_(kaiNo) : null;
+    }
+
+    // Check sender email (FIXED: uses CONFIG column via v291 helper)
+    if (!rowIndex) {
+      var fromMatch = (from || '').match(/<([^>]+)>/);
+      var senderEmail = fromMatch ? fromMatch[1].trim().toLowerCase() : (from || '').toLowerCase().trim();
+      if (senderEmail) rowIndex = findCandidateByEmail_v291_(senderEmail);
+    }
+
+    // Check phone in body (FIXED: uses CONFIG column via v291 helper)
+    if (!rowIndex) {
+      var phoneMatch = body.match(/(?:\+?91|0)?[6-9]\d{9}/) ||
+                       body.match(/(?:\+?971|00971)[0-9]{8,9}/) ||
+                       body.match(/(?:\+?966|00966)[0-9]{8,9}/);
+      if (phoneMatch) rowIndex = findCandidateByPhone_v291_(phoneMatch[0].replace(/\D/g, ''));
+    }
+
+    if (!rowIndex) {
+      result.notFound = true;
+      Logger.log('S44: Reply not matched to any candidate. From:' + from + ' Sub:' + subject);
+      return result;
+    }
+
+    // Step 2: Extract fields from reply
+    var updates = typeof extractFieldsFromReply_ === 'function'
+      ? extractFieldsFromReply_(body)
+      : {};
+
+    if (Object.keys(updates).length === 0) {
+      result.ok = true; result.kaiNo = kaiNo;
+      return result;
+    }
+
+    // Step 3: Apply with CORRECT column mapping (FIXED)
+    var applied = applyReplyUpdates_v291_(rowIndex, updates);
+    result.ok      = true;
+    result.kaiNo   = kaiNo;
+    result.updated = applied;
+
+    // Step 4: Timeline + state update
+    try {
+      if (typeof appendTimeline_ === 'function') {
+        appendTimeline_(rowIndex, 'CANDIDATE_REPLY',
+          'Reply received — fields updated: ' + applied.join(', '), from);
+      }
+      var ss    = getMasterSS_();
+      var sheet = ss.getSheetByName(CONFIG.sheetName);
+      var stateCol = CONFIG_V2.extCol.candidateState || 28;
+      var curState = String(sheet.getRange(rowIndex, stateCol).getValue() || '');
+      if (curState === 'INCOMPLETE_CONTACT' || curState === 'NEW') {
+        sheet.getRange(rowIndex, stateCol).setValue('PARSED');
+        SpreadsheetApp.flush();
+        result.updated.push('state→PARSED');
+      }
+    } catch(se) {}
+
+    Logger.log('S44: Reply processed. Row:' + rowIndex + ' Updated:' + applied.join(','));
+  } catch(e) {
+    Logger.log('S44: processReply_v291_ error: ' + e.message);
+  }
+  return result;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S45 · LARGE ATTACHMENT FALLBACK (FIX for H4)
+// Adds Drive text extraction before hard-rejecting >15MB CVs.
+// ═══════════════════════════════════════════════════════════════════
+
+function buildGeminiPartsWithFallback_(attachment, emailBody, senderEmail, subject) {
+  var maxBytes = (typeof CONFIG !== 'undefined' && CONFIG.maxAttachmentBytes) || 15728640;
+  var size     = attachment.getSize();
+  var ext      = (attachment.getName() || '').split('.').pop().toLowerCase();
+
+  if (size <= maxBytes) {
+    return (typeof buildGeminiParts_ === 'function')
+      ? buildGeminiParts_(attachment, emailBody, senderEmail, subject)
+      : null;
+  }
+
+  Logger.log('S45: Attachment oversized (' + size + ' bytes). Attempting text extraction.');
+  var text = '';
+
+  if (ext === 'docx' && typeof extractTextFromDocxSafe_ === 'function') {
+    text = extractTextFromDocxSafe_(attachment);
+  }
+  if ((!text || text.length < 100) && typeof extractTextFromDocViaDrive_ === 'function') {
+    try { text = extractTextFromDocViaDrive_(attachment); } catch (e) {}
+  }
+  if (!text || text.length < 100) {
+    try {
+      var raw = attachment.getBytes();
+      text = String.fromCharCode.apply(null, raw)
+               .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' ')
+               .replace(/\s+/g, ' ').trim().slice(0, 30000);
+    } catch (e) {}
+  }
+
+  var promptFn = (typeof buildParsePrompt_ === 'function')
+    ? buildParsePrompt_
+    : function(b, e, s) { return 'Parse this CV. Sender: ' + s; };
+
+  if (text && text.length >= 100) {
+    Logger.log('S45: Text extraction succeeded (' + text.length + ' chars).');
+    return [
+      { text: promptFn(emailBody, senderEmail, subject) },
+      { text: 'CV text (extracted from large attachment):\n' + text.slice(0, 30000) }
+    ];
+  }
+
+  Logger.log('S45: All extraction attempts failed for ' + size + '-byte attachment.');
+  return null;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S46 · PATCHED PIPELINE ENTRY POINT (orchestrates H4 + H6)
+// ═══════════════════════════════════════════════════════════════════
+
+function runPipeline_v291() {
+  if (typeof isPipelinePaused_ === 'function' && isPipelinePaused_()) {
+    Logger.log('S46: Pipeline paused — skipping run.');
+    return;
+  }
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    if (typeof appendLog_ === 'function')
+      appendLog_({ status: 'LOCK_SKIP', notes: 'Another run already in progress.' });
+    return;
+  }
+
+  try {
+    var startMs = Date.now();
+    if (typeof _RUN_STATE !== 'undefined') _RUN_STATE = { emails: {}, mobiles: {} };
+
+    if (typeof resetQuotaIfNewDay_ === 'function') resetQuotaIfNewDay_();
+    var qs = (typeof getQuotaState_ === 'function') ? getQuotaState_() : { cvTotalRemaining: 999 };
+    if (qs.cvTotalRemaining <= 0) {
+      if (typeof appendLog_ === 'function')
+        appendLog_({ status: 'QUOTA_CAP_HIT', notes: 'Daily total cap reached.' });
+      return;
+    }
+
+    if (typeof flushPendingEmails_v291_ === 'function') flushPendingEmails_v291_();
+    else if (typeof flushPendingEmails_ === 'function')  flushPendingEmails_();
+
+    var mode   = (typeof decideRunMode_ === 'function') ? decideRunMode_() : 'FRESH';
+    var maxRun = 5;
+    var inputLabel = (typeof CONFIG !== 'undefined' && CONFIG.labels && CONFIG.labels.input) || 'karigar/cv';
+    var label  = GmailApp.getUserLabelByName(inputLabel);
+
+    if (!label) {
+      Logger.log('S46: Label ' + inputLabel + ' not found — run setupPipeline().');
+      return;
+    }
+
+    var allThreads = label.getThreads(0, maxRun + 5);
+    if (!allThreads.length) { Logger.log('S46: No threads to process.'); return; }
+
+    var todayIst = (typeof istDateString_ === 'function') ? istDateString_() : '';
+    var threads  = [];
+    for (var i = 0; i < allThreads.length; i++) {
+      var msg    = allThreads[i].getMessages()[allThreads[i].getMessageCount() - 1];
+      var isFresh= todayIst
+        ? ((typeof istDateString_ === 'function' ? istDateString_(msg.getDate()) : '') === todayIst)
+        : true;
+      if (mode === 'FRESH'   && isFresh)  threads.push(allThreads[i]);
+      if (mode === 'BACKLOG' && !isFresh) threads.push(allThreads[i]);
+      if (threads.length >= maxRun) break;
+    }
+    if (!threads.length) { Logger.log('S46: No ' + mode + ' threads found.'); return; }
+
+    var runRejected = 0;
+    var circuit = { consecutive429: 0, broken: false };
+    var maxMs   = (typeof CONFIG !== 'undefined' && CONFIG.maxExecutionMs) || 270000;
+
+    for (var j = 0; j < threads.length; j++) {
+      if (Date.now() - startMs > maxMs) break;
+      var qs2 = (typeof getQuotaState_ === 'function') ? getQuotaState_() : { cvTotalRemaining: 999 };
+      if (qs2.cvTotalRemaining <= 0) break;
+      if (circuit.broken) break;
+
+      try {
+        var result = processThreadWithReply_(threads[j], circuit);
+        if (result === 'REJECTED') runRejected++;
+      } catch (e) {
+        Logger.log('S46: Thread error — ' + e.message);
+        try {
+          if (typeof logError_ === 'function') logError_(threads[j], null, null, e.message, '');
+          if (typeof moveLabel_ === 'function') {
+            var el = (typeof CONFIG !== 'undefined' && CONFIG.labels && CONFIG.labels.error) || 'karigar/error';
+            var il = inputLabel;
+            moveLabel_(threads[j], il, el);
+          }
+        } catch (e2) {}
+      }
+      if (j < threads.length - 1) Utilities.sleep(3000);
+    }
+
+    if (typeof logQuota_v291_ === 'function') logQuota_v291_(runRejected);
+    else if (typeof logQuota_ === 'function')  logQuota_(runRejected);
+
+    Logger.log('S46: v291 run complete.');
+
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function processThread_v291_(thread, circuit) {
+  var messages  = thread.getMessages();
+  var message   = messages[messages.length - 1];
+  var subject   = message.getSubject() || '';
+  var body      = message.getPlainBody() || '';
+  var threadId  = thread.getId();
+  var inputLabel= (CONFIG.labels && CONFIG.labels.input)     || 'karigar/cv';
+  var errLabel  = (CONFIG.labels && CONFIG.labels.error)     || 'karigar/error';
+  var dupLabel  = (CONFIG.labels && CONFIG.labels.duplicate) || 'karigar/duplicate';
+  var doneLabel = (CONFIG.labels && CONFIG.labels.processed) || 'karigar/processed';
+
+  var appDateResult = (typeof extractOriginalApplicationDate_ === 'function')
+    ? extractOriginalApplicationDate_(message)
+    : { date: message.getDate(), fallback: true };
+  var appDate    = appDateResult.date;
+  var earliestDt = CONFIG.earliestMessageDate || new Date(2026, 0, 1);
+  if (appDate < earliestDt) {
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, doneLabel);
+    return 'SKIPPED_DATE';
+  }
+
+  var rawSender   = message.getFrom();
+  var actualEmail = (typeof extractForwardedSender_ === 'function')
+    ? extractForwardedSender_(body) : '';
+  var senderEmail = (typeof normalizeEmail_ === 'function')
+    ? normalizeEmail_(actualEmail || rawSender)
+    : (actualEmail || rawSender);
+
+  var cvAttachment = (typeof pickBestAttachment_ === 'function') ? pickBestAttachment_(message) : null;
+  var cvLink       = '';
+  var geminiParts  = null;
+
+  if (cvAttachment) {
+    var maxBytes = CONFIG.maxAttachmentBytes || 15728640;
+    if (cvAttachment.getSize() > maxBytes) {
+      geminiParts = buildGeminiPartsWithFallback_(cvAttachment, body, senderEmail, subject);
+      if (!geminiParts) {
+        if (typeof logError_ === 'function')
+          logError_(thread, rawSender, subject, 'Attachment too large and text extraction failed: ' + cvAttachment.getSize() + ' bytes', '');
+        if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, errLabel);
+        return 'ERROR_SIZE';
+      }
+      try { if (typeof saveCvToDrive_ === 'function') cvLink = saveCvToDrive_(cvAttachment, senderEmail); } catch(e) {}
+    } else {
+      if (typeof saveCvToDrive_ === 'function') cvLink = saveCvToDrive_(cvAttachment, senderEmail);
+      if (typeof buildGeminiParts_ === 'function')
+        geminiParts = buildGeminiParts_(cvAttachment, body, senderEmail, subject);
+    }
+  } else if (body && body.length >= 200) {
+    var promptFn = (typeof buildParsePrompt_ === 'function') ? buildParsePrompt_ : function() { return ''; };
+    geminiParts = [
+      { text: promptFn(body, senderEmail, subject) },
+      { text: 'CV content from email body:\n' + body.slice(0, 30000) }
+    ];
+  } else {
+    if (typeof logError_ === 'function')
+      logError_(thread, rawSender, subject, 'No valid CV attachment and body < 200 chars.', '');
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, errLabel);
+    return 'ERROR_NO_CV';
+  }
+
+  if (typeof isDuplicate_ === 'function' && isDuplicate_(senderEmail, null)) {
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, dupLabel);
+    return 'DUPLICATE';
+  }
+
+  var parsed = null;
+  try {
+    var rawResp = callGemini_v291_(geminiParts, circuit);
+    var gText   = (typeof extractGeminiText_ === 'function') ? extractGeminiText_(rawResp) : '';
+    if (gText && gText.length >= 10) {
+      parsed = (typeof parseGeminiJson_ === 'function')
+        ? parseGeminiJson_((typeof cleanJsonResponse_ === 'function') ? cleanJsonResponse_(gText) : gText)
+        : null;
+    }
+  } catch (e) {
+    Logger.log('S46: Gemini call error: ' + e.message);
+  }
+
+  if (!parsed) {
+    var model = getEffectiveGeminiModel_();
+    if (typeof logError_ === 'function')
+      logError_(thread, rawSender, subject, 'Gemini parsing returned null (model=' + model + ').', '');
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, errLabel);
+    return 'ERROR_GEMINI';
+  }
+
+  if (typeof normalizeCandidate_ === 'function') normalizeCandidate_(parsed, senderEmail);
+  var candEmail  = parsed.email  || senderEmail;
+  var candMobile = parsed.mobile || '';
+
+  if (typeof isDuplicate_ === 'function' && isDuplicate_(candEmail, candMobile)) {
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, dupLabel);
+    return 'DUPLICATE';
+  }
+  if (typeof updateRunState_ === 'function') updateRunState_(candEmail, candMobile);
+
+  var rules    = (typeof loadRules_    === 'function') ? loadRules_()    : [];
+  var taxonomy = (typeof loadTaxonomy_ === 'function') ? loadTaxonomy_() : [];
+  var taxResult= (typeof mapCandidateToTaxonomy_ === 'function')
+    ? mapCandidateToTaxonomy_(parsed, taxonomy)
+    : { pts: 0, industry: '', trade: '' };
+
+  if (taxResult.industry && !parsed.industry) parsed.industry = taxResult.industry;
+  if (taxResult.trade    && !parsed.trade)    parsed.trade    = taxResult.trade;
+
+  var scored = (typeof scoreCandidate_ === 'function') ? scoreCandidate_(parsed, rules, taxResult) : parsed;
+  if (typeof applyDecisionRules_ === 'function') applyDecisionRules_(scored, rules);
+
+  if (scored.verdict === 'REJECT') {
+    if (typeof writeToRejected_ === 'function') writeToRejected_(scored, cvLink, appDate);
+    if (typeof writeToMeta_     === 'function') writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
+    if (typeof appendConsent_   === 'function') appendConsent_(parsed, appDate, threadId);
+    if (typeof incrementQuota_  === 'function') incrementQuota_('cv');
+    if (typeof moveLabel_       === 'function') moveLabel_(thread, inputLabel, doneLabel);
+    appendLog_v291_({ status:'REJECTED_AGE', name:scored.full_name, email:candEmail, mobile:candMobile,
+                      trade:scored.trade, notes:'Age='+(scored.age||'?')+' | '+scored.notes });
+    return 'REJECTED';
+  }
+
+  if (typeof writeToSheet_  === 'function') writeToSheet_(scored, threadId, cvLink, appDate);
+  if (typeof writeToMeta_   === 'function') writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
+  if (typeof appendConsent_ === 'function') appendConsent_(parsed, appDate, threadId);
+  if (typeof incrementQuota_=== 'function') incrementQuota_('cv');
+
+  appendLog_v291_({ status:'PROCESSED', name:scored.full_name, email:candEmail, mobile:candMobile,
+                    trade:scored.trade, notes:scored.verdict+' | Score='+scored.score+' | Flag='+scored.flag });
+
+  if (scored.verdict === 'NEEDS_CALL' && candEmail &&
+      typeof isInternalDomain_ === 'function' && !isInternalDomain_(candEmail)) {
+    if (typeof maybeSendFollowUpEmail_ === 'function') maybeSendFollowUpEmail_(scored, candEmail);
+  }
+
+  if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, doneLabel);
+  return 'PROCESSED';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S47 · QUOTA SHEET FIX (FIX for H2)
+// Live _Quota schema: Date | CV_Fresh | CV_Backlog | JD | Reply | Email
+// ═══════════════════════════════════════════════════════════════════
+
+function logQuota_v291_(runRejected) {
+  try {
+    var ss    = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+    if (!ss) return;
+    var qsName = (typeof CONFIG !== 'undefined' && CONFIG.quotaSheetName) || '_Quota';
+    var sheet  = ss.getSheetByName(qsName);
+    if (!sheet) return;
+
+    var qs    = (typeof getQuotaState_ === 'function') ? getQuotaState_() : {};
+    var today = (typeof istDateString_ === 'function') ? istDateString_() : new Date().toISOString().slice(0, 10);
+
+    var cvFresh   = qs.cvFreshUsed  || 0;
+    var cvBacklog = Math.max(0, (qs.cvTotalUsed || 0) - cvFresh);
+    var replyUsed = qs.replyUsed    || 0;
+    var emailUsed = qs.emailUsed    || 0;
+
+    var lr   = sheet.getLastRow();
+    var data = lr < 2 ? [] : sheet.getRange(2, 1, lr - 1, 6).getValues();
+
+    for (var i = 0; i < data.length; i++) {
+      var rowDate = data[i][0] instanceof Date
+        ? (typeof istDateString_ === 'function' ? istDateString_(data[i][0]) : data[i][0].toISOString().slice(0, 10))
+        : String(data[i][0]).slice(0, 10);
+      if (rowDate === today) {
+        sheet.getRange(i + 2, 1, 1, 6).setValues([[
+          data[i][0], cvFresh, cvBacklog,
+          Number(data[i][3] || 0),
+          replyUsed, emailUsed
+        ]]);
+        return;
+      }
+    }
+    sheet.appendRow([new Date(), cvFresh, cvBacklog, 0, replyUsed, emailUsed]);
+  } catch (e) {
+    Logger.log('S47: logQuota_v291_ error: ' + e.message);
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S48 · PENDING EMAILS SCHEMA FIX (FIX for H3)
+// Live _PendingEmails: Queued At|To Email|Subject|Body|From Name|Status|Sent At|Notes
+// ═══════════════════════════════════════════════════════════════════
+
+function queuePendingEmail_v291_(toEmail, subject, body, token, fromName) {
+  var ss = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+  if (!ss) return;
+  var pName = (typeof CONFIG !== 'undefined' && CONFIG.pendingEmailsSheet) || '_PendingEmails';
+  var sheet = ss.getSheetByName(pName);
+  if (!sheet) return;
+  sheet.appendRow([
+    new Date(), toEmail || '', subject || '', body || '',
+    fromName || (CONFIG.brand && CONFIG.brand.senderDisplayName) || '',
+    'QUEUED', '',
+    token ? 'Token:' + token : ''
+  ]);
+}
+
+function flushPendingEmails_v291_() {
+  var ss = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+  if (!ss) return;
+  var pName = (typeof CONFIG !== 'undefined' && CONFIG.pendingEmailsSheet) || '_PendingEmails';
+  var sheet = ss.getSheetByName(pName);
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+  var brand = (CONFIG.brand && CONFIG.brand.senderDisplayName) || '';
+  var qs    = (typeof getQuotaState_ === 'function') ? getQuotaState_() : { emailRemaining: 999 };
+
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][5]).toUpperCase() !== 'QUEUED') continue;
+    if (qs.emailRemaining <= 0) break;
+    try {
+      var toEmail = String(data[i][1]);
+      var subj    = String(data[i][2]);
+      var bdy     = String(data[i][3]);
+      if (!toEmail || !subj) continue;
+      GmailApp.sendEmail(toEmail, subj, bdy, { name: brand });
+      if (typeof incrementQuota_ === 'function') incrementQuota_('email');
+      qs = (typeof getQuotaState_ === 'function') ? getQuotaState_() : { emailRemaining: 999 };
+      sheet.getRange(i + 2, 6).setValue('SENT');
+      sheet.getRange(i + 2, 7).setValue(new Date());
+    } catch (e) {
+      sheet.getRange(i + 2, 6).setValue('ERROR: ' + e.message.slice(0, 60));
+    }
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S49 · PATCHED appendLog_ (FIX for M1)
+// Adds Permalink (col 10) that existing appendLog_ misses.
+// ═══════════════════════════════════════════════════════════════════
+
+function appendLog_v291_(obj) {
+  try {
+    var ss    = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+    if (!ss) return;
+    var lName = (typeof CONFIG !== 'undefined' && CONFIG.logSheetName) || 'Logs';
+    var sheet = ss.getSheetByName(lName);
+    if (!sheet) return;
+    var permalink = obj.threadId
+      ? 'https://mail.google.com/mail/u/0/#inbox/' + obj.threadId
+      : '';
+    sheet.appendRow([
+      new Date(),
+      obj.threadId  || '',
+      obj.status    || '',
+      obj.client    || 'master',
+      obj.name   ? (typeof maskName_  === 'function' ? maskName_(obj.name)   : obj.name)   : '',
+      obj.email  ? (typeof maskEmail_ === 'function' ? maskEmail_(obj.email) : obj.email)  : '',
+      obj.mobile ? (typeof maskPhone_ === 'function' ? maskPhone_(obj.mobile): obj.mobile) : '',
+      obj.trade   || '',
+      obj.notes   || '',
+      permalink
+    ]);
+  } catch (e) {
+    Logger.log('S49: appendLog_v291_ failed: ' + e.message);
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S50 · FIXED SESSION USER (FIX for M3)
+// v288 getSessionUser() fallback looks for KAI_Users sheet but
+// v284 setupLoginSystem() creates _LoginSystem. This version is correct.
+// Dashboard: change google.script.run.getSessionUser(token) →
+//            google.script.run.getSessionUser_v291_(token)
+// ═══════════════════════════════════════════════════════════════════
+
+function getSessionUser_v291_(token) {
+  try {
+    if (token) {
+      // Fast path: CacheService (valid for up to 6 hours)
+      var cached = CacheService.getScriptCache().get('KAI_TOK_' + token);
+      if (cached) {
+        var data = JSON.parse(cached);
+        var role = String(data.role || '').toLowerCase().trim() || 'hr5';
+        return {
+          ok:    true,
+          role:  role,
+          name:  String(data.name  || 'Recruiter'),
+          email: String(data.email || (role + '@alyousufent.com'))
+        };
+      }
+
+      // Fallback: check _LoginSystem sheet (FIXED — was KAI_Users in v288)
+      var ss    = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+      var sheet = ss ? ss.getSheetByName('_LoginSystem') : null;
+      if (sheet && sheet.getLastRow() >= 2) {
+        var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+        for (var i = 0; i < rows.length; i++) {
+          var storedToken = String(rows[i][5] || '').trim();
+          if (storedToken === token) {
+            var expiry = new Date(String(rows[i][6] || ''));
+            if (expiry > new Date()) {
+              var roleVal = String(rows[i][2] || 'recruiter').toLowerCase().trim();
+              return {
+                ok:    true,
+                role:  roleVal,
+                name:  String(rows[i][3] || 'Recruiter'),
+                email: String(rows[i][0] || (roleVal + '@alyousufent.com'))
+              };
+            }
+            return { ok:false, role:'hr5', name:'Recruiter', email:'hr5@alyousufent.com', reason:'expired' };
+          }
+        }
+      }
+    }
+    return { ok:false, role:'hr5', name:'Recruiter', email:'hr5@alyousufent.com', reason:'no_token' };
+  } catch(e) {
+    Logger.log('S50: getSessionUser_v291_ error: ' + e.message);
+    return { ok:false, role:'hr5', name:'Recruiter', email:'hr5@alyousufent.com', reason:'error' };
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S51 · SAAS MULTI-TENANT ROUTING (PREP for T1, T2)
+// ═══════════════════════════════════════════════════════════════════
+
+function resolveTenantSheet_(toAddress) {
+  if (!toAddress) return null;
+  try {
+    var match = String(toAddress).toLowerCase().match(/^intake\+([a-z0-9_]+)@karigarai\.com$/);
+    var slug  = match ? match[1] : null;
+
+    var masterSS   = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+    if (!masterSS) return null;
+    var routeSheet = masterSS.getSheetByName('_ClientRouting');
+    if (!routeSheet || routeSheet.getLastRow() < 2) return null;
+    var rows = routeSheet.getRange(2, 1, routeSheet.getLastRow() - 1, 4).getValues();
+
+    for (var i = 0; i < rows.length; i++) {
+      var forwarder  = String(rows[i][0]).toLowerCase().trim();
+      var clientSsId = String(rows[i][1]).trim();
+      var clientName = String(rows[i][2]).trim();
+      var active     = String(rows[i][3]).toUpperCase().trim();
+
+      if (active !== 'TRUE' && active !== '1') continue;
+
+      var matchesSlug     = slug && forwarder.indexOf(slug) >= 0;
+      var matchesForwarder = toAddress.toLowerCase() === forwarder;
+
+      if (matchesSlug || matchesForwarder) {
+        return {
+          ss:         SpreadsheetApp.openById(clientSsId),
+          clientName: clientName,
+          sheetId:    clientSsId
+        };
+      }
+    }
+    Logger.log('S51: No active routing found for: ' + toAddress);
+    return null;
+  } catch (e) {
+    Logger.log('S51: resolveTenantSheet_ error: ' + e.message);
+    return null;
+  }
+}
+
+function getTenantBrand_(ss) {
+  var defaults = {
+    companyName:       'Al Yousuf Enterprises LLP',
+    senderDisplayName: 'Al Yousuf Enterprises LLP',
+    signatureLine1:    'Recruitment Team',
+    signatureLine2:    'Al Yousuf Enterprises LLP'
+  };
+  if (!ss) return defaults;
+  try {
+    var cfg = ss.getSheetByName('_Config');
+    if (!cfg || cfg.getLastRow() < 2) return defaults;
+    var rows = cfg.getRange(2, 1, cfg.getLastRow() - 1, 2).getValues();
+    var map  = {};
+    rows.forEach(function(r) { if (r[0]) map[String(r[0]).trim()] = String(r[1]).trim(); });
+    return {
+      companyName:       map['brand_company'] || defaults.companyName,
+      senderDisplayName: map['brand_sender']  || defaults.senderDisplayName,
+      signatureLine1:    map['brand_sig1']    || defaults.signatureLine1,
+      signatureLine2:    map['brand_sig2']    || defaults.signatureLine2
+    };
+  } catch (e) { return defaults; }
+}
+
+// S51.F03 — Fix _ClientRouting for Al Yousuf (run once)
+function fixClientRoutingAlYousuf() {
+  try {
+    var masterSS   = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+    if (!masterSS) { Logger.log('S51: Cannot open master SS.'); return; }
+    var routeSheet = masterSS.getSheetByName('_ClientRouting');
+    if (!routeSheet || routeSheet.getLastRow() < 2) {
+      Logger.log('S51: _ClientRouting sheet empty or missing.');
+      return;
+    }
+    var rows  = routeSheet.getRange(2, 1, routeSheet.getLastRow() - 1, 4).getValues();
+    var fixed = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var forwarder = String(rows[i][0]).toLowerCase().trim();
+      if (forwarder === 'jobs@alyousufent.com' || forwarder === 'ai@alyousufent.com') {
+        routeSheet.getRange(i + 2, 1).setValue('ai@alyousufent.com');
+        routeSheet.getRange(i + 2, 4).setValue('TRUE');
+        fixed++;
+        Logger.log('S51: Fixed _ClientRouting row ' + (i + 2) + ' → ai@alyousufent.com, Active=TRUE');
+      }
+    }
+    var msg = fixed > 0
+      ? '✓ Fixed ' + fixed + ' _ClientRouting row(s).\nForwarder: ai@alyousufent.com | Active: TRUE'
+      : '⚠ No matching row found. Add a row manually:\n  ai@alyousufent.com | [sheet ID] | Al Yousuf India | TRUE';
+    try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log(msg); }
+  } catch (e) {
+    Logger.log('S51: fixClientRoutingAlYousuf error: ' + e.message);
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S52 · TRIGGER SWITCHER
+// ═══════════════════════════════════════════════════════════════════
+
+function setupV291Triggers_() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'runPipeline') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('runPipeline_v291').timeBased().everyMinutes(15).create();
+  Logger.log('S52: Trigger switched → runPipeline_v291 every 15 min.');
+  try {
+    SpreadsheetApp.getUi().alert(
+      'Trigger updated.\n\nrunPipeline_v291 now runs every 15 min.\n' +
+      'Upgraded Gemini model + large-CV fallback are now active.'
+    );
+  } catch(e) {}
+}
+
+function rollbackV291Triggers_() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'runPipeline_v291') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('runPipeline').timeBased().everyMinutes(15).create();
+  Logger.log('S52: Rolled back → runPipeline trigger restored.');
+  try { SpreadsheetApp.getUi().alert('Rollback complete. runPipeline (original) restored.'); } catch(e) {}
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S53 · V291 HEALTH CHECK
+// ═══════════════════════════════════════════════════════════════════
+
+function healthCheckV291() {
+  var issues = [];
+  var ok     = [];
+
+  // 1. Gemini model
+  var model = getEffectiveGeminiModel_();
+  if (model === 'gemini-2.5-flash-lite') {
+    issues.push('Model still gemini-2.5-flash-lite — run setupV291() to upgrade');
+  } else {
+    ok.push('Gemini model: ' + model);
+  }
+
+  // 2. API key not default
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+  if (key === 'AIzaSyCZL-NEYMWK1Z18Q2BTy_vRiyIiT_Yz1Qk' || !key) {
+    issues.push('GEMINI_API_KEY is the default/test value — replace with production key');
+  } else {
+    ok.push('Gemini API key: custom key set ✓');
+  }
+
+  // 3. _ClientRouting active row
+  try {
+    var ss  = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+    var rsh = ss ? ss.getSheetByName('_ClientRouting') : null;
+    if (rsh && rsh.getLastRow() > 1) {
+      var rows = rsh.getRange(2, 1, rsh.getLastRow() - 1, 4).getValues();
+      var activeFound = rows.some(function(r) { return String(r[3]).toUpperCase() === 'TRUE'; });
+      if (!activeFound) issues.push('_ClientRouting: no active row. Run fixClientRoutingAlYousuf()');
+      else ok.push('_ClientRouting: active row found ✓');
+    } else {
+      issues.push('_ClientRouting: sheet empty — add row for ai@alyousufent.com');
+    }
+  } catch (e) { issues.push('_ClientRouting check error: ' + e.message); }
+
+  // 4. Pipeline trigger
+  var triggers = ScriptApp.getProjectTriggers().map(function(t) { return t.getHandlerFunction(); });
+  if (triggers.indexOf('runPipeline_v291') >= 0) {
+    ok.push('Trigger: runPipeline_v291 active ✓');
+  } else if (triggers.indexOf('runPipeline') >= 0) {
+    issues.push('Trigger: original runPipeline active — run setupV291Triggers_() to switch');
+  } else {
+    issues.push('Trigger: no pipeline trigger found');
+  }
+
+  // 5. normalizeNationality_ and isInternalDomain_ (from v282)
+  if (typeof normalizeNationality_ === 'function') ok.push('normalizeNationality_ defined (v282) ✓');
+  else issues.push('normalizeNationality_ missing — ensure patch_v282.gs is in the project');
+
+  if (typeof isInternalDomain_ === 'function') ok.push('isInternalDomain_ defined (v282) ✓');
+  else issues.push('isInternalDomain_ missing — ensure patch_v282.gs is in the project');
+
+  // 6. CONFIG_V2
+  if (typeof CONFIG_V2 !== 'undefined') ok.push('CONFIG_V2 defined (V2.gs) ✓');
+  else issues.push('CONFIG_V2 undefined — ensure KAI_16May2026_V2.gs is in the project');
+
+  // 7. JD fix: v291 versions available
+  if (typeof extractJdPublicV2Fixed === 'function') ok.push('extractJdPublicV2Fixed defined ✓');
+  else issues.push('extractJdPublicV2Fixed missing — patch not loaded?');
+
+  if (typeof getSessionUser_v291_ === 'function') ok.push('getSessionUser_v291_ defined ✓');
+  else issues.push('getSessionUser_v291_ missing — patch not loaded?');
+
+  // 8. _LoginSystem sheet exists (for login system)
+  try {
+    var ss2   = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+    var login = ss2 ? ss2.getSheetByName('_LoginSystem') : null;
+    if (login) ok.push('_LoginSystem sheet exists ✓');
+    else issues.push('_LoginSystem sheet missing — run setupLoginSystem() from menu');
+  } catch(e) { issues.push('_LoginSystem check error: ' + e.message); }
+
+  // 9. findCandidateByEmail_v291_ uses CONFIG column
+  if (typeof findCandidateByEmail_v291_ === 'function') ok.push('findCandidateByEmail_v291_ defined ✓');
+  else issues.push('findCandidateByEmail_v291_ missing');
+
+  var msg = '═══ KAI v291 HEALTH CHECK ═══\n\n' +
+    (ok.length     ? '✓ OK:\n  ' + ok.join('\n  ')         + '\n\n' : '') +
+    (issues.length ? '⚠ Issues:\n  ' + issues.join('\n  ') + '\n\n' : '') +
+    (issues.length
+      ? 'Run setupV291() then re-run this check.'
+      : 'All v291 checks passed! Run generateSaasHandoffChecklist() for migration steps.');
+
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+  return { ok: ok, issues: issues };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S54 · SAAS HANDOFF CHECKLIST
+// ═══════════════════════════════════════════════════════════════════
+
+function generateSaasHandoffChecklist() {
+  var checklist = [
+    '═══════════════════════════════════════════════════════',
+    '  KAI PRE-SAAS HANDOFF CHECKLIST   (' + new Date().toDateString() + ')',
+    '═══════════════════════════════════════════════════════',
+    '',
+    '[ ] 1. SECURITY — Remove hardcoded GEMINI_API_KEY from Code.gs',
+    '       Lines 337 and 2552 contain plaintext key. Delete fallback value.',
+    '',
+    '[ ] 2. SECURITY — Remove hardcoded SPREADSHEET_ID from Code.gs',
+    '       Line 2543: ID must come from Script Properties only.',
+    '',
+    '[ ] 3. BRAND — Extract CONFIG.brand into per-tenant _Config sheet',
+    '       Currently hardcoded as "Al Yousuf Enterprises LLP" in v283 BRAND_CONFIG.',
+    '       SaaS needs brand_company, brand_sender, brand_sig1, brand_sig2 per tenant.',
+    '',
+    '[ ] 4. ROUTING — Wire resolveTenantSheet_() into main pipeline',
+    '       intake+company@karigarai.com must route to tenant spreadsheet.',
+    '       _ClientRouting sheet must have Active=TRUE rows for all agencies.',
+    '',
+    '[ ] 5. GMAIL — Update v286 processIncomingEmails286() search query',
+    '       Currently hardcodes: to:ai@alyousufent.com',
+    '       SaaS: search all intake+*@karigarai.com addresses.',
+    '',
+    '[ ] 6. DASHBOARD — Update google.script.run calls in dashboard HTML:',
+    '       extractJdPublicV2          → extractJdPublicV2Fixed',
+    '       extractJdFromPastePublicV2 → extractJdFromPastePublicV2Fixed',
+    '       getSessionUser             → getSessionUser_v291_',
+    '',
+    '[ ] 7. GEMINI — Confirm gemini-2.0-flash running (done in v291)',
+    '       Run setupV291() to set KAI_GEMINI_MODEL_OVERRIDE property.',
+    '',
+    '[ ] 8. QUOTA — Per-tenant quota isolation needed for SaaS',
+    '       Current Script Properties are shared across all tenants.',
+    '       For SaaS: use tenant-prefixed keys (quota_alyousuf_cv_fresh, etc.)',
+    '',
+    '[ ] 9. _LoginSystem — Extend to SaaS auth model',
+    '       Sessions stored per-sheet. Centralise to master sheet for multi-tenant.',
+    '',
+    '[ ] 10. PATCH FILES — Share ALL .gs files with KAI',
+    '        Required files (add in this order in Apps Script editor):',
+    '          Code.gs (V1 base)',
+    '          KAI_16May2026_V2.gs',
+    '          KAI_16May2026_patch_v280.gs',
+    '          KAI_17May2026_patch_v282.gs',
+    '          KAI_17May2026_patch_v283.gs',
+    '          KAI_17May2026_patch_v284.gs',
+    '          KAI_17May2026_patch_v285.gs',
+    '          KAI_17May2026_patch_v286.gs',
+    '          KAI_17May2026_patch_v287.gs',
+    '          KAI_17May2026_patch_v288.gs',
+    '          KAI_18May2026_patch_v289.gs',
+    '          patch_v291.gs  ← this file',
+    '          Plus: KAI_Login.html + KAI_16May2026_V2_Dashboard.html',
+    '',
+    '[ ] 11. DATA FIX — _ClientRouting: ai@alyousufent.com + Active=TRUE',
+    '        Run fixClientRoutingAlYousuf() from KAI v291 Fixes menu.',
+    '',
+    '[ ] 12. TRIGGER — Switch to runPipeline_v291',
+    '        Run setupV291Triggers_() from KAI v291 Fixes menu.',
+    '',
+    '═══════════════════════════════════════════════════════',
+    '  IMMEDIATE ACTIONS (do RIGHT NOW before SaaS migration)',
+    '═══════════════════════════════════════════════════════',
+    '',
+    '  1. Run setupV291()                  — apply all code fixes',
+    '  2. Run fixClientRoutingAlYousuf()   — fix email routing + Active',
+    '  3. Run setupV291Triggers_()         — switch pipeline to patched version',
+    '  4. Run setupLoginSystem()           — ensure _LoginSystem sheet exists',
+    '  5. Run forceProcessRepliesNow()     — clear reply backlog (from v289 menu)',
+    '  6. Run healthCheckV291()            — verify all green',
+    '  7. Run runPipeline_v291()           — manual test from editor',
+    '  8. Monitor _Errors sheet            — should see fewer Gemini nulls',
+    '  9. Monitor _Quota Reply column      — should increment as replies come in',
+    ''
+  ].join('\n');
+
+  Logger.log(checklist);
+  try {
+    var owner = (typeof getOwnerEmail_ === 'function') ? getOwnerEmail_() : '';
+    if (owner) {
+      MailApp.sendEmail({ to: owner, subject: 'KAI — Pre-SaaS Handoff Checklist', body: checklist });
+      SpreadsheetApp.getUi().alert('Checklist emailed to ' + owner + '\nAlso logged to execution log.');
+    } else {
+      SpreadsheetApp.getUi().alert('Checklist generated — see Apps Script execution log.');
+    }
+  } catch(e) { Logger.log('S54: Could not email checklist: ' + e.message); }
+  return checklist;
+}
+
+
+// ── KAI v291 Fixes menu ──────────────────────────────────────────
+function onOpen_v291_addMenuItems() {
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('KAI v291 Fixes')
+      .addItem('⚙️ Apply patch_v291 (run once)',    'setupV291')
+      .addItem('🔍 Health Check v291',               'healthCheckV291')
+      .addItem('🔗 Fix ClientRouting — Al Yousuf',   'fixClientRoutingAlYousuf')
+      .addItem('🔄 Switch Trigger → v291 Pipeline',  'setupV291Triggers_')
+      .addItem('↩ Rollback → Original Pipeline',     'rollbackV291Triggers_')
+      .addItem('▶ Run v291 Pipeline Now (test)',      'runPipeline_v291')
+      .addSeparator()
+      .addItem('📋 Generate SaaS Handoff Checklist', 'generateSaasHandoffChecklist')
+      .addToUi();
+  } catch(e) {}
+}
+
+// END OF FILE — patch_v291.gs
+
+// ═══════════════════════════════════════════════════════════════════
+//  AUTO-REPLY ON PARSE FAILURE  —  patch_v291 addition
+//  Sends a human-sounding reply asking candidate to resend CV in Word
+// ═══════════════════════════════════════════════════════════════════
+
+var RESEND_REPLY_BODY_ = [
+  'Dear Candidate,',
+  '',
+  'Thank you for reaching out to Al Yousuf Enterprises.',
+  '',
+  'We received your application but were unable to process your CV.',
+  'Kindly resend your resume in Word format (.doc or .docx) without any additional attachments.',
+  '',
+  'If we require any further information, we will reach out to you directly.',
+  '',
+  'Regards,',
+  'Recruitment Team',
+  'Al Yousuf Enterprises LLP'
+].join('\n');
+
+// Extract email address from "Display Name <email@domain.com>" format
+function extractEmailFromSender_(sender) {
+  var m = String(sender || '').match(/<([\w.+\-]+@[\w\-]+\.[a-z.]+)>/i);
+  if (m) return m[1].toLowerCase();
+  m = String(sender || '').match(/([\w.+\-]+@[\w\-]+\.[a-z.]+)/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+// Queue a resend-request reply (skips internal @alyousufent.com addresses)
+function queueResendReply_(toEmail, originalSubject) {
+  if (!toEmail) return;
+  if (typeof isInternalDomain_ === 'function' && isInternalDomain_(toEmail)) return;
+  var subject = originalSubject ? 'Re: ' + originalSubject : 'Your CV Application — Al Yousuf Enterprises';
+  queuePendingEmail_v291_(toEmail, subject, RESEND_REPLY_BODY_, null, 'Al Yousuf Recruitment');
+}
+
+// Wrapper around processThread_v291_ — queues reply on any parse error
+function processThreadWithReply_(thread, circuit) {
+  var result = processThread_v291_(thread, circuit);
+  if (result === 'ERROR_GEMINI' || result === 'ERROR_SIZE' || result === 'ERROR_NO_CV') {
+    try {
+      var msgs    = thread.getMessages();
+      var msg     = msgs[msgs.length - 1];
+      var toEmail = extractEmailFromSender_(msg.getFrom());
+      queueResendReply_(toEmail, msg.getSubject() || '');
+    } catch (e) {
+      Logger.log('processThreadWithReply_: reply queue failed — ' + e.message);
+    }
+  }
+  return result;
+}
+
+// ── BACKFILL: send resend-request replies to all 458 historical _Errors rows ──
+// Run once from GAS editor. Re-run safely — already-replied rows are skipped.
+function backfillErrorReplies() {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName('_Errors');
+  if (!sheet || sheet.getLastRow() < 2) {
+    Logger.log('backfillErrorReplies: _Errors sheet empty or missing.');
+    return;
+  }
+
+  // _Errors schema: Timestamp|Thread Id|Sender|Subject|Error|Raw Response|Permalink
+  // We use col 8 (index 7) as "Reply Status" — add header if needed
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 8) {
+    sheet.getRange(1, 8).setValue('Reply Status');
+  } else {
+    var h = sheet.getRange(1, 8).getValue();
+    if (!h) sheet.getRange(1, 8).setValue('Reply Status');
+  }
+
+  var totalRows = sheet.getLastRow() - 1;
+  var data      = sheet.getRange(2, 1, totalRows, 8).getValues();
+  var queued = 0, skipped = 0;
+
+  for (var i = 0; i < data.length; i++) {
+    var replyStatus = String(data[i][7] || '').toUpperCase().trim();
+    if (replyStatus === 'REPLIED') { skipped++; continue; }
+
+    var sender  = String(data[i][2] || '');
+    var subject = String(data[i][3] || '');
+    var toEmail = extractEmailFromSender_(sender);
+
+    if (!toEmail) { 
+      sheet.getRange(i + 2, 8).setValue('NO_EMAIL');
+      skipped++; 
+      continue; 
+    }
+    if (typeof isInternalDomain_ === 'function' && isInternalDomain_(toEmail)) {
+      sheet.getRange(i + 2, 8).setValue('INTERNAL_SKIP');
+      skipped++;
+      continue;
+    }
+
+    queuePendingEmail_v291_(toEmail, subject ? 'Re: ' + subject : 'Your CV Application — Al Yousuf Enterprises',
+                             RESEND_REPLY_BODY_, null, 'Al Yousuf Recruitment');
+    sheet.getRange(i + 2, 8).setValue('REPLIED');
+    queued++;
+
+    // Flush every 50 to avoid memory buildup
+    if (queued % 50 === 0) {
+      if (typeof flushPendingEmails_v291_ === 'function') flushPendingEmails_v291_();
+      Logger.log('backfillErrorReplies: flushed at ' + queued + ' replies queued...');
+    }
+  }
+
+  // Final flush
+  if (typeof flushPendingEmails_v291_ === 'function') flushPendingEmails_v291_();
+
+  Logger.log('backfillErrorReplies DONE — Queued: ' + queued + ' | Skipped: ' + skipped + ' / ' + totalRows + ' total rows');
+}
