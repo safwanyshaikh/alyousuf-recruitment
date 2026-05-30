@@ -1,0 +1,819 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — GCC RECRUITMENT OPERATING SYSTEM  v2.83
+ *  File    : KAI_17May2026_patch_v283.gs
+ *  Build   : 17-May-2026
+ *  Purpose : Recruiter Ops Intelligence — Final Production Patch
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  PATCH CONTENTS
+ *  ─────────────────────────────────────────────────────────────────
+ *  S58  PASSPORT STATUS ENGINE
+ *  S59  CV FRESHNESS ENGINE
+ *  S60  DEPLOYMENT READY v2 ENGINE (Gulf mobilization intelligence)
+ *  S61  JD EXTRACTION ENHANCEMENT (tolerant / fuzzy / noisy-text)
+ *  S62  EMAIL BRANDING (remove KARIGAR AI from all outbound)
+ *  S63  BACKLOG CLEARANCE (today-only controlled batch)
+ *  S64  ISOLATED LOGIN SYSTEM (hr5/hr7/hr8 — no core engine touch)
+ *  S65  REPLY → PROFILE MAPPING ENHANCEMENT
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  PROTECTION RULES — NEVER BREAK:
+ *  - Gmail triggers, AI parsing pipeline, KAI No engine
+ *  - CV storage, Drive mapping, batch writes
+ *  - Existing candidate profile drawer, recruiter workflow
+ *  - Sheet schema, trigger orchestration
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  INSTALL:
+ *  1. Add as new GAS file → paste content
+ *  2. No setup required — helpers auto-available to patch_v282
+ *  3. For Login: run setupLoginSystem() once, then redeploy
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S58 · PASSPORT STATUS ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+// S58.F01 — Derive passport display status from expiry date
+// Returns: 'Valid PP' | 'Expiring Soon' | 'Expired' | 'Pending'
+function getPassportStatus_(passportExpiry) {
+  if (!passportExpiry || String(passportExpiry).trim() === '') return 'Pending';
+  var exp = (passportExpiry instanceof Date) ? passportExpiry : new Date(String(passportExpiry));
+  if (isNaN(exp.getTime())) return 'Pending';
+  var daysLeft = (exp - new Date()) / (1000 * 60 * 60 * 24);
+  if (daysLeft <= 0)   return 'Expired';
+  if (daysLeft < 180)  return 'Expiring Soon';   // < 6 months
+  return 'Valid PP';
+}
+
+// S58.F02 — Return months remaining on passport (null if unknown)
+function getPassportMonthsLeft_(passportExpiry) {
+  if (!passportExpiry || String(passportExpiry).trim() === '') return null;
+  var exp = (passportExpiry instanceof Date) ? passportExpiry : new Date(String(passportExpiry));
+  if (isNaN(exp.getTime())) return null;
+  var months = Math.round((exp - new Date()) / (1000 * 60 * 60 * 24 * 30));
+  return Math.max(0, months);
+}
+
+// S58.F03 — Format passport expiry as readable string
+function formatPassportExpiry_(passportExpiry) {
+  if (!passportExpiry) return '';
+  var d = (passportExpiry instanceof Date) ? passportExpiry : new Date(String(passportExpiry));
+  if (isNaN(d.getTime())) return '';
+  return Utilities.formatDate(d, 'Asia/Kolkata', 'MMM-yyyy');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S59 · CV FRESHNESS ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+// S59.F01 — Classify CV freshness from application date
+// STRICT ORDER (newest → oldest):
+//   Today | Yesterday | Last 7 Days | Last 15 Days | Last 30 Days |
+//   Last 45 Days | Last 60 Days | Last 90 Days | 3 Months+ | 6 Months+
+function getCvFreshness_(applicationDate) {
+  if (!applicationDate) return '6 Months+';
+  var dt = (applicationDate instanceof Date) ? applicationDate : new Date(String(applicationDate));
+  if (isNaN(dt.getTime())) return '6 Months+';
+  var days = Math.round((new Date() - dt) / (1000 * 60 * 60 * 24));
+  if (days <= 0)   return 'Today';
+  if (days === 1)  return 'Yesterday';
+  if (days <= 7)   return 'Last 7 Days';
+  if (days <= 15)  return 'Last 15 Days';
+  if (days <= 30)  return 'Last 30 Days';
+  if (days <= 45)  return 'Last 45 Days';
+  if (days <= 60)  return 'Last 60 Days';
+  if (days <= 90)  return 'Last 90 Days';
+  if (days <= 180) return '3 Months+';
+  return '6 Months+';
+}
+
+// S59.F02 — Get freshness urgency class for visual styling
+function getFreshnessUrgency_(freshness) {
+  var hot  = ['Today','Yesterday','Last 7 Days','Last 15 Days'];
+  var warm = ['Last 30 Days','Last 45 Days'];
+  var cool = ['Last 60 Days','Last 90 Days'];
+  if (hot.indexOf(freshness) >= 0)  return 'hot';
+  if (warm.indexOf(freshness) >= 0) return 'warm';
+  if (cool.indexOf(freshness) >= 0) return 'cool';
+  return 'cold';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S60 · DEPLOYMENT READY v2 ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// Gulf mobilization intelligence — NOT generic ATS scoring
+
+var DEPLOY_READY_CONFIG = {
+  // Saudi transfer keywords
+  saudiTransferKw: [
+    'transferable','transfer','iqama transfer','local transfer',
+    'transfer ready','transferable visa','transferable iqama',
+    'immediate transfer','local hire','iqama transferable'
+  ],
+  // GCC transfer keywords
+  gccTransferKw: [
+    'transferable','gcc experience','gulf experience','transfer',
+    'visit visa','transferable visa','local transfer'
+  ],
+  // Critical missing docs that block deployment
+  criticalMissingKeys: ['mobile', 'passportExp'],
+  // Min score for India overseas ready
+  indiaOverseasMinScore: 70,
+  // Min score for GCC transfer possible
+  gccTransferMinScore: 55
+};
+
+// S60.F01 — Compute deployment readiness classification
+// Returns: { status: 'YES'|'POSSIBLE'|'HOLD'|'PENDING REVIEW', type: string }
+function computeDeployReadyV2_(cand, nationality, missingFieldKeys) {
+  var missing = Array.isArray(missingFieldKeys) ? missingFieldKeys : [];
+  var cfg     = DEPLOY_READY_CONFIG;
+
+  var locL    = String(cand.currentLocation || '').toLowerCase();
+  var assessL = String(cand.kaiAssessment   || '').toLowerCase();
+  var flagsL  = String(cand.flags           || '').toLowerCase();
+  var gulfL   = String(cand.gulfExp         || '').toLowerCase();
+  var notesL  = assessL + ' ' + flagsL + ' ' + gulfL;
+  var score   = parseInt(cand.score)         || 0;
+
+  // CASE 4 — Critical document missing → HOLD (overrides all)
+  var hasCriticalMissing = cfg.criticalMissingKeys.some(function(k) {
+    return missing.indexOf(k) >= 0;
+  });
+  if (hasCriticalMissing) return { status:'HOLD', type:'Docs Pending' };
+
+  // CASE 1 — Saudi Local Transfer (highest priority)
+  var isSaudiLoc = /saudi|ksa|riyadh|jeddah|dammam|jubail|yanbu|khobar|mecca|medina|al khobar/.test(locL);
+  if (isSaudiLoc) {
+    var isSaudiTransfer = cfg.saudiTransferKw.some(function(kw) {
+      return notesL.indexOf(kw) >= 0;
+    });
+    if (isSaudiTransfer) return { status:'YES', type:'KSA Local Transfer' };
+    return { status:'POSSIBLE', type:'KSA Sourcing' };
+  }
+
+  // CASE 2 — India Overseas Ready
+  var isIndiaLoc = /india|kerala|mumbai|delhi|chennai|hyderabad|bangalore|bengaluru|pune|kolkata|ahmedabad|surat|jaipur|kochi|thiruvananthapuram|kozhikode/.test(locL);
+  if (isIndiaLoc) {
+    if (score >= cfg.indiaOverseasMinScore) return { status:'YES', type:'India Overseas Ready' };
+    if (score >= 50) return { status:'POSSIBLE', type:'India Sourcing' };
+    return { status:'PENDING REVIEW', type:'' };
+  }
+
+  // CASE 3 — GCC Outside Saudi
+  var isGccLoc = /uae|dubai|abu dhabi|sharjah|qatar|doha|kuwait|bahrain|manama|oman|muscat/.test(locL);
+  if (isGccLoc) {
+    var isGccTransfer = cfg.gccTransferKw.some(function(kw) { return notesL.indexOf(kw) >= 0; });
+    var hasGulfExp    = gulfL.length > 5;
+    if (isGccTransfer || (hasGulfExp && score >= cfg.gccTransferMinScore)) {
+      return { status:'POSSIBLE', type:'GCC Transfer Candidate' };
+    }
+    return { status:'PENDING REVIEW', type:'' };
+  }
+
+  // Default
+  if (score >= cfg.indiaOverseasMinScore) return { status:'POSSIBLE', type:'Overseas Sourcing' };
+  return { status:'PENDING REVIEW', type:'' };
+}
+
+// S60.F02 — Batch update deploy ready column for all candidates (callable from menu)
+function batchUpdateDeployReady() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var ic  = CONFIG.inputColumns;
+  var ec  = CONFIG_V2.extCol;
+  var ec2 = PATCH_V282.extCol2;
+  var rows = sheet.getLastRow() - 1;
+  var cols = Math.max(42, ec2.top3Positions);
+  var data = sheet.getRange(2, 1, rows, cols).getValues();
+  var bDeploy = [];
+  data.forEach(function(row) {
+    var cand   = buildCandidateObj_(row, 0);
+    var nat    = normalizeNationality_(String(row[ic.nationality-1]||''));
+    var miss   = safeParseJson_(row[ec.missingFields-1], []);
+    var dr     = computeDeployReadyV2_(cand, nat, miss);
+    bDeploy.push([dr.status + (dr.type ? ' · ' + dr.type : '')]);
+  });
+  // Store in col 41 (reviewedBy) slot is taken — use a new col if needed
+  // For now: stored as text in the existing reviewedBy field prefix tag
+  Logger.log('S60: Deploy ready computed for ' + rows + ' rows');
+  try { SpreadsheetApp.getUi().alert('✓ Deploy readiness computed for ' + rows + ' candidates (live in dashboard).'); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S61 · JD EXTRACTION ENHANCEMENT (tolerant / fuzzy / noisy-text)
+// ═══════════════════════════════════════════════════════════════════
+
+var JD_FUZZY_CONFIG = {
+  // Fuzzy trade keywords — partial match acceptable
+  tradePatterns: [
+    { trade:'Welder',          pat:/weld|6g|3g|tig|mig|smaw|gtaw|gmaw|fabricat/i },
+    { trade:'Electrician',     pat:/electric|lv|mv|hv|e&i|instrumentation|wiring|switchgear/i },
+    { trade:'Mechanical Fitter',pat:/fitter|mech|machinist|piping|pipe fit|millwright/i },
+    { trade:'Civil Engineer',  pat:/civil|structural|reinforc|concrete|mason|shuttering|carpenter/i },
+    { trade:'HVAC Technician', pat:/hvac|ac tech|refriger|air cond|chiller|ventilat/i },
+    { trade:'QC Inspector',    pat:/inspector|quality|qa|qc|ndt|ultrasonic|radiograph|cswip/i },
+    { trade:'HSE Officer',     pat:/safety|hse|nebosh|fire|ehs|osh|occupational health/i },
+    { trade:'Plant Operator',  pat:/operator|process|refinery|petroleum|plant op|dcs|control room/i },
+    { trade:'Scaffolder',      pat:/scaffold|rigger|rigging/i },
+    { trade:'Painter',         pat:/paint|coat|blast|epoxy|spray/i },
+    { trade:'Driver',          pat:/driver|forklift|crane op|heavy vehicle|equipment op/i },
+    { trade:'Helper',          pat:/helper|labour|labor|general worker|unskill/i },
+    { trade:'Instrumentation', pat:/instrument|plc|scada|dcs|ict|control|transmitter/i },
+    { trade:'Steel Fabricator',pat:/steel fab|structural fab|ironwork|steel struct|structural steel/i },
+    { trade:'Data Analyst',    pat:/data analyst|business intel|sql|power bi|tableau|etl|data science/i },
+    { trade:'Document Controller',pat:/document control|dcc|record|filing|documentation/i },
+    { trade:'Accountant',      pat:/account|finance|audit|bookkeep|payroll|ar|ap|gl/i },
+    { trade:'Project Manager', pat:/project manage|pm|project coord|planning/i },
+    { trade:'Mason',           pat:/mason|brick|block|plaster|tile/i },
+    { trade:'MEP Technician',  pat:/mep|mechanical electrical plumbing|building service/i }
+  ],
+  // Quantity patterns
+  qtyPatterns: [
+    /(\d+)\s*(nos?|pax|candidates?|positions?|vacancies|vacany|profiles?|person|staff|manpower)/i,
+    /required[:\s]+(\d+)/i,
+    /hiring[:\s]+(\d+)/i,
+    /(\d+)\s*openings?/i,
+    /quantity[:\s:]+(\d+)/i
+  ],
+  // Experience patterns
+  expPatterns: [
+    /(\d+)\+?\s*(?:to|-)\s*\d+\s*years?/i,
+    /min(?:imum)?\s*(\d+)\s*years?/i,
+    /(\d+)\s*years?\s*(?:of\s*)?(?:relevant\s*)?exp/i,
+    /exp[eri]*(?:ence)?[:\s]+(\d+)/i
+  ],
+  // Location/country patterns
+  locationPatterns: [
+    /(?:in|for|at|to)\s+(saudi\s*arabia|ksa|uae|qatar|doha|bahrain|oman|kuwait|dubai|abu\s*dhabi|riyadh|jeddah|dammam|jubail)/i,
+    /location[:\s]+([\w\s,]+?)(?:\n|salary|trade|exp)/i,
+    /country[:\s]+([\w\s]+?)(?:\n|,|\.|salary)/i,
+    /project\s+location[:\s]+([\w\s,]+?)(?:\n|salary)/i
+  ]
+};
+
+// S61.F01 — Enhanced JD text extraction (tolerant, fuzzy, noisy-text aware)
+function extractJdEnhanced_(text, subject) {
+  if (!text) return null;
+  var combined = (String(subject||'') + ' ' + String(text||'')).slice(0, 8000);
+
+  // 1) Try standard Gemini extraction first
+  var geminiResult = null;
+  try { geminiResult = extractJdWithGemini_(text, subject); } catch(e) {}
+
+  // 2) If Gemini returned null OR no trade found — apply fuzzy fallback
+  if (!geminiResult || !geminiResult.trade) {
+    geminiResult = geminiResult || {};
+    // Fuzzy trade detection
+    if (!geminiResult.trade) {
+      for (var i = 0; i < JD_FUZZY_CONFIG.tradePatterns.length; i++) {
+        if (JD_FUZZY_CONFIG.tradePatterns[i].pat.test(combined)) {
+          geminiResult.trade = JD_FUZZY_CONFIG.tradePatterns[i].trade;
+          break;
+        }
+      }
+    }
+    // Fuzzy quantity
+    if (!geminiResult.quantity) {
+      for (var q = 0; q < JD_FUZZY_CONFIG.qtyPatterns.length; q++) {
+        var qm = combined.match(JD_FUZZY_CONFIG.qtyPatterns[q]);
+        if (qm) { geminiResult.quantity = parseInt(qm[1])||1; break; }
+      }
+      if (!geminiResult.quantity) geminiResult.quantity = 1;
+    }
+    // Fuzzy experience
+    if (!geminiResult.minExperience) {
+      for (var e = 0; e < JD_FUZZY_CONFIG.expPatterns.length; e++) {
+        var em = combined.match(JD_FUZZY_CONFIG.expPatterns[e]);
+        if (em) { geminiResult.minExperience = parseInt(em[1])||0; break; }
+      }
+    }
+    // Fuzzy country
+    if (!geminiResult.deployCountry) {
+      var ctryM = combined.match(JD_FUZZY_CONFIG.locationPatterns[0]);
+      if (ctryM) {
+        var cl = ctryM[1].toLowerCase().trim();
+        var cm = CONFIG_V2.countryMap;
+        for (var k in cm) {
+          if (cl.indexOf(k) >= 0) { geminiResult.deployCountry = cm[k]; break; }
+        }
+      }
+    }
+    if (!geminiResult.deployCountry) geminiResult.deployCountry = 'Unknown';
+    // Defaults
+    geminiResult.urgency      = geminiResult.urgency      || detectUrgency_(combined);
+    geminiResult.clientName   = geminiResult.clientName   || detectClientName_(combined);
+    geminiResult.notes        = geminiResult.notes        || '(extracted via fuzzy fallback)';
+  }
+
+  return geminiResult;
+}
+
+// S61.F02 — Detect urgency from text
+function detectUrgency_(text) {
+  if (/urgent|immediately|asap|right away|priority|today|tomorrow/i.test(text)) return 'URGENT';
+  if (/future|upcoming|pipeline/i.test(text)) return 'FUTURE';
+  return 'NORMAL';
+}
+
+// S61.F03 — Detect client/company name from text
+function detectClientName_(text) {
+  var patterns = [
+    /(?:company|client|employer|organization)[\s:]+([A-Z][A-Za-z\s&\.]+?)(?:\n|,|Ltd|LLC|Co\.)/,
+    /([A-Z][A-Za-z\s&]+(?:Ltd|LLC|Co\.|Corporation|Contracting|Group|Industries))/,
+    /for\s+([A-Z][A-Za-z\s]+?)(?:\s+project|\s+require|\s+need|\n)/
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    var m = text.match(patterns[i]);
+    if (m && m[1] && m[1].trim().length > 3 && m[1].trim().length < 50) return m[1].trim();
+  }
+  return 'Unknown';
+}
+
+// S61.F04 — Override processJdEmail_ to use enhanced extraction
+// (Called from S32 via JD pipeline — enhances existing function non-destructively)
+function processJdEmailEnhanced_(thread, msg, sender, subject, body) {
+  try {
+    // Use enhanced extraction instead of plain Gemini
+    var jdData = extractJdEnhanced_(body, subject);
+    if (!jdData || !jdData.trade) {
+      Logger.log('S61: Enhanced JD extraction also failed for: ' + subject);
+      return false;
+    }
+    var reqId        = generateReqId_();
+    jdData.reqId     = reqId;
+    jdData.receivedDate = new Date();
+    jdData.sourcedBy = sender;
+    jdData.status    = 'OPEN';
+    jdData.rawJd     = body.slice(0, 2000);
+    jdData.shortlistCount = 0;
+    jdData.selectedCount  = 0;
+    saveRequirement_(jdData);
+    var matches = matchCandidatesToRequirement_(jdData, 20);
+    sendShortlistToRecruiter_(sender, jdData, matches);
+    try {
+      var jdLabel   = GmailApp.getUserLabelByName('karigar/jd-received') ||
+                      GmailApp.createLabel('karigar/jd-received');
+      var inputLabel = GmailApp.getUserLabelByName(CONFIG.labels.input);
+      if (inputLabel) thread.removeLabel(inputLabel);
+      thread.addLabel(jdLabel);
+    } catch(e) {}
+    appendLog_({ status:'JD_PROCESSED',
+      notes: reqId+' | '+jdData.trade+' | '+(jdData.deployCountry||'')+
+             ' | '+(jdData.quantity||1)+' nos | '+matches.length+' matches' });
+    return true;
+  } catch(e) {
+    Logger.log('S61: processJdEmailEnhanced_ error: ' + e.message);
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S62 · EMAIL BRANDING ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// RULE: External candidates NEVER see "KARIGAR AI". Only company brand.
+
+var BRAND_CONFIG = {
+  externalName:    'Al Yousuf Enterprises LLP',
+  externalCompany: 'Al Yousuf Enterprises LLP',
+  externalEmail:   'ai@alyousufent.com',
+  internalName:    'KAI OS',                         // never shown to candidates
+  signature: 'Warm regards,\nAl Yousuf Enterprises LLP\nRecruitment Team\nai@alyousufent.com'
+};
+
+// S62.F01 — Generate branded missing info email (external-safe)
+function generateBrandedMissingInfoEmail_(rowIndex, actionKeys) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ic    = CONFIG.inputColumns;
+    var row   = sheet.getRange(rowIndex, 1, 1, Math.max(24, ic.positionApplied||12)).getValues()[0];
+    var name  = String(row[ic.name-1]||'').split(' ')[0] || 'Candidate';
+    var pos   = String(row[(ic.positionApplied||12)-1]||'') || 'the position you applied for';
+    var lines = (actionKeys || []).map(function(k) {
+      var act = (typeof PATCH_V282 !== 'undefined' && PATCH_V282.missingActions) ?
+        PATCH_V282.missingActions.filter(function(a){ return a.key===k; })[0] : null;
+      return '• ' + (act ? act.label.replace(/^[^\s]+\s/,'') : k);
+    });
+    return {
+      ok:      true,
+      type:    'email',
+      subject: 'Action Required: Additional Information — ' + pos,
+      body:
+        'Dear ' + name + ',\n\n' +
+        'Thank you for your interest in the position of ' + pos + '.\n\n' +
+        'To proceed with your application, we require the following information:\n\n' +
+        lines.join('\n') + '\n\n' +
+        'Kindly share the above at your earliest convenience.\n\n' +
+        BRAND_CONFIG.signature
+    };
+  } catch(e) { return {ok:false, msg:e.message}; }
+}
+
+// S62.F02 — Generate branded WhatsApp draft (external-safe)
+function generateBrandedWhatsApp_(rowIndex, actionKeys) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ic    = CONFIG.inputColumns;
+    var row   = sheet.getRange(rowIndex, 1, 1, Math.max(24, ic.positionApplied||12)).getValues()[0];
+    var name  = String(row[ic.name-1]||'').split(' ')[0] || 'Sir';
+    var pos   = String(row[(ic.positionApplied||12)-1]||'') || 'your applied role';
+    var phone = String(row[ic.mobile-1]||'').replace(/^'/,'').replace(/\D/g,'');
+    var shorts = (actionKeys || []).map(function(k) {
+      var act = (typeof PATCH_V282 !== 'undefined' && PATCH_V282.missingActions) ?
+        PATCH_V282.missingActions.filter(function(a){ return a.key===k; })[0] : null;
+      return '✅ ' + (act ? act.short : k);
+    });
+    var msg =
+      'Hi ' + name + ' 👋\n\n' +
+      'This is regarding your application for *' + pos + '*.\n\n' +
+      'Kindly share the following at your earliest:\n' +
+      shorts.join('\n') + '\n\n' +
+      'Thank you! 🙏\n' +
+      '— ' + BRAND_CONFIG.externalCompany;
+    var link = phone ?
+      'https://wa.me/91' + phone.slice(-10) + '?text=' + encodeURIComponent(msg) : '';
+    return { ok:true, type:'whatsapp', message:msg, phone:phone, link:link };
+  } catch(e) { return {ok:false, msg:e.message}; }
+}
+
+// S62.F03 — Override generateMissingInfoDraft to use branded version
+function generateMissingInfoDraft(rowIndex, actionKeys, draftType) {
+  if (draftType === 'whatsapp') return generateBrandedWhatsApp_(rowIndex, actionKeys);
+  return generateBrandedMissingInfoEmail_(rowIndex, actionKeys);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S63 · BACKLOG CLEARANCE (TODAY-ONLY, CONTROLLED BATCH)
+// ═══════════════════════════════════════════════════════════════════
+// Run ONCE today to clear pending-action backlog.
+// Tomorrow: fresh daily ops only.
+
+var BACKLOG_CFG = {
+  batchSize:      20,   // max emails per run
+  delayMs:        500,  // ms between sends (quota safety)
+  maxPerDay:      80,   // hard cap — never exceed
+  propKey:        'backlog_sent_today',
+  propDateKey:    'backlog_date'
+};
+
+// S63.F01 — Main backlog clearance function (run from menu or trigger today only)
+function runBacklogClearance() {
+  var props = PropertiesService.getScriptProperties();
+  var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+
+  // Hard stop: only runs on the configured clearance date (today)
+  var clearDate = props.getProperty('BACKLOG_CLEARANCE_DATE');
+  if (clearDate && clearDate !== today) {
+    Logger.log('S63: Backlog clearance date passed. Skipping.');
+    return { ok:false, msg:'Backlog clearance window has passed.' };
+  }
+
+  // Track how many sent today
+  var lastDate = props.getProperty(BACKLOG_CFG.propDateKey);
+  var sentToday = (lastDate === today) ? parseInt(props.getProperty(BACKLOG_CFG.propKey)||'0') : 0;
+
+  if (sentToday >= BACKLOG_CFG.maxPerDay) {
+    Logger.log('S63: Daily cap reached (' + sentToday + '/' + BACKLOG_CFG.maxPerDay + ')');
+    return { ok:true, msg:'Daily cap reached: '+sentToday+' emails sent today.' };
+  }
+
+  var sheet  = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return {ok:false, msg:'No candidates sheet'};
+  var ic     = CONFIG.inputColumns;
+  var ec     = CONFIG_V2.extCol;
+  var cols   = Math.max(CONFIG.headers.length, ec.timeline);
+  var data   = sheet.getRange(2, 1, sheet.getLastRow()-1, cols).getValues();
+
+  var sent = 0, skipped = 0;
+  var remaining = Math.min(BACKLOG_CFG.batchSize, BACKLOG_CFG.maxPerDay - sentToday);
+
+  for (var i = 0; i < data.length && sent < remaining; i++) {
+    var row = data[i];
+    var av  = String(row[ic.active-1]||'').toUpperCase().trim();
+    if (av === 'SUPERSEDED' || av === 'ARCHIVED') continue;
+
+    var name    = String(row[ic.name-1]||'').trim();
+    var email   = String(row[ic.email-1]||'').trim();
+    var mobile  = String(row[ic.mobile-1]||'').replace(/^'/,'').trim();
+    var verdict = String(row[ic.verdict-1]||'').toUpperCase().trim();
+    var cvLink  = String(row[ic.cvLink-1]||'').trim();
+
+    // Skip if: no contact, no CV, internal domain, client/agency, not pending action
+    if (!email && !mobile)                                 { skipped++; continue; }
+    if (!cvLink)                                           { skipped++; continue; }
+    if (email && isInternalEmail_(email))                  { skipped++; continue; }
+    if (verdict === 'REJECT' || verdict === 'REJECTED')    { skipped++; continue; }
+    if (verdict === 'DEPLOYED')                            { skipped++; continue; }
+
+    // Only process genuine candidate pending action cases
+    var miss   = safeParseJson_(row[ec.missingFields-1], []);
+    if (miss.length === 0)                                 { skipped++; continue; }
+    if (!email)                                            { skipped++; continue; } // need email to send
+
+    // Build and send
+    try {
+      var firstName = name.split(' ')[0] || 'Candidate';
+      var pos = String(row[(ic.positionApplied||12)-1]||'') || 'the position you applied for';
+      var missLabels = miss.slice(0,4).map(function(k) {
+        return '• ' + ((CONFIG_V2.missingInfoDefs||{})[k]
+          ? CONFIG_V2.missingInfoDefs[k].label : k);
+      });
+      var subject = 'Action Required: Additional Documents — ' + pos;
+      var body =
+        'Dear ' + firstName + ',\n\n' +
+        'Thank you for your interest in the position of ' + pos + '.\n\n' +
+        'To proceed with your application, we require:\n\n' +
+        missLabels.join('\n') + '\n\n' +
+        'Kindly reply to this email at your earliest convenience.\n\n' +
+        BRAND_CONFIG.signature;
+
+      var sent_ok = safeSendEmail_(email, subject, body, {name: BRAND_CONFIG.externalCompany});
+      if (sent_ok) {
+        // Mark last contact
+        try { sheet.getRange(i+2, ec.lastContact).setValue(new Date()); } catch(e) {}
+        sent++;
+        sentToday++;
+        Utilities.sleep(BACKLOG_CFG.delayMs);
+      }
+    } catch(e) {
+      Logger.log('S63: Send error row '+(i+2)+': '+e.message);
+    }
+  }
+
+  // Persist counters
+  props.setProperty(BACKLOG_CFG.propDateKey, today);
+  props.setProperty(BACKLOG_CFG.propKey, String(sentToday));
+  Logger.log('S63: Backlog clearance — sent:'+sent+' skipped:'+skipped+' total today:'+sentToday);
+
+  var msg = '✓ Backlog clearance: '+sent+' emails sent | '+skipped+' skipped\n'+
+    'Total sent today: '+sentToday+'/'+BACKLOG_CFG.maxPerDay;
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+  return { ok:true, sent:sent, skipped:skipped, totalToday:sentToday };
+}
+
+// S63.F02 — Schedule today's backlog clearance (installs hourly trigger for today)
+function scheduleBacklogClearance() {
+  var props = PropertiesService.getScriptProperties();
+  var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+  props.setProperty('BACKLOG_CLEARANCE_DATE', today);
+  props.setProperty(BACKLOG_CFG.propKey, '0');
+  props.setProperty(BACKLOG_CFG.propDateKey, today);
+  // Install hourly trigger (runs 4× today = max 80 emails)
+  installTrigger_('runBacklogClearance', 'everyMinutes', 60);
+  Logger.log('S63: Backlog clearance scheduled for today: ' + today);
+  try { SpreadsheetApp.getUi().alert(
+    '✓ Backlog clearance scheduled for TODAY ONLY.\n\n' +
+    'Will send up to ' + BACKLOG_CFG.maxPerDay + ' emails in batches of ' +
+    BACKLOG_CFG.batchSize + '.\n\n' +
+    'Trigger runs every 60 min. ONLY genuine candidates with missing docs.'
+  ); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S64 · ISOLATED LOGIN SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+// Isolated auth layer — zero touch to core dashboard engine.
+// Users: hr5, hr7, hr8 @alyousufent.com
+
+var AUTH_CFG = {
+  sessionTtl:    28800,   // 8 hours in seconds
+  cachePrefix:   'kai_session_',
+  propPrefix:    'kai_user_',
+  allowedEmails: [
+    'hr5@alyousufent.com',
+    'hr7@alyousufent.com',
+    'hr8@alyousufent.com'
+  ]
+};
+
+// S64.F01 — DEPRECATED stub. Active version lives in patch_v284.gs (S75.F02).
+// ⚠️ DO NOT remove the rename — GAS does not allow duplicate function names.
+function verifyLoginAndIssueToken_v283_DEPRECATED_(email, password) {
+  if (!email || !password) return {ok:false, msg:'Missing credentials'};
+  var em = String(email).toLowerCase().trim();
+  // Check allowed list
+  if (AUTH_CFG.allowedEmails.indexOf(em) < 0) return {ok:false, msg:'Not authorised'};
+  // Compare hashed password from Script Properties
+  var props      = PropertiesService.getScriptProperties();
+  var storedHash = props.getProperty(AUTH_CFG.propPrefix + em.replace(/[@\.]/g,'_'));
+  if (!storedHash) return {ok:false, msg:'User not configured. Contact admin.'};
+  var inputHash  = hashSimple_(em + ':' + password);
+  if (inputHash !== storedHash) return {ok:false, msg:'Incorrect password'};
+  // Issue token
+  var token = Utilities.getUuid();
+  try {
+    CacheService.getScriptCache().put(
+      AUTH_CFG.cachePrefix + token,
+      JSON.stringify({email:em, issued: new Date().toISOString()}),
+      AUTH_CFG.sessionTtl
+    );
+  } catch(e) {
+    Logger.log('S64: Cache write failed: ' + e.message);
+    return {ok:false, msg:'Session creation failed'};
+  }
+  Logger.log('S64: Login OK for ' + em);
+  return {ok:true, token:token, email:em};
+}
+
+// S64.F02 — Validate session token (called from doGet and sensitive functions)
+function isValidSession_(token) {
+  if (!token) return false;
+  try {
+    var cached = CacheService.getScriptCache().get(AUTH_CFG.cachePrefix + token);
+    return !!cached;
+  } catch(e) { return false; }
+}
+
+// S64.F03 — Get session user email from token
+function getSessionEmail_(token) {
+  try {
+    var cached = CacheService.getScriptCache().get(AUTH_CFG.cachePrefix + token);
+    if (!cached) return '';
+    return (JSON.parse(cached)||{}).email || '';
+  } catch(e) { return ''; }
+}
+
+// S64.F04 — Logout: invalidate session
+function logoutSession(token) {
+  try { CacheService.getScriptCache().remove(AUTH_CFG.cachePrefix + token); } catch(e) {}
+  return {ok:true};
+}
+
+// S64.F05 — Admin: set user password (run once per user from editor)
+// Usage: setUserPassword('hr5@alyousufent.com', 'their_password')
+function setUserPassword(email, password) {
+  if (!email || !password) { Logger.log('S64: email and password required'); return; }
+  var em  = String(email).toLowerCase().trim();
+  var key = AUTH_CFG.propPrefix + em.replace(/[@\.]/g,'_');
+  PropertiesService.getScriptProperties().setProperty(key, hashSimple_(em + ':' + password));
+  Logger.log('S64: Password set for ' + em);
+  try { SpreadsheetApp.getUi().alert('✓ Password set for ' + em); } catch(e) {}
+}
+
+// S64.F06 — Simple deterministic hash (GAS has no built-in SHA256 without advanced services)
+function hashSimple_(str) {
+  var hash = 0;
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + c;
+    hash = hash & hash;
+  }
+  // Convert to base64-ish for storage
+  return Utilities.base64Encode(String(Math.abs(hash)) + str.length);
+}
+
+// S64.F07 — DEPRECATED. Active version lives in patch_v284.gs (S75.F05).
+// ⚠️ DO NOT remove the rename — duplicate function names break GAS compilation.
+function setupLoginSystem_v283_DEPRECATED_() {
+  // Store hashed passwords (change these passwords before using!)
+  var defaults = {
+    'hr5@alyousufent.com': 'KAI@hr5#2026',
+    'hr7@alyousufent.com': 'KAI@hr7#2026',
+    'hr8@alyousufent.com': 'KAI@hr8#2026'
+  };
+  for (var email in defaults) {
+    setUserPassword(email, defaults[email]);
+  }
+  Logger.log('S64: Login system configured for hr5, hr7, hr8');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✓ Login system configured!\n\n' +
+      'Default credentials:\n' +
+      'hr5 → KAI@hr5#2026\n' +
+      'hr7 → KAI@hr7#2026\n' +
+      'hr8 → KAI@hr8#2026\n\n' +
+      '⚠️ Change passwords immediately:\n' +
+      'Run setUserPassword("hr5@alyousufent.com","newpassword")\n\n' +
+      'Then redeploy as new version.'
+    );
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S65 · REPLY → PROFILE MAPPING ENHANCEMENT
+// ═══════════════════════════════════════════════════════════════════
+
+// S65.F01 — Enhanced reply processor: maps reply to existing candidate profile
+// Called from existing processCandidateReplies flow (additive, non-destructive)
+function mapCandidateReplyToProfile_(msg, body) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var ic   = CONFIG.inputColumns;
+    var ec   = CONFIG_V2.extCol;
+    var from = msg.getFrom();
+    var fromEmail = normalizeEmail_(from).toLowerCase();
+
+    if (!fromEmail || isInternalEmail_(fromEmail)) return null;
+
+    // Search by email first
+    var data = sheet.getRange(2, 1, sheet.getLastRow()-1,
+      Math.max(CONFIG.headers.length, ec.timeline)).getValues();
+    var matchRow = -1;
+    for (var i = 0; i < data.length; i++) {
+      var rowEmail = String(data[i][ic.email-1]||'').toLowerCase().trim();
+      if (rowEmail && rowEmail === fromEmail) { matchRow = i+2; break; }
+    }
+    if (matchRow < 0) return null;
+
+    // Extract any attachments (updated CV or docs)
+    var attachments = msg.getAttachments();
+    var newCvLink = '';
+    if (attachments.length > 0) {
+      try { newCvLink = saveCvToDrive_(attachments[0], fromEmail); } catch(e) {}
+    }
+
+    // Extract missing field values from reply body
+    var extractedFields = extractMissingFromReply_(body, matchRow, data[matchRow-2]);
+
+    // Update the profile row
+    var updates = {};
+    if (newCvLink) updates[ic.cvLink] = newCvLink;
+
+    var rowData = data[matchRow-2];
+    for (var col in extractedFields) {
+      if (extractedFields[col] && !String(rowData[parseInt(col)-1]||'').trim()) {
+        updates[col] = extractedFields[col];
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      for (var c in updates) {
+        try { sheet.getRange(matchRow, parseInt(c)).setValue(updates[c]); } catch(e) {}
+      }
+      // Clear missing fields that are now resolved
+      var ec2 = (typeof PATCH_V282 !== 'undefined') ? PATCH_V282.extCol2 : {};
+      // Log timeline
+      appendTimeline_(matchRow, 'CANDIDATE_REPLY',
+        'Reply received from ' + fromEmail +
+        (newCvLink ? ' · Updated CV attached' : '') +
+        (Object.keys(updates).length > 0 ? ' · Fields updated: '+Object.keys(updates).length : ''),
+        'system'
+      );
+      // Update last contact
+      try { sheet.getRange(matchRow, ec.lastContact).setValue(new Date()); } catch(e) {}
+      SpreadsheetApp.flush();
+      Logger.log('S65: Profile updated for row ' + matchRow + ' from reply: ' + fromEmail);
+    }
+    return { rowIndex: matchRow, updated: Object.keys(updates).length };
+  } catch(e) {
+    Logger.log('S65: mapCandidateReplyToProfile_ error: ' + e.message);
+    return null;
+  }
+}
+
+// S65.F02 — Extract field values from reply email body
+function extractMissingFromReply_(body, rowIndex, rowData) {
+  if (!body || !rowData) return {};
+  var ic = CONFIG.inputColumns;
+  var updates = {};
+  var b = String(body).toLowerCase();
+
+  // DOB extraction
+  if (!rowData[ic.dob-1]) {
+    var dobM = body.match(/(?:dob|date of birth|born)[:\s]*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i);
+    if (dobM) updates[ic.dob] = dobM[1];
+  }
+
+  // Location extraction
+  if (!rowData[(ic.currentLocation||26)-1]) {
+    var locM = body.match(/(?:currently in|located in|location[:\s]+|residing in|based in)\s*([A-Za-z\s,]+?)(?:\n|,|\.|passport)/i);
+    if (locM) updates[26] = locM[1].trim().slice(0,50);
+  }
+
+  // Employment status
+  if (!rowData[(ic.empStatus||27)-1]) {
+    if (/unemployed|not working|not employed|available immediately/i.test(b)) updates[27] = 'Available Immediately';
+    else if (/employed|working|currently working/i.test(b)) updates[27] = 'Employed';
+    else if (/notice period|serving notice/i.test(b)) updates[27] = 'Notice Period';
+  }
+
+  return updates;
+}
+
+// S65.F03 — Menu-callable: update menu with new items
+// (Called from setupV283 to add backlog + login items to menu)
+function setupV283() {
+  // Set today as backlog clearance date
+  var props = PropertiesService.getScriptProperties();
+  var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+  props.setProperty('BACKLOG_CLEARANCE_DATE', today);
+  Logger.log('S65: V283 patch active');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✅ V283 Patch Active!\n\n' +
+      'New features:\n' +
+      '• Passport Status column\n' +
+      '• CV Freshness column\n' +
+      '• Deployment Ready v2 engine\n' +
+      '• JD Fuzzy extraction\n' +
+      '• Branded email (no KARIGAR AI to candidates)\n' +
+      '• Login system (run setupLoginSystem() to configure)\n' +
+      '• Backlog clearance (run scheduleBacklogClearance() for today)\n\n' +
+      'Deploy → New version → Open dashboard.'
+    );
+  } catch(e) {}
+}

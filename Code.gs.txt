@@ -1,0 +1,3305 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — KARIGAR AI  |  Al Yousuf Enterprises LLP
+ *  File    : KAI_15May2026_V1.gs   (paste into Code.gs)
+ *  Version : 1.0  |  Build : 15-May-2026
+ *  Owner   : ai@alyousufent.com
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S01  MASTER CONFIG          — sheet names, labels, brand, domains
+ *  S02  QUOTA CONFIG           — IST-anchored 5-bucket quota system
+ *  S03  SCORING CONSTANTS      — thresholds, band definitions
+ *  S04  SETUP & BOOTSTRAP      — setupPipeline, ensureSheet, labels
+ *  S05  TRIGGERS               — install / delete time-based triggers
+ *  S06  MAIN PIPELINE          — runPipeline() entry point + LockService
+ *  S07  THREAD PROCESSOR       — processThread_() full orchestration
+ *  S08  ATTACHMENT HANDLER     — pickBestAttachment_, DOCX/PDF/DOC
+ *  S09  GEMINI API ENGINE      — callGemini_, prompt, JSON repair
+ *  S10  NORMALISATION ENGINE   — normalizeCandidate_ + 7 sub-functions
+ *  S11  SCORING ENGINE         — scoreCandidate_ age-band logic
+ *  S12  DECISION RULES ENGINE  — applyDecisionRules_, flag assignment
+ *  S13  SHEET WRITERS          — writeToSheet_, Rejected, Archive, Meta
+ *  S14  QUOTA ENGINE           — IST reset, bucket read/write, logQuota_
+ *  S15  DEDUP ENGINE           — isDuplicate_, run-state, meta-sheet check
+ *  S16  RULES ENGINE           — loadRules_, findRule_, trade thresholds
+ *  S17  TAXONOMY ENGINE        — loadTaxonomy_, mapCandidateToTaxonomy_
+ *  S18  LOGGING ENGINE         — appendLog_, logError_, appendConsent_
+ *  S19  FOLLOW-UP EMAIL MODULE — maybeSendFollowUpEmail_, body builder
+ *  S20  REPLY SCANNER          — processCandidateReplies, token index
+ *  S21  DAILY DIGEST           — sendDailyDigest, HTML builder
+ *  S22  CLEANUP ENGINE         — cleanupCandidates, dedup, archive sweep
+ *  S23  PIPELINE PAUSE/RESUME  — isPipelinePaused_, EMERGENCY_PAUSE_NOW
+ *  S24  ALERTS                 — sendAlert_, circuit-breaker alerts
+ *  S25  LOG ROTATION           — rotateLogs_, CSV archive to Drive
+ *  S26  HEALTH CHECK           — healthCheck() full diagnostic
+ *  S27  DASHBOARD API          — doGet, getDashboardData, updateStage
+ *  S28  UTILITY FUNCTIONS      — masking, email parse, file save, etc.
+ *  S29  MENU                   — onOpen(), Karigar AI spreadsheet menu
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  HOW TO DEPLOY
+ *  1. Paste this file into Code.gs (replace everything)
+ *  2. Create a new HTML file named KAI_15May2026_V1_Dashboard
+ *     (paste KAI_15May2026_V1_Dashboard.html content there)
+ *  3. Add Script Property: GEMINI_API_KEY = AIzaSyCZL-NEYMWK1Z18Q2BTy_vRiyIiT_Yz1Qk
+ *  4. Run setupPipeline() once from the editor
+ *  5. Deploy as Web App (Execute as: Me, Who has access: Anyone with link)
+ *     → copy the URL → add to Script Property DASHBOARD_URL_1
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S01 · MASTER CONFIG
+// ═══════════════════════════════════════════════════════════════════
+// S01.F01
+var CONFIG = {
+  version:  '1.0',
+  buildDate:'15-May-2026',
+
+  // ── Sheet names ────────────────────────────────────────────────
+  sheetName:           'Candidates',
+  rejectedSheetName:   'Rejected',
+  archiveSheetName:    'Archive',
+  logSheetName:        'Logs',
+  errorSheetName:      '_Errors',
+  metaSheetName:       '_Meta',
+  rulesSheetName:      '_Rules',
+  taxonomySheetName:   'Taxonomy',
+  consentSheetName:    '_Consent',
+  quotaSheetName:      '_Quota',
+  pendingEmailsSheet:  '_PendingEmails',
+
+  // ── Column headers ─────────────────────────────────────────────
+  headers: [
+    'Stage','Application Date','Nationality','Name','Mobile','Email',
+    'Education','Position Applied','Trade','Industry',
+    'Experience','Gulf Experience','Date of Birth','Age',
+    'Verdict','FLAGS','Score','Score Breakdown',
+    'Recommended Roles','KAI Assessment','Recruiter Action',
+    'CV Link','Notes','_Active'
+  ],
+  rejectedHeaders: [
+    'Rejected At','Application Date','Name','Nationality',
+    'Mobile','Email','Trade','Age','Reason','CV Link'
+  ],
+  archiveHeaders: [
+    'Archived At','Email','Mobile','Name','Trade',
+    'Experience','Verdict','Reason','CV Link'
+  ],
+  logHeaders: [
+    'Timestamp','Thread Id','Status','Client',
+    'Name (masked)','Email (masked)','Mobile (masked)','Trade','Notes'
+  ],
+  errorHeaders: [
+    'Timestamp','Thread Id','Sender','Subject','Error','Raw (truncated)'
+  ],
+  metaHeaders: [
+    'Key','Email','Mobile','Name','Industry',
+    'Processed At','Thread Id','Message Id','Client'
+  ],
+  rulesHeaders:  ['Trade Pattern','Min Years','Min Score','Notes'],
+  taxonomyHeaders:['Industry','Department','Trade','Specialization'],
+  consentHeaders: [
+    'Timestamp','Name','Email','Mobile','Nationality',
+    'Consent Type','Source','Thread Id'
+  ],
+  quotaHeaders: [
+    'Date','CVs Processed','CVs Rejected','Emails Sent',
+    'Replies Processed','Gemini Errors','Notes'
+  ],
+  pendingEmailHeaders: ['Queued At','To','Subject','Body','KAR Token','Status'],
+
+  // ── Stage dropdown ─────────────────────────────────────────────
+  stageDropdown: [
+    'Pending action','Screened','Shortlisted','Client Sent',
+    'Selected','Offer','Visa Processing','Deployed'
+  ],
+
+  // ── Gmail labels ───────────────────────────────────────────────
+  labels: {
+    input:     'karigar/cv',
+    processed: 'karigar/processed',
+    error:     'karigar/error',
+    duplicate: 'karigar/duplicate'
+  },
+
+  // ── Drive folders ──────────────────────────────────────────────
+  folderName:            'Karigar CV Archive',
+  archiveLogsFolderName: 'Karigar Logs Archive',
+
+  // ── Execution limits ───────────────────────────────────────────
+  maxExecutionMs:        4.5 * 60 * 1000,   // 4m 30s safety stop
+
+  // ── Gemini ─────────────────────────────────────────────────────
+  geminiEndpoint:                'https://generativelanguage.googleapis.com/v1beta/models/',
+  defaultModel:                  'gemini-2.5-flash-lite',
+  geminiRetries:                 5,
+  geminiCircuitBreakerThreshold: 8,
+  geminiInterCallDelayMs:        4500,
+  maxOutputTokens:               4000,
+  maxAttachmentBytes:            15 * 1024 * 1024,  // 15 MB
+
+  // ── Pipeline dates ─────────────────────────────────────────────
+  earliestMessageDate: new Date(2026, 0, 1),
+  archiveAfterDays:    30,
+
+  // ── Supported CV formats ───────────────────────────────────────
+  supportedExtensions: ['pdf','doc','docx','jpg','jpeg','png'],
+
+  // ── Internal domain guard (follow-up email protection) ────────
+  internalDomains: [
+    'alyousufent.com','alyousufjobs.com','safwaninternational.com',
+    'safcoskillacademy.org','safco.org','alyousf-ksa.com',
+    'safcoindia.com','karigarai.com'
+  ],
+
+  // ── Brand ──────────────────────────────────────────────────────
+  brand: {
+    companyName:       'Al Yousuf Enterprises LLP',
+    senderDisplayName: 'Al Yousuf Enterprises LLP',
+    signatureLine1:    'Recruitment Team',
+    signatureLine2:    'Al Yousuf Enterprises LLP'
+  },
+
+  // ── GCC detection lists ────────────────────────────────────────
+  gccCountries: [
+    'saudi','saudi arabia','ksa','uae','united arab emirates',
+    'dubai','abu dhabi','sharjah','qatar','doha','bahrain',
+    'manama','oman','muscat','kuwait'
+  ],
+  gulfGovCompanies: [
+    'aramco','saudi aramco','adnoc','qatarenergy','qatar energy',
+    'pdo','knpc','bapco','oq ','sabic','maaden','tasnee',
+    'sasref','yansab','petro rabigh','kahramaa','sec ',
+    'saudi electricity','dewa','ewa ','mewa'
+  ],
+  tradeCerts: [
+    '6g','6gr','6g welding','api 570','api 510','api 653',
+    'nebosh','iosh','cswip 3.1','cswip 3.2','cswip','tuv',
+    'aws','asnt','ndt level','pmp','iso 9001'
+  ],
+  gccLicenses: [
+    'iqama','transferable visa','transferable iqama','rp ',
+    'residence permit','uae driving licence','uae driving license',
+    'qatar id','qatar rp','oman id'
+  ],
+
+  // ── Column index map (1-based) ─────────────────────────────────
+  inputColumns: {
+    stage:1, applicationDate:2, nationality:3, name:4, mobile:5, email:6,
+    education:7, positionApplied:8, trade:9, industry:10,
+    experience:11, gulf:12, dob:13, age:14,
+    verdict:15, flags:16, score:17, scoreBreakdown:18,
+    recommendedRoles:19, kaiAssessment:20, recruiterAction:21,
+    cvLink:22, notes:23, active:24
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// S02 · QUOTA CONFIG  (IST-anchored five-bucket system)
+// ═══════════════════════════════════════════════════════════════════
+// S02.F01
+var CONFIG_QUOTA = {
+  capFreshCv:    80,      // max fresh CVs per IST day
+  capDailyTotal: 200,     // total CV cap per day
+  capReplyParse: 50,      // Gemini reply parses per day
+  capEmail:      90,      // outbound follow-up emails per day
+  perRunFresh:   5,       // threads per run in FRESH mode
+  perRunBacklog: 5,       // threads per run in BACKLOG mode
+  backlogHourIst:23,      // backlog drain only after 23:00 IST
+  backlogFloor:  '2026-01-01',
+  keyPrefix:     'quota_',
+  cursorKey:     'quota_backlog_cursor',
+  lastResetKey:  'quota_last_reset_ist'
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// S03 · SCORING CONSTANTS
+// ═══════════════════════════════════════════════════════════════════
+// S03.F01
+var SCORING = {
+  greenMin:           75,   // >= 75 + P1 age → SHORTLISTED / GREEN
+  yellowMin:          60,   // 60-74 → NEEDS_REVIEW / YELLOW
+  orangeMin:          45,   // 45-59 → NEEDS_CALL / ORANGE
+  // < 45  → NEEDS_CALL / ORANGE  (low score, valid age = NEVER REJECT)
+  yellowFlagMinYears: 2     // exp < 2yr on NEEDS_REVIEW → downgrade to NEEDS_CALL
+};
+
+// run-level dedup state — reset each runPipeline() call
+var _RUN_STATE = { emails: {}, mobiles: {} };
+
+// ═══════════════════════════════════════════════════════════════════
+// S04 · SETUP & BOOTSTRAP
+// ═══════════════════════════════════════════════════════════════════
+// S04.F01 — one-time setup entry point (run from editor once)
+function setupPipeline() {
+  setupSheets_();
+  setupGmailLabels_();
+  installAllTriggers_();
+  initScriptProperties_();
+  Logger.log('KAI v' + CONFIG.version + ' setup complete.');
+  try {
+    SpreadsheetApp.getUi().alert(
+      'KAI Setup Complete — v' + CONFIG.version + '\n\n' +
+      'Triggers installed:\n' +
+      '  runPipeline          — every 15 min\n' +
+      '  processCandidateReplies — every 10 min\n' +
+      '  dailyCleanup         — 02:00 daily\n' +
+      '  sendDailyDigest      — 20:00 daily\n\n' +
+      'Label CVs as karigar/cv in Gmail to begin processing.\n\n' +
+      'Next: Deploy as Web App → copy URL → set DASHBOARD_URL_1.'
+    );
+  } catch (e) {}
+}
+
+// S04.F02 — create all required sheets if missing
+function setupSheets_() {
+  var ss = getMasterSS_();
+  var defs = [
+    { name: CONFIG.sheetName,          headers: CONFIG.headers,             color: '#16324f' },
+    { name: CONFIG.rejectedSheetName,  headers: CONFIG.rejectedHeaders,     color: '#9f1239' },
+    { name: CONFIG.archiveSheetName,   headers: CONFIG.archiveHeaders,      color: '#6e6e73' },
+    { name: CONFIG.logSheetName,       headers: CONFIG.logHeaders,          color: '#0f766e' },
+    { name: CONFIG.errorSheetName,     headers: CONFIG.errorHeaders,        color: '#7f1d1d' },
+    { name: CONFIG.metaSheetName,      headers: CONFIG.metaHeaders,         color: '#4338ca' },
+    { name: CONFIG.rulesSheetName,     headers: CONFIG.rulesHeaders,        color: '#7c3aed' },
+    { name: CONFIG.taxonomySheetName,  headers: CONFIG.taxonomyHeaders,     color: '#0f3460' },
+    { name: CONFIG.consentSheetName,   headers: CONFIG.consentHeaders,      color: '#059669' },
+    { name: CONFIG.quotaSheetName,     headers: CONFIG.quotaHeaders,        color: '#1d4ed8' },
+    { name: CONFIG.pendingEmailsSheet, headers: CONFIG.pendingEmailHeaders, color: '#92400e' }
+  ];
+  defs.forEach(function(d) { ensureSheet_(ss, d.name, d.headers, d.color); });
+
+  // Seed _Rules with default trade thresholds if empty
+  var rSheet = ss.getSheetByName(CONFIG.rulesSheetName);
+  if (rSheet && rSheet.getLastRow() < 2) {
+    rSheet.getRange(2, 1, 7, 4).setValues([
+      ['welder',  5, 65, 'Saudi SVP needs 5yr min'],
+      ['crane',   3, 60, 'Heavy equipment operator'],
+      ['driver',  2, 55, 'License verified separately'],
+      ['cook',    2, 60, 'F&B cuisine specific'],
+      ['waiter',  1, 55, 'F&B service role'],
+      ['helper',  0, 40, 'Entry level'],
+      ['mason',   2, 55, 'Civil construction']
+    ]);
+  }
+
+  // Apply stage dropdown to Candidates sheet
+  applyStageDropdown_(ss.getSheetByName(CONFIG.sheetName));
+  Logger.log('S04: Sheets verified.');
+}
+
+// S04.F03
+function ensureSheet_(ss, name, headers, color) {
+  var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    var hdr = sheet.getRange(1, 1, 1, headers.length);
+    hdr.setFontWeight('bold')
+       .setBackground(color || '#2c3e50')
+       .setFontColor('#ffffff')
+       .setHorizontalAlignment('center');
+    sheet.setFrozenRows(1);
+    sheet.setRowHeight(1, 32);
+  }
+  return sheet;
+}
+
+// S04.F04
+function applyStageDropdown_(sheet) {
+  if (!sheet) return;
+  try {
+    var rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(CONFIG.stageDropdown, true)
+      .setAllowInvalid(false)
+      .setHelpText('Select a recruitment stage')
+      .build();
+    sheet.getRange(2, CONFIG.inputColumns.stage, sheet.getMaxRows() - 1, 1).setDataValidation(rule);
+  } catch (e) {}
+}
+
+// S04.F05 — create Gmail labels
+function setupGmailLabels_() {
+  for (var k in CONFIG.labels) {
+    if (!GmailApp.getUserLabelByName(CONFIG.labels[k]))
+      GmailApp.createLabel(CONFIG.labels[k]);
+  }
+}
+
+// S04.F06 — initialise Script Properties with hardcoded defaults
+function initScriptProperties_() {
+  var props = PropertiesService.getScriptProperties();
+  var defaults = {
+    'SPREADSHEET_ID':   '101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE',
+    'OWNER_EMAIL':      'ai@alyousufent.com',
+    'GEMINI_API_KEY':   'AIzaSyCZL-NEYMWK1Z18Q2BTy_vRiyIiT_Yz1Qk',
+    'DASHBOARD_TOKEN':  'ks4a49tAIqf69FufgHcOAUf8S9h2ehdo'
+  };
+  for (var key in defaults) {
+    if (!props.getProperty(key)) props.setProperty(key, defaults[key]);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S05 · TRIGGERS
+// ═══════════════════════════════════════════════════════════════════
+// S05.F01
+function installAllTriggers_() {
+  installTrigger_('runPipeline',            'everyMinutes', 15);
+  installTrigger_('processCandidateReplies','everyMinutes', 10);
+  installTrigger_('dailyCleanup',           'atHour',       2);
+  installTrigger_('sendDailyDigest',        'atHour',       20);
+}
+
+// S05.F02
+function installTrigger_(handlerFn, type, value) {
+  deleteTriggerByHandler_(handlerFn);
+  var t = ScriptApp.newTrigger(handlerFn).timeBased();
+  if (type === 'everyMinutes') t.everyMinutes(value).create();
+  else if (type === 'atHour')  t.atHour(value).everyDays(1).create();
+}
+
+// S05.F03
+function deleteTriggerByHandler_(name) {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === name) ScriptApp.deleteTrigger(t);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S06 · MAIN PIPELINE
+// ═══════════════════════════════════════════════════════════════════
+// S06.F01 — entry point, every 15 min trigger
+function runPipeline() {
+  // S06.F01-A — pause guard
+  if (isPipelinePaused_()) {
+    Logger.log('S06: Pipeline paused — skipping run.');
+    return;
+  }
+
+  // S06.F01-B — single-instance lock (30s wait)
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    appendLog_({ status: 'LOCK_SKIP', notes: 'Another run already in progress.' });
+    return;
+  }
+
+  try {
+    var startMs = Date.now();
+    _RUN_STATE   = { emails: {}, mobiles: {} };   // fresh dedup state per run
+
+    // S06.F01-C — IST quota reset + cap check
+    resetQuotaIfNewDay_();
+    var qs = getQuotaState_();
+    if (qs.cvTotalRemaining <= 0) {
+      appendLog_({ status: 'QUOTA_CAP_HIT', notes: 'Daily total cap reached.' });
+      return;
+    }
+
+    // S06.F01-D — drain pending emails from previous quota-full runs
+    flushPendingEmails_();
+
+    // S06.F01-E — decide FRESH vs BACKLOG
+    var mode   = decideRunMode_();
+    var maxRun = (mode === 'FRESH') ? CONFIG_QUOTA.perRunFresh : CONFIG_QUOTA.perRunBacklog;
+
+    var label = GmailApp.getUserLabelByName(CONFIG.labels.input);
+    if (!label) {
+      Logger.log('S06: Label ' + CONFIG.labels.input + ' not found — run setupPipeline().');
+      return;
+    }
+
+    var allThreads = label.getThreads(0, maxRun + 5);
+    if (!allThreads.length) {
+      Logger.log('S06: No threads to process.');
+      return;
+    }
+
+    // S06.F01-F — filter by mode
+    var todayIst = istDateString_();
+    var threads  = [];
+    for (var i = 0; i < allThreads.length; i++) {
+      var msg    = allThreads[i].getMessages()[allThreads[i].getMessageCount() - 1];
+      var isFresh= (istDateString_(msg.getDate()) === todayIst);
+      if (mode === 'FRESH'   && isFresh)  threads.push(allThreads[i]);
+      if (mode === 'BACKLOG' && !isFresh) threads.push(allThreads[i]);
+      if (threads.length >= maxRun) break;
+    }
+    if (!threads.length) {
+      Logger.log('S06: No ' + mode + ' threads found.');
+      return;
+    }
+
+    Logger.log('S06: Mode=' + mode + ' | Processing ' + threads.length + ' thread(s).');
+
+    // S06.F01-G — process each thread
+    var runRejected = 0;
+    var circuit = { consecutive429: 0, broken: false };
+
+    for (var j = 0; j < threads.length; j++) {
+      if (Date.now() - startMs > CONFIG.maxExecutionMs) {
+        Logger.log('S06: Execution time limit — stopping this run.');
+        break;
+      }
+      var qs2 = getQuotaState_();
+      if (qs2.cvTotalRemaining <= 0) { Logger.log('S06: Quota cap mid-run.'); break; }
+      if (circuit.broken) {
+        sendAlert_('Circuit breaker tripped', circuit.consecutive429 + ' consecutive 429s. Stopped.');
+        break;
+      }
+      try {
+        var result = processThread_(threads[j], circuit);
+        if (result === 'REJECTED') runRejected++;
+      } catch (e) {
+        Logger.log('S06: Thread error — ' + e.message);
+        try {
+          logError_(threads[j], null, null, e.message, '');
+          moveLabel_(threads[j], CONFIG.labels.input, CONFIG.labels.error);
+        } catch (e2) {}
+      }
+      if (j < threads.length - 1) Utilities.sleep(CONFIG.geminiInterCallDelayMs);
+    }
+
+    logQuota_(runRejected);
+    Logger.log('S06: Run complete.');
+
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S07 · THREAD PROCESSOR
+// ═══════════════════════════════════════════════════════════════════
+// S07.F01 — full per-thread orchestration
+function processThread_(thread, circuit) {
+  var messages = thread.getMessages();
+  var message  = messages[messages.length - 1];
+  var subject  = message.getSubject() || '';
+  var body     = message.getPlainBody() || '';
+  var threadId = thread.getId();
+
+  // S07.F01-A — Extract original application date (handles forwarded CVs)
+  var appDateResult = extractOriginalApplicationDate_(message);
+  var appDate = appDateResult.date;
+  if (appDate < CONFIG.earliestMessageDate) {
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.processed);
+    return 'SKIPPED_DATE';
+  }
+
+  // S07.F01-B — Identify the actual candidate sender (not the forwarder)
+  var rawSender    = message.getFrom();
+  var actualEmail  = extractForwardedSender_(body) || parseEmailFromHeader_(rawSender);
+  var senderEmail  = normalizeEmail_(actualEmail);
+
+  // S07.F01-C — Pick best CV attachment using weighted scoring
+  var cvAttachment = pickBestAttachment_(message);
+  var cvLink       = '';
+  var geminiParts  = [];
+
+  if (cvAttachment) {
+    if (cvAttachment.getSize() > CONFIG.maxAttachmentBytes) {
+      logError_(thread, rawSender, subject, 'Attachment too large: ' + cvAttachment.getSize() + ' bytes', '');
+      moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.error);
+      return 'ERROR_SIZE';
+    }
+    cvLink = saveCvToDrive_(cvAttachment, senderEmail);
+    geminiParts = buildGeminiParts_(cvAttachment, body, senderEmail, subject);
+  } else if (body && body.length >= 200) {
+    // Body-as-CV path (no attachment)
+    geminiParts = [
+      { text: buildParsePrompt_(body, senderEmail, subject) },
+      { text: 'CV content from email body:\n' + body.slice(0, 30000) }
+    ];
+  } else {
+    logError_(thread, rawSender, subject, 'No valid CV attachment and body < 200 chars.', '');
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.error);
+    return 'ERROR_NO_CV';
+  }
+
+  // S07.F01-D — Pre-parse dedup on sender email
+  if (isDuplicate_(senderEmail, null)) {
+    Logger.log('S07: Duplicate sender: ' + maskEmail_(senderEmail));
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.duplicate);
+    return 'DUPLICATE';
+  }
+
+  // S07.F01-E — Parse CV with Gemini
+  var parsed = parseCvWithGemini_(geminiParts, circuit);
+  if (!parsed) {
+    logError_(thread, rawSender, subject, 'Gemini returned null — check API key and quota.', '');
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.error);
+    return 'ERROR_GEMINI';
+  }
+
+  // S07.F01-F — Normalise extracted fields
+  normalizeCandidate_(parsed, senderEmail);
+  var candEmail  = parsed.email  || senderEmail;
+  var candMobile = parsed.mobile || '';
+
+  // S07.F01-G — Post-parse dedup on extracted email/mobile
+  if (isDuplicate_(candEmail, candMobile)) {
+    Logger.log('S07: Candidate duplicate: ' + maskEmail_(candEmail));
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.duplicate);
+    return 'DUPLICATE';
+  }
+  updateRunState_(candEmail, candMobile);
+
+  // S07.F01-H — Load trade rules + taxonomy
+  var rules    = loadRules_();
+  var taxonomy = loadTaxonomy_();
+  var taxResult = mapCandidateToTaxonomy_(parsed, taxonomy);
+  if (taxResult.industry && !parsed.industry) parsed.industry = taxResult.industry;
+  if (taxResult.trade    && !parsed.trade)    parsed.trade    = taxResult.trade;
+
+  // S07.F01-I — Score the candidate
+  var scored = scoreCandidate_(parsed, rules, taxResult);
+
+  // S07.F01-J — Apply decision rules for flags (never changes REJECT verdict)
+  applyDecisionRules_(scored, rules);
+
+  // S07.F01-K — Route: REJECT (age only) → Rejected sheet
+  if (scored.verdict === 'REJECT') {
+    writeToRejected_(scored, cvLink, appDate);
+    writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
+    appendConsent_(parsed, appDate, threadId);
+    incrementQuota_('cv');
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.processed);
+    appendLog_({
+      status: 'REJECTED_AGE',
+      name: maskName_(parsed.full_name), email: maskEmail_(candEmail),
+      mobile: maskPhone_(candMobile), trade: scored.trade,
+      notes: 'Age=' + (scored.age || '?') + ' | ' + scored.notes
+    });
+    return 'REJECTED';
+  }
+
+  // S07.F01-L — Write to Candidates sheet
+  writeToSheet_(scored, threadId, cvLink, appDate);
+  writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
+  appendConsent_(parsed, appDate, threadId);
+
+  appendLog_({
+    status: 'PROCESSED',
+    name: maskName_(parsed.full_name), email: maskEmail_(candEmail),
+    mobile: maskPhone_(candMobile), trade: scored.trade,
+    notes: scored.verdict + ' | Score=' + scored.score + ' | Flag=' + scored.flag
+  });
+
+  incrementQuota_('cv');
+
+  // S07.F01-M — Send follow-up email for NEEDS_CALL with missing fields
+  if (scored.verdict === 'NEEDS_CALL' && candEmail && !isInternalDomain_(candEmail)) {
+    maybeSendFollowUpEmail_(scored, candEmail);
+  }
+
+  moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.processed);
+  Logger.log('S07: PROCESSED ' + maskName_(parsed.full_name) + ' | ' + scored.verdict + ' | ' + scored.score);
+  return 'PROCESSED';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S08 · ATTACHMENT HANDLER
+// ═══════════════════════════════════════════════════════════════════
+// S08.F01 — pick best CV attachment using weighted scoring
+function pickBestAttachment_(message) {
+  var atts = message.getAttachments();
+  if (!atts || !atts.length) return null;
+  var best = null, bestScore = -1;
+  for (var i = 0; i < atts.length; i++) {
+    var ext = (atts[i].getName() || '').split('.').pop().toLowerCase();
+    if (CONFIG.supportedExtensions.indexOf(ext) < 0) continue;
+    var s = scoreAttachment_(atts[i]);
+    if (s > bestScore) { bestScore = s; best = atts[i]; }
+  }
+  return best;
+}
+
+// S08.F02 — weighted attachment quality score
+function scoreAttachment_(att) {
+  var pts  = 10;  // base
+  var name = (att.getName() || '').toLowerCase();
+  var ext  = name.split('.').pop();
+  var size = att.getSize();
+  // Name keywords
+  if (/cv|resume|biodata|profile|curriculum/.test(name)) pts += 25;
+  // Extension
+  if      (ext === 'pdf')             pts += 15;
+  else if (ext === 'docx')            pts += 10;
+  else if (ext === 'doc')             pts += 6;
+  else if (/jpg|jpeg|png/.test(ext))  pts += 8;
+  // Size bands
+  if      (size >= 100000 && size <= 2097152)  pts += 10;  // 100KB–2MB ideal
+  else if (size >  2097152 && size <= 5242880) pts += 5;   // 2–5MB OK
+  else if (size < 51200 || size > 8388608)     pts -= 5;   // <50KB or >8MB suspicious
+  return pts;
+}
+
+// S08.F03 — build Gemini multipart input from attachment + email context
+function buildGeminiParts_(attachment, emailBody, senderEmail, subject) {
+  var ext  = (attachment.getName() || '').split('.').pop().toLowerCase();
+  var mime = mimeFromExt_(ext);
+  var parts = [{ text: buildParsePrompt_(emailBody, senderEmail, subject) }];
+
+  if (['pdf','jpg','jpeg','png'].indexOf(ext) >= 0) {
+    // Multimodal: send as base64 inline_data
+    parts.push({ inline_data: {
+      mime_type: mime,
+      data: Utilities.base64Encode(attachment.getBytes())
+    }});
+  } else if (ext === 'docx') {
+    // Try fast Utilities.unzip path first, fallback to Drive convert
+    var text = extractTextFromDocxSafe_(attachment);
+    if (!text || text.length < 50) text = extractTextFromDocViaDrive_(attachment);
+    if (text && text.length >= 50) {
+      parts.push({ text: 'CV document text:\n' + text.slice(0, 30000) });
+    } else {
+      parts.push({ inline_data: { mime_type: mime, data: Utilities.base64Encode(attachment.getBytes()) }});
+    }
+  } else if (ext === 'doc') {
+    var docText = extractTextFromDocViaDrive_(attachment);
+    if (docText && docText.length >= 50) {
+      parts.push({ text: 'CV document text:\n' + docText.slice(0, 30000) });
+    } else {
+      parts.push({ inline_data: { mime_type: mime, data: Utilities.base64Encode(attachment.getBytes()) }});
+    }
+  } else {
+    if (emailBody) parts.push({ text: 'Email body as CV:\n' + emailBody.slice(0, 30000) });
+  }
+  return parts;
+}
+
+// S08.F04 — MIME type map
+function mimeFromExt_(ext) {
+  return ({
+    pdf:  'application/pdf',
+    jpg:  'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    doc:  'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  })[ext] || 'application/octet-stream';
+}
+
+// S08.F05 — DOCX text extraction via Utilities.unzip (fast, no Drive quota)
+function extractTextFromDocxSafe_(blob) {
+  try {
+    var safeBlob = blob.copyBlob().setContentType('application/zip');
+    var files    = Utilities.unzip(safeBlob);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].getName() === 'word/document.xml') {
+        var xml = files[i].getDataAsString('UTF-8');
+        return decodeXmlEntities_(
+          xml.replace(/<w:br[^\/]*\/>/g, '\n')
+             .replace(/<w:tab\/>/g, '\t')
+             .replace(/<[^>]+>/g, ' ')
+        ).replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      }
+    }
+    return '';
+  } catch (e) { return ''; }
+}
+
+// S08.F06 — DOC/DOCX Drive convert fallback
+function extractTextFromDocViaDrive_(blob) {
+  var tempFile = null;
+  try {
+    tempFile = Drive.Files.insert(
+      { title: 'kai_cv_tmp_' + Date.now(), mimeType: 'application/vnd.google-apps.document' },
+      blob, { convert: true }
+    );
+    return DocumentApp.openById(tempFile.id).getBody().getText() || '';
+  } catch (e) {
+    try {
+      var raw = blob.getDataAsString('windows-1252');
+      return raw.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim();
+    } catch (e2) { return ''; }
+  } finally {
+    if (tempFile) { try { Drive.Files.remove(tempFile.id); } catch (e) {} }
+  }
+}
+
+// S08.F07 — XML entity decoder
+function decodeXmlEntities_(t) {
+  return String(t||'').replace(/&amp;/g,'&').replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S09 · GEMINI API ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S09.F01 — core Gemini call with retry + circuit breaker
+function callGemini_(parts, circuit) {
+  var apiKey = validateApiKey_();
+  var url    = CONFIG.geminiEndpoint + CONFIG.defaultModel + ':generateContent?key=' + encodeURIComponent(apiKey);
+  var payload = {
+    contents: [{ role: 'user', parts: parts }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.1, topP: 0.1,
+      maxOutputTokens: CONFIG.maxOutputTokens
+    }
+  };
+
+  var lastErr = null;
+  for (var attempt = 1; attempt <= CONFIG.geminiRetries; attempt++) {
+    try {
+      Utilities.sleep(attempt > 1 ? Math.min(Math.pow(2, attempt - 1) * 1500, 30000) : 0);
+      var resp = UrlFetchApp.fetch(url, {
+        method: 'post', contentType: 'application/json',
+        payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      var code = resp.getResponseCode();
+      var text = resp.getContentText();
+      if (code === 200) {
+        if (circuit) circuit.consecutive429 = 0;
+        return text;
+      }
+      if (code === 429) {
+        if (circuit) {
+          circuit.consecutive429++;
+          if (circuit.consecutive429 >= CONFIG.geminiCircuitBreakerThreshold) {
+            circuit.broken = true;
+            throw new Error('CIRCUIT_BROKEN after ' + circuit.consecutive429 + ' 429s');
+          }
+        }
+        var retryMs = parseInt((resp.getHeaders()['retry-after'] || '0'), 10) * 1000 || 15000;
+        Utilities.sleep(Math.min(retryMs * attempt, 60000));
+      }
+      lastErr = new Error('Gemini HTTP ' + code + ': ' + text.slice(0, 300));
+    } catch (e) {
+      if (e.message && e.message.indexOf('CIRCUIT_BROKEN') === 0) throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Gemini failed after ' + CONFIG.geminiRetries + ' attempts');
+}
+
+// S09.F02 — parse CV with Gemini, returning raw JSON object
+function parseCvWithGemini_(parts, circuit) {
+  try {
+    var raw  = callGemini_(parts, circuit);
+    var text = extractGeminiText_(raw);
+    if (!text || text.length < 10) return null;
+    return parseGeminiJson_(cleanJsonResponse_(text));
+  } catch (e) {
+    Logger.log('S09: parseCvWithGemini_ error: ' + e.message);
+    return null;
+  }
+}
+
+// S09.F03 — extract text content from Gemini response envelope
+function extractGeminiText_(rawJson) {
+  try {
+    var obj = (typeof rawJson === 'string') ? JSON.parse(rawJson) : rawJson;
+    return obj.candidates[0].content.parts[0].text || '';
+  } catch (e) { return ''; }
+}
+
+// S09.F04 — strip markdown fences from JSON response
+function cleanJsonResponse_(text) {
+  var s = String(text || '').trim();
+  s = s.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+  return repairJsonNewlines_(s);
+}
+
+// S09.F05 — 4-level JSON repair chain
+function parseGeminiJson_(text) {
+  // Level 1 — direct parse
+  try { var r = JSON.parse(text); if (r) return r; } catch (e1) {}
+  // Level 2 — strip trailing commas before ] or }
+  var s2 = text.replace(/,\s*([\}\]])/g, '$1');
+  try { var r2 = JSON.parse(s2); if (r2) return r2; } catch (e2) {}
+  // Level 3 — escape literal newlines inside strings
+  var s3 = repairJsonNewlines_(s2);
+  try { var r3 = JSON.parse(s3); if (r3) return r3; } catch (e3) {}
+  // Level 4 — extract first complete {…} block
+  var m = text.match(/(\{[\s\S]*\})/);
+  if (m) { try { var r4 = JSON.parse(m[1]); if (r4) return r4; } catch (e4) {} }
+  Logger.log('S09: JSON repair failed for: ' + text.slice(0, 200));
+  return null;
+}
+
+// S09.F06 — Level 3 JSON repair: escape literal newlines inside string values
+function repairJsonNewlines_(s) {
+  try { JSON.parse(s); return s; } catch (e) {}
+  try {
+    var fixed = s.replace(/("(?:[^"\\]|\\.)*")/g, function(m) {
+      return m.replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t');
+    });
+    JSON.parse(fixed);
+    return fixed;
+  } catch (e) {}
+  return s;
+}
+
+// S09.F07 — CV parsing prompt (full extraction schema)
+function buildParsePrompt_(emailBody, senderEmail, subject) {
+  return 'You are a Gulf recruitment specialist. Extract ALL candidate information from the CV provided.\n' +
+    'Return ONLY a valid JSON object with EXACTLY these keys:\n' +
+    '{\n' +
+    '  "full_name": "string",\n' +
+    '  "email": "string",\n' +
+    '  "mobile": "string — include country code if visible",\n' +
+    '  "nationality": "string — country name",\n' +
+    '  "date_of_birth": "YYYY-MM-DD or DD/MM/YYYY if YYYY unknown",\n' +
+    '  "education": "highest qualification level",\n' +
+    '  "current_position": "current or last job title",\n' +
+    '  "trade": "primary skill or trade (welder/driver/cook/etc)",\n' +
+    '  "industry": "industry sector",\n' +
+    '  "total_exp_yrs": 0,\n' +
+    '  "gulf_experience_detail": "list GCC countries where worked",\n' +
+    '  "passport_number": "string",\n' +
+    '  "gcc_countries": ["array","of","GCC","countries","worked"],\n' +
+    '  "certifications": ["array","of","certifications"],\n' +
+    '  "government_companies": ["list","of","major","companies"],\n' +
+    '  "kai_assessment": "4 lines:\\n✓ Strengths: ...\\n⚠ Concerns: ...\\n★ Best Fit: ...\\n→ Action: ...",\n' +
+    '  "recommended_roles": "comma-separated list of 3 suitable roles"\n' +
+    '}\n\n' +
+    'RULES:\n' +
+    '- total_exp_yrs: numeric, e.g. 7 or 7.5. Estimate from work history if not stated.\n' +
+    '- date_of_birth: YYYY-MM-DD preferred. Never invent — use "" if genuinely unknown.\n' +
+    '- trade: single primary skill, lowercase e.g. "welder", "electrician", "driver".\n' +
+    '- kai_assessment: must be EXACTLY 4 lines starting ✓ / ⚠ / ★ / →\n' +
+    '- NEVER use null, "N/A", "not mentioned" — use "" for unknown strings, 0 for unknown numbers.\n' +
+    '- Do NOT include verdict, score, or recruitment decisions in output.\n\n' +
+    (subject     ? 'Email subject: ' + subject + '\n' : '') +
+    (senderEmail ? 'Sender: '        + senderEmail + '\n' : '') +
+    (emailBody   ? 'Email body (context):\n' + emailBody.slice(0, 800) + '\n' : '');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S10 · NORMALISATION ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S10.F01 — master normaliser; mutates parsed object in place
+function normalizeCandidate_(parsed, fallbackEmail) {
+  if (!parsed) return;
+  parsed.full_name             = cleanText_(parsed.full_name);
+  parsed.email                 = normalizeEmail_(parsed.email) || normalizeEmail_(fallbackEmail) || '';
+  parsed.mobile                = normalizePhone_(parsed.mobile);
+  parsed.nationality           = normalizeNationality_(parsed.nationality);
+  parsed.date_of_birth         = normalizeDob_(parsed.date_of_birth);
+  parsed.education             = cleanText_(parsed.education);
+  parsed.trade                 = cleanText_(parsed.trade);
+  parsed.industry              = cleanText_(parsed.industry);
+  parsed.total_exp_yrs         = parseFloat(parsed.total_exp_yrs) || 0;
+  parsed.gulf_experience_detail= normalizeGulfExperience_(parsed.gulf_experience_detail);
+  parsed.kai_assessment        = normalizeKaiAssessment_(parsed.kai_assessment, parsed);
+  // Normalise gcc_countries array
+  if (!Array.isArray(parsed.gcc_countries)) {
+    parsed.gcc_countries = parsed.gulf_experience_detail
+      ? [parsed.gulf_experience_detail] : [];
+  }
+  parsed.gcc_countries = parsed.gcc_countries
+    .map(function(c) { return normalizeGulfCountry_(c); })
+    .filter(function(c) { return c.length > 0; });
+}
+
+// S10.F02 — remove noise values
+function cleanText_(val) {
+  if (!val) return '';
+  var s = String(val).trim();
+  if (/^(n\/a|na|null|none|not specified|not mentioned|unknown|-)$/i.test(s)) return '';
+  return s;
+}
+
+// S10.F03 — nationality alias map → canonical country name
+function normalizeNationality_v1_DEPRECATED_(raw) {  // RENAMED — active version in patch_v282 (S48.F01)
+  if (!raw) return '';
+  var s = String(raw).toLowerCase().trim();
+  var MAP = {
+    'indian':'Indian','india':'Indian','ind':'Indian',
+    'pakistani':'Pakistani','pakistan':'Pakistani','pak':'Pakistani',
+    'bangladeshi':'Bangladeshi','bangladesh':'Bangladeshi',
+    'nepali':'Nepali','nepal':'Nepali','nepalese':'Nepali',
+    'sri lankan':'Sri Lankan','srilankan':'Sri Lankan','sri lanka':'Sri Lankan',
+    'philippine':'Filipino','filipino':'Filipino','philippines':'Filipino',
+    'indonesian':'Indonesian','indonesia':'Indonesian',
+    'saudi':'Saudi','saudi arabian':'Saudi','ksa':'Saudi',
+    'emirati':'Emirati','uae':'Emirati','u.a.e.':'Emirati',
+    'qatari':'Qatari','qatar':'Qatari',
+    'kuwaiti':'Kuwaiti','kuwait':'Kuwaiti',
+    'bahraini':'Bahraini','bahrain':'Bahraini',
+    'omani':'Omani','oman':'Omani',
+    'egyptian':'Egyptian','egypt':'Egyptian',
+    'jordanian':'Jordanian','jordan':'Jordanian',
+    'lebanese':'Lebanese','lebanon':'Lebanese',
+    'sudanese':'Sudanese','sudan':'Sudanese',
+    'ethiopian':'Ethiopian','ethiopia':'Ethiopian',
+    'kenyan':'Kenyan','kenya':'Kenyan',
+    'ugandan':'Ugandan','uganda':'Ugandan',
+    'ghanaian':'Ghanaian','ghana':'Ghanaian',
+    'nigerian':'Nigerian','nigeria':'Nigerian',
+    'british':'British','uk':'British','u.k.':'British',
+    'american':'American','usa':'American','u.s.a.':'American'
+  };
+  return MAP[s] || (raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()).trim();
+}
+
+// S10.F04 — phone normalisation with GCC country-code inference
+function normalizePhone_(raw) {
+  if (!raw) return '';
+  var s = String(raw).replace(/\s+/g, '').replace(/[().\-]/g, '');
+  if (!s) return '';
+  if (s.charAt(0) === '+') return s;          // already has CC
+  var plain = s.replace(/^0+/, '');
+  if (/^[6-9]\d{9}$/.test(plain))   return '+91'  + plain;   // India
+  if (/^5\d{8}$/.test(plain))       return '+966' + plain;   // Saudi
+  if (/^5[0-9]\d{7}$/.test(plain))  return '+971' + plain;   // UAE
+  if (/^[3-5]\d{7}$/.test(plain))   return '+974' + plain;   // Qatar
+  if (/^[36]\d{7}$/.test(plain))    return '+973' + plain;   // Bahrain
+  if (/^[79]\d{7}$/.test(plain))    return '+968' + plain;   // Oman
+  if (/^[569]\d{7}$/.test(plain))   return '+965' + plain;   // Kuwait
+  return s;
+}
+
+// S10.F05 — DOB to YYYY-MM-DD (7 format parsers)
+function normalizeDob_(raw) {
+  if (!raw) return '';
+  var s = String(raw).trim();
+  if (/^(n\/a|na|null|none|not specified)$/i.test(s)) return '';
+  // ISO already
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy
+  var m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (m) {
+    var d=parseInt(m[1],10), mo=parseInt(m[2],10), y=parseInt(m[3],10);
+    if (d<=31 && mo<=12) return y+'-'+pad2_(mo)+'-'+pad2_(d);
+  }
+  // dd MMM yyyy or dd MMMM yyyy
+  var MONTHS={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  var m2 = s.toLowerCase().match(/(\d{1,2})\s+([a-z]{3,})\s+(\d{4})/);
+  if (m2) {
+    var mk = m2[2].slice(0,3);
+    if (MONTHS[mk]) return m2[3]+'-'+pad2_(MONTHS[mk])+'-'+pad2_(parseInt(m2[1],10));
+  }
+  // yyyy/mm/dd
+  var m3 = s.match(/^(\d{4})[\/\-\.](\d{2})[\/\-\.](\d{2})$/);
+  if (m3) return m3[1]+'-'+m3[2]+'-'+m3[3];
+  // Native Date.parse fallback
+  var parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.getFullYear()+'-'+pad2_(parsed.getMonth()+1)+'-'+pad2_(parsed.getDate());
+  }
+  return s;  // return raw if unparseable
+}
+
+// S10.F06 — compute age from DOB (handles Date, Excel serial, string)
+function computeAge_(dob) {
+  if (!dob && dob !== 0) return null;
+  var d;
+  if (typeof dob === 'number' && dob > 25000 && dob < 80000) {
+    d = new Date(Math.round((dob - 25569) * 86400 * 1000));
+  } else if (dob instanceof Date) {
+    d = dob;
+  } else {
+    d = new Date(String(dob).replace(/^(\d{4}-\d{2}-\d{2}).*/, '$1'));
+  }
+  if (!d || isNaN(d.getTime())) return null;
+  var now = new Date();
+  var age = now.getFullYear() - d.getFullYear();
+  if (now.getMonth() < d.getMonth() ||
+     (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
+  return (age >= 10 && age <= 90) ? age : null;
+}
+
+// S10.F07 — Gulf country normalisation
+function normalizeGulfExperience_(raw) {
+  if (!raw) return '';
+  var s = String(raw);
+  s = s.replace(/\b(dubai|sharjah|abu dhabi|ajman|fujairah|uae|united arab emirates)\b/gi, 'UAE');
+  s = s.replace(/\b(saudi|ksa|riyadh|jeddah|dammam|saudi arabia)\b/gi,                'KSA');
+  s = s.replace(/\b(qatar|doha|qatarenergy|qatar energy)\b/gi,                         'Qatar');
+  s = s.replace(/\b(bahrain|manama|bapco)\b/gi,                                        'Bahrain');
+  s = s.replace(/\b(oman|muscat|sohar|pdo)\b/gi,                                       'Oman');
+  s = s.replace(/\b(kuwait|knpc|kuwait)\b/gi,                                          'Kuwait');
+  return s.trim();
+}
+
+// S10.F08
+function normalizeGulfCountry_(c) {
+  if (!c) return '';
+  var s = String(c).toLowerCase().trim();
+  if (/uae|dubai|abu dhabi|sharjah|emirates/.test(s)) return 'UAE';
+  if (/saudi|ksa|riyadh|jeddah|dammam/.test(s))       return 'KSA';
+  if (/qatar|doha/.test(s))                            return 'Qatar';
+  if (/bahrain|manama/.test(s))                        return 'Bahrain';
+  if (/oman|muscat/.test(s))                           return 'Oman';
+  if (/kuwait/.test(s))                                return 'Kuwait';
+  return c.charAt(0).toUpperCase() + c.slice(1).toLowerCase();
+}
+
+// S10.F09 — KAI Assessment 4-line format validator + fallback builder
+function normalizeKaiAssessment_(raw, candidate) {
+  if (raw && String(raw).trim().length > 30) {
+    var s = String(raw).trim();
+    // Already has 4-line format
+    if (/✓|⚠|★|→/.test(s)) return s;
+  }
+  // Build fallback
+  var name  = (candidate && candidate.full_name)   || 'Candidate';
+  var trade = (candidate && candidate.trade)        || 'general labour';
+  var exp   = (candidate && candidate.total_exp_yrs)|| 0;
+  var nat   = (candidate && candidate.nationality)  || '';
+  var gulf  = (candidate && candidate.gulf_experience_detail) || '';
+  return (
+    '✓ Strengths: ' + exp + 'yr experience in ' + trade +
+      (nat ? ', ' + nat + ' national' : '') + '.\n' +
+    '⚠ Concerns: Automated extraction — manual verification of key details advised.\n' +
+    '★ Best Fit: ' + trade + (gulf ? ' with Gulf (' + gulf + ') exposure.' : '.') + '\n' +
+    '→ Action: Screen CV and verify DOB, certifications, and mobile.'
+  );
+}
+
+// S10.F10 — zero-pad helper
+function pad2_(n) { return n < 10 ? '0' + n : String(n); }
+
+// ═══════════════════════════════════════════════════════════════════
+// S11 · SCORING ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S11.F01 — master scoring function; returns scored object
+function scoreCandidate_(parsed, rules, taxResult) {
+  var score     = 0;
+  var breakdown = [];
+  var flags     = [];
+  var notes     = [];
+  var agePriority = '';
+
+  // ── S11.1  Experience (max 30) ─────────────────────────────────
+  var exp = parseFloat(parsed.total_exp_yrs) || 0;
+  var expPts = 0;
+  if      (exp >= 15) expPts = 30;
+  else if (exp >= 10) expPts = 25;
+  else if (exp >= 7)  expPts = 20;
+  else if (exp >= 5)  expPts = 15;
+  else if (exp >= 3)  expPts = 10;
+  else if (exp >= 1)  expPts = 5;
+  if (expPts) { score += expPts; breakdown.push('Exp:' + expPts); }
+
+  // ── S11.2  Gulf Experience (max 20) ───────────────────────────
+  var gulf = String(parsed.gulf_experience_detail || '').toLowerCase();
+  var gulfPts = 0;
+  var gulfYrsMch = gulf.match(/(\d+(?:\.\d+)?)\s*(?:yr|year)/i);
+  var gulfYrs = gulfYrsMch ? parseFloat(gulfYrsMch[1]) : 0;
+  if (gulf && gulf.length > 3) {
+    if      (gulfYrs >= 5)  gulfPts = 20;
+    else if (gulfYrs >= 3)  gulfPts = 15;
+    else if (gulfYrs >= 1)  gulfPts = 10;
+    else                    gulfPts = 8;   // mentioned but no numeric years
+  }
+  if (gulfPts) { score += gulfPts; breakdown.push('Gulf:' + gulfPts); }
+
+  // ── S11.3  Education (max 15) ─────────────────────────────────
+  var edu = String(parsed.education || '').toLowerCase();
+  var eduPts = 0;
+  if      (/phd|doctorate/.test(edu))                                     eduPts = 15;
+  else if (/master|mba|msc|m\.sc|m\.eng/.test(edu))                       eduPts = 13;
+  else if (/bachelor|b\.sc|b\.eng|b\.tech|b\.e\.|degree/.test(edu))       eduPts = 10;
+  else if (/diploma|polytechnic|advanced cert/.test(edu))                 eduPts = 7;
+  else if (/certificate|iti|vocational|matric|sslc|10th|12th/.test(edu))  eduPts = 4;
+  if (eduPts) { score += eduPts; breakdown.push('Edu:' + eduPts); }
+
+  // ── S11.4  Gulf Gov / Major Company (max 10) ──────────────────
+  var allText = (String(parsed.government_companies || '') +
+                ' ' + String(parsed.kai_assessment || '') +
+                ' ' + gulf).toLowerCase();
+  var govPts = 0;
+  for (var gi = 0; gi < CONFIG.gulfGovCompanies.length; gi++) {
+    if (allText.indexOf(CONFIG.gulfGovCompanies[gi]) >= 0) { govPts = 10; break; }
+  }
+  if (govPts) { score += govPts; breakdown.push('GovCo:' + govPts); }
+
+  // ── S11.5  Trade Certifications (max 10) ──────────────────────
+  var certText = (String(parsed.certifications || '') + ' ' + allText).toLowerCase();
+  var certPts = 0;
+  for (var ci = 0; ci < CONFIG.tradeCerts.length; ci++) {
+    if (certText.indexOf(CONFIG.tradeCerts[ci]) >= 0) { certPts = 10; break; }
+  }
+  if (certPts) { score += certPts; breakdown.push('Cert:' + certPts); }
+
+  // ── S11.6  GCC License / Visa Status (max 5) ──────────────────
+  var licPts = 0;
+  for (var li = 0; li < CONFIG.gccLicenses.length; li++) {
+    if (certText.indexOf(CONFIG.gccLicenses[li]) >= 0) { licPts = 5; break; }
+  }
+  if (licPts) { score += licPts; breakdown.push('License:' + licPts); }
+
+  // ── S11.7  Taxonomy bonus (max 5) ─────────────────────────────
+  var taxPts = taxResult ? (taxResult.pts || 0) : 0;
+  if (taxPts) { score += taxPts; breakdown.push('Tax:' + taxPts); }
+
+  // ── S11.8  AGE BAND SCORING (max 10) ─────────────────────────
+  //  CRITICAL: REJECT only on age < 21 or > 50.
+  //  Score alone NEVER causes REJECT. Never.
+  var age = computeAge_(parsed.date_of_birth);
+  if (age !== null) {
+    var agePts = 0;
+    if      (age >= 26 && age <= 35) { agePts = 10; agePriority = 'P1'; }
+    else if (age >= 36 && age <= 45) { agePts = 8;  agePriority = 'P1'; }
+    else if (age >= 22 && age <= 25) { agePts = 5;  agePriority = 'P2'; }
+    else if (age >= 46 && age <= 49) { agePts = 3;  agePriority = 'P2'; }
+    else if (age === 21 || age === 50){ agePts = 2;  agePriority = 'P2'; }
+    // age < 21 or > 50 → agePts=0 → AGE_OUT_OF_RANGE → REJECT
+
+    if (agePts) { score += agePts; breakdown.push('Age:' + agePts); }
+    parsed.age = age;
+
+    if (age < 21 || age > 50) {
+      flags.push('AGE_OUT_OF_RANGE');
+      notes.push('Age ' + age + ' is outside 21–50 range — direct REJECT.');
+    } else if (agePriority === 'P2') {
+      notes.push('[AGE_P2] Age ' + age + ' in second-priority band (22-25 or 46-49).');
+    }
+  } else {
+    parsed.age = '';
+    notes.push('[NO_DOB] Age could not be determined — verification needed.');
+    flags.push('AGE_UNKNOWN');
+  }
+
+  // ── S11.9  Trade rule check (flags only, NEVER REJECT) ────────
+  var rule = findRule_(rules, parsed.trade);
+  if (rule && exp < rule.minYears) {
+    flags.push('BELOW_TRADE_MIN_EXP');
+    notes.push('[TRADE_RULE] ' + parsed.trade + ' requires ' + rule.minYears + 'yr min; candidate has ' + exp + 'yr.');
+  }
+
+  // ── S11.10  Verdict assignment ────────────────────────────────
+  var flag, verdict;
+  if (flags.indexOf('AGE_OUT_OF_RANGE') >= 0) {
+    flag = 'RED'; verdict = 'REJECT';
+  } else if (score >= SCORING.greenMin) {
+    flag    = agePriority === 'P2' ? 'YELLOW' : 'GREEN';
+    verdict = agePriority === 'P2' ? 'NEEDS_REVIEW' : 'SHORTLISTED';
+  } else if (score >= SCORING.yellowMin) {
+    flag = 'YELLOW'; verdict = 'NEEDS_REVIEW';
+  } else {
+    flag = 'ORANGE'; verdict = 'NEEDS_CALL';  // low score + valid age = NEVER REJECT
+  }
+
+  return {
+    full_name:       parsed.full_name       || '',
+    email:           parsed.email           || '',
+    mobile:          parsed.mobile          || '',
+    nationality:     parsed.nationality     || '',
+    dob:             parsed.date_of_birth   || '',
+    age:             parsed.age             !== undefined ? parsed.age : '',
+    education:       parsed.education       || '',
+    positionApplied: parsed.current_position|| '',
+    trade:           parsed.trade           || '',
+    industry:        parsed.industry        || '',
+    experience:      exp,
+    gulfExperience:  parsed.gulf_experience_detail || '',
+    score:           score,
+    scoreBreakdown:  breakdown.join(' | '),
+    flag:            flag,
+    verdict:         verdict,
+    notes:           notes.join(' | '),
+    flags:           flags,
+    agePriority:     agePriority,
+    kaiAssessment:   parsed.kai_assessment   || '',
+    recommendedRoles:parsed.recommended_roles|| '',
+    recruiterAction: '',
+    _rule:           rule
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S12 · DECISION RULES ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S12.F01 — enrich flags and recruiterAction; never changes REJECT verdict
+function applyDecisionRules_(scored, rules) {
+  if (scored.verdict === 'REJECT') return;  // age-out: do not touch
+
+  var actions = [];
+  var f = scored.flags || [];
+
+  // S12.1 — Trade not identified
+  if (!scored.trade || scored.trade.length < 2) {
+    if (f.indexOf('TRADE_UNCLEAR') < 0) f.push('TRADE_UNCLEAR');
+    actions.push('Trade/skill unclear — verify with candidate.');
+  }
+
+  // S12.2 — Education missing
+  if (!scored.education) {
+    if (f.indexOf('EDUCATION_MISSING') < 0) f.push('EDUCATION_MISSING');
+    actions.push('Education level not confirmed.');
+  }
+
+  // S12.3 — Gulf experience unverified (mentioned but no duration/countries)
+  if (scored.gulfExperience && !scored.gulfExperience.match(/\d/)) {
+    if (f.indexOf('GULF_UNVERIFIED') < 0) f.push('GULF_UNVERIFIED');
+    actions.push('Gulf experience mentioned but duration not confirmed.');
+  }
+
+  // S12.4 — Low experience on NEEDS_REVIEW → downgrade to NEEDS_CALL
+  if (scored.experience < SCORING.yellowFlagMinYears && scored.verdict === 'NEEDS_REVIEW') {
+    scored.verdict = 'NEEDS_CALL';
+    scored.flag    = 'ORANGE';
+    actions.push('Experience < 2yr — downgraded to NEEDS_CALL.');
+  }
+
+  // S12.5 — Age P2 on SHORTLISTED → downgrade to NEEDS_REVIEW (per policy)
+  if (scored.agePriority === 'P2' && scored.verdict === 'SHORTLISTED') {
+    scored.verdict = 'NEEDS_REVIEW';
+    scored.flag    = 'YELLOW';
+    actions.push('[AGE_P2] Second priority band — NEEDS_REVIEW, not SHORTLISTED.');
+  }
+
+  // S12.6 — Mobile missing
+  if (!scored.mobile) {
+    if (f.indexOf('MOBILE_MISSING') < 0) f.push('MOBILE_MISSING');
+    actions.push('No mobile number — follow-up required.');
+  }
+
+  // S12.7 — Below trade minimum years
+  if (f.indexOf('BELOW_TRADE_MIN_EXP') >= 0 && scored.verdict === 'NEEDS_REVIEW') {
+    scored.verdict = 'NEEDS_CALL';
+    scored.flag    = 'ORANGE';
+    actions.push('Below trade minimum experience threshold.');
+  }
+
+  scored.flags = f;
+  if (actions.length) {
+    scored.recruiterAction = actions.join(' | ');
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S13 · SHEET WRITERS
+// ═══════════════════════════════════════════════════════════════════
+// S13.F01 — write scored candidate to Candidates sheet
+function writeToSheet_(scored, threadId, cvLink, appDate) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) { Logger.log('S13: Candidates sheet not found.'); return; }
+  var ic  = CONFIG.inputColumns;
+  var row = new Array(ic.active);
+  row[ic.stage - 1]            = 'Pending action';
+  row[ic.applicationDate - 1]  = appDate || new Date();
+  row[ic.nationality - 1]      = scored.nationality;
+  row[ic.name - 1]             = scored.full_name;
+  row[ic.mobile - 1]           = scored.mobile ? "'" + scored.mobile : '';
+  row[ic.email - 1]            = scored.email;
+  row[ic.education - 1]        = scored.education;
+  row[ic.positionApplied - 1]  = scored.positionApplied;
+  row[ic.trade - 1]            = scored.trade;
+  row[ic.industry - 1]         = scored.industry;
+  row[ic.experience - 1]       = scored.experience;
+  row[ic.gulf - 1]             = scored.gulfExperience;
+  row[ic.dob - 1]              = scored.dob;
+  row[ic.age - 1]              = scored.age;
+  row[ic.verdict - 1]          = scored.verdict;
+  row[ic.flags - 1]            = scored.flag;
+  row[ic.score - 1]            = scored.score;
+  row[ic.scoreBreakdown - 1]   = scored.scoreBreakdown;
+  row[ic.recommendedRoles - 1] = scored.recommendedRoles;
+  row[ic.kaiAssessment - 1]    = scored.kaiAssessment;
+  row[ic.recruiterAction - 1]  = scored.recruiterAction;
+  row[ic.cvLink - 1]           = cvLink || '';
+  row[ic.notes - 1]            = scored.notes || '';
+  row[ic.active - 1]           = 'TRUE';
+  sheet.appendRow(row);
+  // Apply conditional colour to FLAGS cell
+  applyFlagFormatting_(sheet, sheet.getLastRow(), scored.flag);
+}
+
+// S13.F02 — write age-rejected candidate to Rejected sheet
+function writeToRejected_(scored, cvLink, appDate) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.rejectedSheetName);
+  if (!sheet) return;
+  sheet.appendRow([
+    new Date(),
+    appDate || '',
+    scored.full_name,
+    scored.nationality,
+    scored.mobile ? "'" + scored.mobile : '',
+    scored.email,
+    scored.trade,
+    scored.age,
+    scored.notes || 'AGE_OUT_OF_RANGE',
+    cvLink || ''
+  ]);
+}
+
+// S13.F03 — write superseded row to Archive sheet
+function writeToArchive_(rowData, reason) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.archiveSheetName);
+  if (!sheet) return;
+  var ic = CONFIG.inputColumns;
+  sheet.appendRow([
+    new Date(),
+    String(rowData[ic.email - 1]      || ''),
+    String(rowData[ic.mobile - 1]     || '').replace(/^'/, ''),
+    String(rowData[ic.name - 1]       || ''),
+    String(rowData[ic.trade - 1]      || ''),
+    Number(rowData[ic.experience - 1] || 0),
+    String(rowData[ic.verdict - 1]    || ''),
+    reason || 'archived',
+    String(rowData[ic.cvLink - 1]     || '')
+  ]);
+}
+
+// S13.F04 — write dedup registry entry to _Meta sheet
+function writeToMeta_(email, mobile, name, industry, threadId, msgId) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.metaSheetName);
+  if (!sheet) return;
+  var key = (email || '') + '|' + (mobile || '');
+  sheet.appendRow([key, email, mobile, name, industry, new Date(), threadId, msgId, 'master']);
+}
+
+// S13.F05 — log consent record to _Consent sheet (GDPR / PDPL)
+function appendConsent_(parsed, appDate, threadId) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.consentSheetName);
+  if (!sheet) return;
+  sheet.appendRow([
+    new Date(),
+    parsed.full_name   || '',
+    parsed.email       || '',
+    parsed.mobile      || '',
+    parsed.nationality || '',
+    'CV_SUBMISSION',
+    'email',
+    threadId || ''
+  ]);
+}
+
+// S13.F06 — apply background colour to FLAGS cell for quick visual
+function applyFlagFormatting_(sheet, rowNum, flag) {
+  try {
+    var BG = { GREEN:'#d1f4e0', YELLOW:'#fff4e5', ORANGE:'#ffe5cc', RED:'#ffe5e5' };
+    var FG = { GREEN:'#006624', YELLOW:'#c05621', ORANGE:'#9a3412', RED:'#c00000' };
+    var bg = BG[flag], fg = FG[flag];
+    if (bg) {
+      var range = sheet.getRange(rowNum, CONFIG.inputColumns.flags, 1, 1);
+      range.setBackground(bg).setFontColor(fg).setFontWeight('bold');
+    }
+  } catch (e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S14 · QUOTA ENGINE  (IST-anchored)
+// ═══════════════════════════════════════════════════════════════════
+// S14.F01 — IST date string (yyyy-MM-dd)
+function istDateString_(d) {
+  return Utilities.formatDate(d || new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+}
+
+// S14.F02 — current IST hour (0-23)
+function istHour_() {
+  return parseInt(Utilities.formatDate(new Date(), 'Asia/Kolkata', 'H'), 10);
+}
+
+// S14.F03 — FRESH if < 23:00 IST, BACKLOG after
+function decideRunMode_() {
+  return istHour_() >= CONFIG_QUOTA.backlogHourIst ? 'BACKLOG' : 'FRESH';
+}
+
+// S14.F04 — reset all quota buckets at IST midnight
+function resetQuotaIfNewDay_() {
+  var props = PropertiesService.getScriptProperties();
+  var today = istDateString_();
+  if (props.getProperty(CONFIG_QUOTA.lastResetKey) === today) return;
+  var reset = {};
+  var p = CONFIG_QUOTA.keyPrefix;
+  reset[p + 'cv_fresh']  = '0';
+  reset[p + 'cv_total']  = '0';
+  reset[p + 'reply']     = '0';
+  reset[p + 'email']     = '0';
+  reset[CONFIG_QUOTA.lastResetKey] = today;
+  props.setProperties(reset);
+}
+
+// S14.F05 — read all quota buckets
+function getQuotaState_() {
+  var props = PropertiesService.getScriptProperties();
+  var p     = CONFIG_QUOTA.keyPrefix;
+  var cvF   = parseInt(props.getProperty(p+'cv_fresh') || '0', 10);
+  var cvT   = parseInt(props.getProperty(p+'cv_total') || '0', 10);
+  var rep   = parseInt(props.getProperty(p+'reply')    || '0', 10);
+  var em    = parseInt(props.getProperty(p+'email')    || '0', 10);
+  return {
+    cvFreshUsed: cvF,   cvFreshRemaining:  Math.max(0, CONFIG_QUOTA.capFreshCv    - cvF),
+    cvTotalUsed: cvT,   cvTotalRemaining:  Math.max(0, CONFIG_QUOTA.capDailyTotal - cvT),
+    replyUsed:   rep,   replyRemaining:    Math.max(0, CONFIG_QUOTA.capReplyParse - rep),
+    emailUsed:   em,    emailRemaining:    Math.max(0, CONFIG_QUOTA.capEmail      - em)
+  };
+}
+
+// S14.F06 — increment a quota bucket
+function incrementQuota_(bucket) {
+  var props = PropertiesService.getScriptProperties();
+  var p     = CONFIG_QUOTA.keyPrefix;
+  var MAP   = { cv: [p+'cv_total', p+'cv_fresh'], reply: [p+'reply'], email: [p+'email'] };
+  (MAP[bucket] || []).forEach(function(k) {
+    props.setProperty(k, String(parseInt(props.getProperty(k)||'0',10)+1));
+  });
+}
+
+// S14.F07 — log daily quota summary to _Quota sheet
+function logQuota_(runRejected) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.quotaSheetName);
+  if (!sheet) return;
+  var qs    = getQuotaState_();
+  var today = istDateString_();
+  var data  = sheet.getLastRow() < 2 ? []
+    : sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
+  // Update existing today row
+  for (var i = 0; i < data.length; i++) {
+    var rowDate = data[i][0] instanceof Date
+      ? istDateString_(data[i][0])
+      : String(data[i][0]).slice(0, 10);
+    if (rowDate === today) {
+      sheet.getRange(i + 2, 1, 1, 7).setValues([[
+        data[i][0], qs.cvTotalUsed, (runRejected || 0) + Number(data[i][2] || 0),
+        qs.emailUsed, qs.replyUsed, Number(data[i][5] || 0), ''
+      ]]);
+      return;
+    }
+  }
+  sheet.appendRow([new Date(), qs.cvTotalUsed, runRejected||0, qs.emailUsed, qs.replyUsed, 0, '']);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S15 · DEDUP ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S15.F01 — check run-state and meta sheet for duplicates
+function isDuplicate_(email, mobile) {
+  var eKey = normalizeEmailKey_(email);
+  var mKey = normalizeMobileKey_(mobile);
+  // Run-level
+  if (eKey && _RUN_STATE.emails[eKey])   return true;
+  if (mKey && _RUN_STATE.mobiles[mKey])  return true;
+  // Meta sheet
+  var sheet = getMasterSS_().getSheetByName(CONFIG.metaSheetName);
+  if (!sheet || sheet.getLastRow() < 2)  return false;
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 3).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (eKey && normalizeEmailKey_(data[i][1])  === eKey)  return true;
+    if (mKey && normalizeMobileKey_(data[i][2]) === mKey)  return true;
+  }
+  return false;
+}
+
+// S15.F02 — register new candidate in run-level state
+function updateRunState_(email, mobile) {
+  var eKey = normalizeEmailKey_(email);
+  var mKey = normalizeMobileKey_(mobile);
+  if (eKey) _RUN_STATE.emails[eKey]   = true;
+  if (mKey) _RUN_STATE.mobiles[mKey]  = true;
+}
+
+// S15.F03
+function normalizeEmailKey_(e) {
+  return e ? String(e).toLowerCase().trim().replace(/\s+/g,'') : '';
+}
+
+// S15.F04
+function normalizeMobileKey_(m) {
+  return m ? String(m).replace(/^'/,'').replace(/[^0-9]/g,'').replace(/^0+/,'').slice(-10) : '';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S16 · RULES ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S16.F01 — load _Rules sheet into array
+function loadRules_() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.rulesSheetName);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow()-1, 4).getValues()
+    .filter(function(r) { return r[0]; })
+    .map(function(r) {
+      return {
+        pattern:  String(r[0]).toLowerCase().trim(),
+        minYears: parseFloat(r[1]) || 0,
+        minScore: parseFloat(r[2]) || 0,
+        notes:    String(r[3] || '')
+      };
+    });
+}
+
+// S16.F02 — find matching rule for a trade
+function findRule_(rules, trade) {
+  if (!rules || !trade) return null;
+  var t = String(trade).toLowerCase();
+  for (var i = 0; i < rules.length; i++) {
+    if (t.indexOf(rules[i].pattern) >= 0) return rules[i];
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S17 · TAXONOMY ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S17.F01 — load Taxonomy sheet with 1800s CacheService
+function loadTaxonomy_() {
+  var cache   = CacheService.getScriptCache();
+  var cached  = cache.get('kai_taxonomy_v1');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  var sheet = getMasterSS_().getSheetByName(CONFIG.taxonomySheetName);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var rows = sheet.getRange(2, 1, sheet.getLastRow()-1, 4).getValues()
+    .filter(function(r) { return r[0] || r[2]; })
+    .map(function(r) {
+      return {
+        industry:       String(r[0]||'').toLowerCase(),
+        department:     String(r[1]||'').toLowerCase(),
+        trade:          String(r[2]||'').toLowerCase(),
+        specialization: String(r[3]||'').toLowerCase()
+      };
+    });
+  try { cache.put('kai_taxonomy_v1', JSON.stringify(rows), 1800); } catch (e) {}
+  return rows;
+}
+
+// S17.F02 — map candidate to taxonomy; returns { pts, industry, trade }
+function mapCandidateToTaxonomy_(candidate, taxonomy) {
+  if (!taxonomy || !taxonomy.length) return { pts: 0, industry: '', trade: '' };
+  var trade    = String(candidate.trade    || '').toLowerCase();
+  var industry = String(candidate.industry || '').toLowerCase();
+  var pts = 0, matchedInd = '', matchedTrade = '';
+  for (var i = 0; i < taxonomy.length; i++) {
+    var row = taxonomy[i];
+    if (trade && row.trade          && trade.indexOf(row.trade) >= 0)
+      { pts += 3; matchedTrade = matchedTrade || row.trade; matchedInd = matchedInd || row.industry; }
+    if (industry && row.industry    && industry.indexOf(row.industry) >= 0)
+      { pts += 2; matchedInd = matchedInd || row.industry; }
+    if (trade && row.specialization && trade.indexOf(row.specialization) >= 0)
+      { pts += 1; }
+    if (pts >= 6) break;
+  }
+  return { pts: Math.min(pts, 5), industry: matchedInd, trade: matchedTrade };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S18 · LOGGING ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S18.F01 — append to Logs sheet
+function appendLog_(obj) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.logSheetName);
+    if (!sheet) return;
+    sheet.appendRow([
+      new Date(), obj.threadId||'', obj.status||'', obj.client||'master',
+      obj.name||'', obj.email||'', obj.mobile||'', obj.trade||'', obj.notes||''
+    ]);
+  } catch (e) { Logger.log('S18: appendLog_ failed: ' + e.message); }
+}
+
+// S18.F02 — append to _Errors sheet
+function logError_(thread, sender, subject, errorMsg, rawResponse) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.errorSheetName);
+    if (!sheet) return;
+    sheet.appendRow([
+      new Date(),
+      thread  ? thread.getId() : '',
+      sender  || '',
+      subject || '',
+      errorMsg || '',
+      String(rawResponse || '').slice(0, 500)
+    ]);
+  } catch (e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S19 · FOLLOW-UP EMAIL MODULE
+// ═══════════════════════════════════════════════════════════════════
+// S19.F01 — config
+var FOLLOWUP_CONFIG = {
+  missingFieldChecks: [
+    { key: 'dob',         label: 'Date of Birth' },
+    { key: 'nationality', label: 'Nationality' },
+    { key: 'education',   label: 'Highest Education / Qualification' },
+    { key: 'mobile',      label: 'Mobile Number (with country code)' },
+    { key: 'trade',       label: 'Primary Trade / Skill' }
+  ],
+  subjectPrefix: 'Ref: KAR-',
+  subjectSuffix: ' — Quick update needed for your application',
+  replySearchQuery:       'label:inbox is:unread subject:"Ref: KAR-"',
+  replyMaxThreadsPerRun:  20,
+  noteKey:                'followUp'
+};
+
+// S19.F02 — send follow-up if NEEDS_CALL and missing fields exist
+function maybeSendFollowUpEmail_(scored, toEmail) {
+  try {
+    if (!toEmail || isInternalDomain_(toEmail)) return;
+
+    var missing = [];
+    FOLLOWUP_CONFIG.missingFieldChecks.forEach(function(f) {
+      var v = scored[f.key];
+      if (v === null || v === undefined || String(v).trim() === '') missing.push(f);
+    });
+    if (!missing.length) return;
+
+    var qs = getQuotaState_();
+    var token   = buildKarToken_();
+    var subject = FOLLOWUP_CONFIG.subjectPrefix + token + FOLLOWUP_CONFIG.subjectSuffix;
+    var body    = buildFollowUpEmailBody_(scored.full_name, missing, token);
+
+    if (!isCandidateSafeEmailBody_(body)) {
+      appendLog_({ status: 'FOLLOWUP_BLOCKED', notes: 'Body firewall triggered for ' + maskEmail_(toEmail) });
+      return;
+    }
+
+    if (qs.emailRemaining <= 0) {
+      queuePendingEmail_(toEmail, subject, body, token);
+      appendLog_({ status: 'FOLLOWUP_QUEUED', email: maskEmail_(toEmail), notes: 'Email cap reached — queued.' });
+      return;
+    }
+
+    GmailApp.sendEmail(toEmail, subject, body, { name: CONFIG.brand.senderDisplayName });
+    incrementQuota_('email');
+
+    // Store KAR token in scored.notes for reply matching
+    var notesObj = {};
+    try { notesObj = JSON.parse(scored.notes || '{}'); } catch (e) {}
+    notesObj[FOLLOWUP_CONFIG.noteKey] = {
+      token: token, sentAt: new Date().toISOString(),
+      status: 'sent', missing: missing.map(function(m) { return m.key; })
+    };
+    scored.notes = JSON.stringify(notesObj);
+    scored.recruiterAction = (scored.recruiterAction ? scored.recruiterAction + ' | ' : '') +
+      'Auto email sent — awaiting reply (missing: ' + missing.map(function(m) { return m.label; }).join(', ') + ')';
+
+    appendLog_({ status: 'FOLLOWUP_SENT', email: maskEmail_(toEmail),
+                 trade: scored.trade, notes: 'KAR-' + token });
+  } catch (e) {
+    appendLog_({ status: 'FOLLOWUP_ERROR', notes: 'maybeSendFollowUpEmail_: ' + e.message });
+  }
+}
+
+// S19.F03 — build candidate-facing email body
+function buildFollowUpEmailBody_(name, missingFields, token) {
+  var greeting = name ? 'Dear ' + name + ',' : 'Dear Applicant,';
+  var list = missingFields.map(function(f, i) { return (i + 1) + '. ' + f.label; }).join('\n');
+  return greeting + '\n\n' +
+    'Thank you for your interest in a position with ' + CONFIG.brand.companyName + '.\n\n' +
+    'To proceed with your application, we need the following information:\n\n' +
+    list + '\n\n' +
+    'Kindly reply to this email with the details above at your earliest convenience.\n\n' +
+    'Warm regards,\n' + CONFIG.brand.signatureLine1 + '\n' + CONFIG.brand.signatureLine2 + '\n\n' +
+    '---\n[Reference: KAR-' + token + ' — please keep this in your reply subject line]';
+}
+
+// S19.F04 — internal-term firewall: confirm no classified data in body
+function isCandidateSafeEmailBody_(body) {
+  var lower = String(body || '').toLowerCase();
+  var blocked = [
+    'shortlisted','rejected','needs_call','needs_review','verdict',
+    'flags:','orange flag','red flag','kai assessment',
+    'score breakdown','score:','trade test','gamca','svp',
+    'manpower','deployment','recruiter action'
+  ];
+  for (var i = 0; i < blocked.length; i++) {
+    if (lower.indexOf(blocked[i]) !== -1) return false;
+  }
+  return true;
+}
+
+// S19.F05 — generate KAR token
+function buildKarToken_() {
+  return Utilities.getUuid().replace(/-/g,'').slice(0, 8).toUpperCase();
+}
+
+// S19.F06 — queue email to _PendingEmails when cap is reached
+function queuePendingEmail_(toEmail, subject, body, token) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.pendingEmailsSheet);
+  if (!sheet) return;
+  sheet.appendRow([new Date(), toEmail, subject, body, token || '', 'QUEUED']);
+}
+
+// S19.F07 — flush queued emails when quota is available
+function flushPendingEmails_() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.pendingEmailsSheet);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 6).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][5] !== 'QUEUED') continue;
+    if (getQuotaState_().emailRemaining <= 0) break;
+    try {
+      GmailApp.sendEmail(String(data[i][1]), String(data[i][2]), String(data[i][3]),
+                         { name: CONFIG.brand.senderDisplayName });
+      incrementQuota_('email');
+      sheet.getRange(i + 2, 6).setValue('SENT');
+    } catch (e) {
+      sheet.getRange(i + 2, 6).setValue('ERROR: ' + e.message.slice(0, 60));
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S20 · REPLY SCANNER  (10-min trigger)
+// ═══════════════════════════════════════════════════════════════════
+// S20.F01 — scan inbox for KAR-token replies
+function processCandidateReplies() {
+  if (isPipelinePaused_()) return;
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return;
+
+  try {
+    resetQuotaIfNewDay_();
+    var qs = getQuotaState_();
+    if (qs.replyRemaining <= 0) {
+      appendLog_({ status: 'REPLY_QUOTA_CAP', notes: 'Reply parse cap reached.' });
+      return;
+    }
+
+    var threads = GmailApp.search(FOLLOWUP_CONFIG.replySearchQuery, 0,
+                                   FOLLOWUP_CONFIG.replyMaxThreadsPerRun);
+    if (!threads || !threads.length) return;
+
+    var index = buildFollowUpIndex_();
+
+    for (var t = 0; t < threads.length; t++) {
+      if (getQuotaState_().replyRemaining <= 0) break;
+      try {
+        var thread  = threads[t];
+        var subject = thread.getFirstMessageSubject() || '';
+        var m = subject.match(/Ref:\s*KAR-([A-Z0-9]+)/i);
+        if (!m) { thread.markRead(); continue; }
+        var token = m[1].toUpperCase();
+
+        var hit = index[token];
+        if (!hit) { thread.markRead(); continue; }
+
+        var msgs     = thread.getMessages();
+        var ownerLc  = getOwnerEmail_().toLowerCase();
+        var replyMsg = null;
+        for (var j = msgs.length - 1; j >= 0; j--) {
+          if (String(msgs[j].getFrom() || '').toLowerCase().indexOf(ownerLc) === -1) {
+            replyMsg = msgs[j]; break;
+          }
+        }
+        if (!replyMsg) { thread.markRead(); continue; }
+
+        var replyBody = replyMsg.getPlainBody() || '';
+        if (replyBody.length < 5) { thread.markRead(); continue; }
+
+        var parsed = callGeminiForReply_(replyBody);
+        if (parsed) {
+          applyFollowUpReplyToRow_(hit.sheet, hit.rowNumber, hit.notesObj, token, parsed);
+          incrementQuota_('reply');
+          appendLog_({ status: 'REPLY_PROCESSED', notes: 'KAR-' + token + ' row=' + hit.rowNumber });
+        }
+        thread.markRead();
+      } catch (e) {
+        appendLog_({ status: 'REPLY_ERROR', notes: e.message });
+      }
+    }
+
+    // ── Phase 2: "Action Required" replies (email-matched, v289) ───────
+    // Handles candidates who replied to "Action Required: Complete Your Application"
+    // emails which have NO KAR token — matched by sender email address instead.
+    if (typeof processActionRequiredRepliesV289_ === 'function') {
+      processActionRequiredRepliesV289_();
+    }
+
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// S20.F02 — build token→row index from Candidates sheet Notes column
+function buildFollowUpIndex_() {
+  var index = {};
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return index;
+  var notes = sheet.getRange(2, CONFIG.inputColumns.notes, sheet.getLastRow()-1, 1).getValues();
+  for (var i = 0; i < notes.length; i++) {
+    var raw = String(notes[i][0] || '').trim();
+    if (!raw || raw.indexOf('followUp') < 0) continue;
+    try {
+      var obj = JSON.parse(raw);
+      if (!obj.followUp || !obj.followUp.token) continue;
+      if (obj.followUp.status === 'received')   continue;
+      index[obj.followUp.token.toUpperCase()] = {
+        sheet: sheet, rowNumber: i + 2, notesObj: obj
+      };
+    } catch (e) {}
+  }
+  return index;
+}
+
+// S20.F03 — Gemini lightweight reply parser
+function callGeminiForReply_(replyBody) {
+  try {
+    var apiKey = validateApiKey_();
+    var url    = CONFIG.geminiEndpoint + CONFIG.defaultModel +
+                ':generateContent?key=' + encodeURIComponent(apiKey);
+    var prompt =
+      'Extract candidate information from this recruitment reply email.\n' +
+      'Return ONLY valid JSON with ALL these fields:\n' +
+      '{"date_of_birth":"","nationality":"","education":"","mobile":"","trade":"",' +
+      '"employment_status":"","passport_type":"","current_location":"","notice_period_days":""}\n' +
+      'Rules:\n' +
+      '- passport_type: "ECNR" if ECNR or Non-ECR mentioned, "ECR" if ECR mentioned, "" otherwise\n' +
+      '- employment_status: exactly one of: "Available Immediately" | "Working - Notice Period" | "Working" | ""\n' +
+      '- notice_period_days: number only, e.g. "40" for "40 days notice period", "" if not mentioned\n' +
+      '- current_location: city and/or country if stated, "" otherwise\n' +
+      '- Use "" for any field not found. Never guess or invent data.\n\n' +
+      'Reply email:\n' + replyBody.slice(0, 3000);
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.1, maxOutputTokens: 500 }
+      }), muteHttpExceptions: true
+    });
+    if (resp.getResponseCode() !== 200) return null;
+    return parseGeminiJson_(cleanJsonResponse_(extractGeminiText_(resp.getContentText())));
+  } catch (e) { return null; }
+}
+
+// S20.F04 — apply parsed reply fields to candidate row + re-run decision rules
+function applyFollowUpReplyToRow_(sheet, rowNum, notesObj, token, parsed) {
+  var col = CONFIG.inputColumns;
+  var ec  = CONFIG_V2.extCol;
+  // Read enough columns to cover all extended fields (up to col 38)
+  var readCols = Math.max(CONFIG.headers.length, ec.noticeDays || 32, 38);
+  var row = sheet.getRange(rowNum, 1, 1, readCols).getValues()[0];
+  var upd = {};
+
+  function empty_(v) { return !v || String(v).trim() === ''; }
+
+  // ── Original 5 fields ──────────────────────────────────────────────
+  if (parsed.date_of_birth && empty_(row[col.dob - 1])) {
+    upd[col.dob] = normalizeDob_(parsed.date_of_birth);
+    var age = computeAge_(upd[col.dob]);
+    if (age && empty_(row[col.age - 1])) upd[col.age] = age;
+  }
+  if (parsed.nationality && empty_(row[col.nationality - 1]))
+    upd[col.nationality] = normalizeNationality_(parsed.nationality);
+  if (parsed.education   && empty_(row[col.education - 1]))
+    upd[col.education]   = parsed.education;
+  if (parsed.mobile      && empty_(row[col.mobile - 1]))
+    upd[col.mobile]      = normalizePhone_(parsed.mobile);
+  if (parsed.trade       && empty_(row[col.trade - 1]))
+    upd[col.trade]       = parsed.trade;
+
+  // ── NEW: Extended fields from v289 expanded parser ─────────────────
+  if (parsed.employment_status && empty_(row[ec.empStatus - 1]))
+    upd[ec.empStatus]       = parsed.employment_status;
+  if (parsed.passport_type && empty_(row[ec.ecrStatus - 1]))
+    upd[ec.ecrStatus]       = parsed.passport_type;
+  if (parsed.current_location && empty_(row[ec.currentLocation - 1]))
+    upd[ec.currentLocation] = parsed.current_location;
+  if (parsed.notice_period_days) {
+    var nd = parseInt(parsed.notice_period_days) || 0;
+    if (nd > 0 && empty_(row[ec.noticeDays - 1])) upd[ec.noticeDays] = nd;
+  }
+
+  notesObj.followUp.status     = 'received';
+  notesObj.followUp.receivedAt = new Date().toISOString();
+  upd[col.notes]           = JSON.stringify(notesObj);
+  upd[col.recruiterAction] = 'Candidate replied — fields updated. Verify and re-screen.';
+
+  Object.keys(upd).forEach(function(c) {
+    sheet.getRange(rowNum, parseInt(c, 10)).setValue(upd[c]);
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S21 · DAILY DIGEST
+// ═══════════════════════════════════════════════════════════════════
+// S21.F01 — send HTML summary to owner at 20:00
+function sendDailyDigest() {
+  try {
+    var ss     = getMasterSS_();
+    var sheet  = ss.getSheetByName(CONFIG.sheetName);
+    var rSheet = ss.getSheetByName(CONFIG.rejectedSheetName);
+    var tz     = 'Asia/Kolkata';
+    var today  = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+    var ic     = CONFIG.inputColumns;
+
+    var total=0, shortlisted=0, needsCall=0, needsReview=0, rejected=0;
+    var trades = {};
+
+    if (sheet && sheet.getLastRow() > 1) {
+      sheet.getRange(2, 1, sheet.getLastRow()-1, CONFIG.headers.length)
+           .getValues().forEach(function(row) {
+        var ts  = row[ic.applicationDate - 1];
+        var ds  = ts instanceof Date ? Utilities.formatDate(ts, tz, 'yyyy-MM-dd') : String(ts).slice(0,10);
+        if (ds !== today) return;
+        total++;
+        var v = String(row[ic.verdict - 1] || '');
+        if (v==='SHORTLISTED')  shortlisted++;
+        else if (v==='NEEDS_CALL')  needsCall++;
+        else if (v==='NEEDS_REVIEW') needsReview++;
+        var t = String(row[ic.trade - 1] || '');
+        if (t) trades[t] = (trades[t]||0) + 1;
+      });
+    }
+    if (rSheet && rSheet.getLastRow() > 1) {
+      rSheet.getRange(2, 1, rSheet.getLastRow()-1, 2).getValues().forEach(function(r) {
+        var ts = r[0];
+        var ds = ts instanceof Date ? Utilities.formatDate(ts, tz, 'yyyy-MM-dd') : String(ts).slice(0,10);
+        if (ds === today) rejected++;
+      });
+    }
+
+    var qs = getQuotaState_();
+    var topTrades = Object.keys(trades)
+      .sort(function(a,b){ return trades[b]-trades[a]; })
+      .slice(0,5).map(function(t){ return t+'('+trades[t]+')'; }).join(', ');
+
+    var html = digestHtml_(today, total, shortlisted, needsCall, needsReview, rejected, topTrades, qs);
+    MailApp.sendEmail({
+      to: getOwnerEmail_(),
+      subject: 'KAI Digest — ' + today + ' | ' + total + ' CVs | ' + shortlisted + ' shortlisted',
+      htmlBody: html
+    });
+    appendLog_({ status: 'DIGEST_SENT', notes: 'total='+total+' shortlisted='+shortlisted });
+  } catch (e) {
+    appendLog_({ status: 'DIGEST_FAILED', notes: e.message });
+  }
+}
+
+// S21.F02 — HTML digest builder
+function digestHtml_(today, total, shortlisted, needsCall, needsReview, rejected, topTrades, qs) {
+  var c = {
+    wrap:  'font-family:-apple-system,Segoe UI,sans-serif;max-width:620px;margin:0 auto;color:#1d1d1f',
+    head:  'background:#16324f;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0',
+    body:  'padding:20px 24px;background:#f9fafb;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px',
+    card:  'display:inline-block;width:18%;padding:12px 8px;border-radius:8px;text-align:center;margin:4px',
+    small: 'font-size:11px;color:#6b7280;margin-top:16px'
+  };
+  function card_(bg, fc, lbl, val) {
+    return '<td style="padding:6px"><div style="background:'+bg+';color:'+fc+';padding:14px 10px;border-radius:8px;text-align:center;min-width:80px">'+
+      '<div style="font-size:22px;font-weight:700">'+val+'</div><div style="font-size:11px;margin-top:4px">'+lbl+'</div></div></td>';
+  }
+  return '<div style="'+c.wrap+'">' +
+    '<div style="'+c.head+'"><h2 style="margin:0;font-size:18px">KARIGAR AI — Daily Digest</h2>' +
+    '<p style="margin:4px 0 0;font-size:13px;opacity:.8">'+today+' | '+CONFIG.brand.companyName+'</p></div>' +
+    '<div style="'+c.body+'">' +
+    '<table style="width:100%;border-collapse:separate;border-spacing:0"><tr>' +
+    card_('#f3f4f6','#374151','Total CVs',    total) +
+    card_('#d1fae5','#065f46','Shortlisted',  shortlisted) +
+    card_('#fef3c7','#92400e','Needs Review', needsReview) +
+    card_('#fee2e2','#991b1b','Needs Call',   needsCall) +
+    card_('#fce7f3','#9d174d','Rejected',     rejected) +
+    '</tr></table>' +
+    '<p style="margin:16px 0 6px"><strong>Top Trades Today:</strong> '+(topTrades||'—')+'</p>' +
+    '<p style="margin:0 0 6px"><strong>Quota:</strong> ' +
+      qs.cvTotalUsed+'/'+CONFIG_QUOTA.capDailyTotal+' CVs | ' +
+      qs.emailUsed+'/'+CONFIG_QUOTA.capEmail+' emails | ' +
+      qs.replyUsed+'/'+CONFIG_QUOTA.capReplyParse+' replies</p>' +
+    '<p style="'+c.small+'">KAI v'+CONFIG.version+' | Auto-generated | Do not reply to this email</p>' +
+    '</div></div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S22 · CLEANUP ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// S22.F01 — daily cleanup entry point (trigger at 02:00)
+function dailyCleanup() {
+  cleanupCandidates();
+  rotateLogs_();
+}
+
+// S22.F02 — deduplicate and archive stale rows
+function cleanupCandidates() {
+  if (isPipelinePaused_()) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) { appendLog_({ status: 'CLEANUP_LOCK_SKIP' }); return; }
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet) return;
+    var stats = cleanupSheet_(sheet);
+    appendLog_({ status: 'CLEANUP_DONE',
+      notes: 'scanned='+stats.scanned+' dupes='+stats.dupes+' empty='+stats.empty+' archived='+stats.archived });
+    try {
+      SpreadsheetApp.getUi().alert(
+        'Cleanup Complete\n\nScanned: '+stats.scanned+'\nDuplicates: '+stats.dupes+
+        '\nEmpty rows: '+stats.empty+'\nArchived: '+stats.archived
+      );
+    } catch (e) {}
+  } finally { try { lock.releaseLock(); } catch (e) {} }
+}
+
+// S22.F03 — per-sheet cleanup
+function cleanupSheet_(sheet) {
+  var stats   = { scanned: 0, dupes: 0, empty: 0, archived: 0 };
+  var lr      = sheet.getLastRow();
+  if (lr < 2) return stats;
+  var col     = CONFIG.inputColumns;
+  var data    = sheet.getRange(2, 1, lr-1, CONFIG.headers.length).getValues();
+  stats.scanned = data.length;
+  var cutoff  = new Date(Date.now() - CONFIG.archiveAfterDays * 86400000);
+
+  // Pass 1 — mark empty rows SUPERSEDED (handles blank _Active legacy rows too)
+  for (var i = 0; i < data.length; i++) {
+    var _avP1 = String(data[i][col.active-1] || '').toUpperCase().trim();
+    if (_avP1 === 'SUPERSEDED' || _avP1 === 'ARCHIVED') continue;
+    var nm = String(data[i][col.name-1]||'').trim();
+    var em = String(data[i][col.email-1]||'').trim();
+    var mo = String(data[i][col.mobile-1]||'').replace(/^'/,'').trim();
+    if (!nm && !em && !mo) {
+      sheet.getRange(i+2, col.active).setValue('SUPERSEDED');
+      stats.empty++;
+      data[i][col.active-1] = 'SUPERSEDED';
+    }
+  }
+
+  // Pass 2 — archive SUPERSEDED rows older than archiveAfterDays
+  for (var j = 0; j < data.length; j++) {
+    if (String(data[j][col.active-1]) !== 'SUPERSEDED') continue;
+    var dt = data[j][col.applicationDate-1];
+    if (dt instanceof Date && dt < cutoff) {
+      writeToArchive_(data[j], 'superseded+archived');
+      sheet.getRange(j+2, col.active).setValue('ARCHIVED');
+      stats.archived++;
+    }
+  }
+
+  // Pass 3 — group active rows by email/mobile for dedup (handles blank _Active legacy rows)
+  var groups  = {};
+  for (var k = 0; k < data.length; k++) {
+    var _avP3 = String(data[k][col.active-1] || '').toUpperCase().trim();
+    if (_avP3 === 'SUPERSEDED' || _avP3 === 'ARCHIVED') continue;
+    var eK = normalizeEmailKey_(data[k][col.email-1]);
+    var mK = normalizeMobileKey_(data[k][col.mobile-1]);
+    var rn = k + 2;
+    var appDt = data[k][col.applicationDate-1];
+    var entry = { rowNum: rn, dt: appDt instanceof Date ? appDt : new Date(appDt) };
+    if (eK) { groups['e:'+eK] = groups['e:'+eK]||[]; groups['e:'+eK].push(entry); }
+    if (mK) { groups['m:'+mK] = groups['m:'+mK]||[]; groups['m:'+mK].push(entry); }
+  }
+
+  var decided = {};
+  Object.keys(groups).forEach(function(gk) {
+    var grp = groups[gk];
+    if (grp.length < 2) return;
+    grp.sort(function(a,b){ return b.dt.getTime()-a.dt.getTime(); });
+    if (!decided[grp[0].rowNum]) decided[grp[0].rowNum] = 'KEEP';
+    for (var y = 1; y < grp.length; y++) {
+      if (!decided[grp[y].rowNum]) decided[grp[y].rowNum] = grp[0].rowNum; // kept row ref
+    }
+  });
+
+  Object.keys(decided).forEach(function(rn) {
+    if (decided[rn] === 'KEEP') return;
+    var rowInt = parseInt(rn, 10);
+    sheet.getRange(rowInt, col.active).setValue('SUPERSEDED');
+    var raw  = sheet.getRange(rowInt, col.notes).getValue();
+    var nObj; try { nObj = JSON.parse(raw); } catch(e) { nObj = raw ? {freeText:raw} : {}; }
+    nObj.superseded = { reason:'duplicate', keptRow: decided[rn], date: new Date().toISOString() };
+    sheet.getRange(rowInt, col.notes).setValue(JSON.stringify(nObj));
+    stats.dupes++;
+  });
+
+  return stats;
+}
+
+// S22.F04 — one-time backfill: stamp _Active=TRUE on all legacy rows that have content
+// Run this ONCE from menu after pasting new script — fixes dashboard no-data on existing sheets
+function backfillActiveColumn() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) {
+    try { SpreadsheetApp.getUi().alert('Candidates sheet empty — nothing to backfill.'); } catch(e){}
+    return;
+  }
+  var col   = CONFIG.inputColumns;
+  var lr    = sheet.getLastRow();
+  var range = sheet.getRange(2, 1, lr - 1, CONFIG.headers.length);
+  var data  = range.getValues();
+  var count = 0;
+  for (var i = 0; i < data.length; i++) {
+    var av = String(data[i][col.active - 1] || '').toUpperCase().trim();
+    var nm = String(data[i][col.name  - 1] || '').trim();
+    var em = String(data[i][col.email - 1] || '').trim();
+    // Only set TRUE on rows that (a) have candidate data AND (b) have no _Active value yet
+    if (!av && (nm || em)) {
+      data[i][col.active - 1] = 'TRUE';
+      count++;
+    }
+  }
+  range.setValues(data);
+  CacheService.getScriptCache().remove('kai_dashboard_v1');
+  var msg = '✓ Backfill complete.\n\n' + count + ' legacy rows stamped _Active=TRUE.\n\nRefresh your dashboard — all candidates will now appear.';
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e){ Logger.log(msg); }
+  Logger.log('S22.F04: backfillActiveColumn done — ' + count + ' rows updated.');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S23 · PIPELINE PAUSE / RESUME
+// ═══════════════════════════════════════════════════════════════════
+// S23.F01
+function isPipelinePaused_() {
+  try { return PropertiesService.getScriptProperties().getProperty('PIPELINE_PAUSED') === 'TRUE'; }
+  catch (e) { return false; }
+}
+// S23.F02
+function pausePipeline() {
+  PropertiesService.getScriptProperties().setProperty('PIPELINE_PAUSED','TRUE');
+  appendLog_({ status:'PIPELINE_PAUSED', notes:'Manual pause.' });
+  try { SpreadsheetApp.getUi().alert('Pipeline PAUSED.\n\nResume: Karigar AI menu → Resume Pipeline'); } catch(e){}
+}
+// S23.F03
+function resumePipeline() {
+  PropertiesService.getScriptProperties().deleteProperty('PIPELINE_PAUSED');
+  appendLog_({ status:'PIPELINE_RESUMED', notes:'Manual resume.' });
+  try { SpreadsheetApp.getUi().alert('Pipeline RESUMED. All triggers active.'); } catch(e){}
+}
+// S23.F04
+function pipelineStatus() {
+  var paused = isPipelinePaused_();
+  var triggers = ScriptApp.getProjectTriggers();
+  var fns = triggers.map(function(t){ return t.getHandlerFunction(); });
+  var qs  = getQuotaState_();
+  var msg = 'KARIGAR AI v'+CONFIG.version+' STATUS\n\n'+
+    'Pipeline: ' + (paused ? 'PAUSED ⏸' : 'ACTIVE ▶') + '\n\n'+
+    'Triggers:\n'+
+    '  '+(fns.indexOf('runPipeline')>=0?'✓':'✗')+' runPipeline (every 15 min)\n'+
+    '  '+(fns.indexOf('processCandidateReplies')>=0?'✓':'✗')+' processCandidateReplies (every 10 min)\n'+
+    '  '+(fns.indexOf('dailyCleanup')>=0?'✓':'✗')+' dailyCleanup (02:00 daily)\n'+
+    '  '+(fns.indexOf('sendDailyDigest')>=0?'✓':'✗')+' sendDailyDigest (20:00 daily)\n\n'+
+    'Quota today (IST):\n'+
+    '  CVs:     '+qs.cvTotalUsed+'/'+CONFIG_QUOTA.capDailyTotal+'\n'+
+    '  Emails:  '+qs.emailUsed+'/'+CONFIG_QUOTA.capEmail+'\n'+
+    '  Replies: '+qs.replyUsed+'/'+CONFIG_QUOTA.capReplyParse+'\n\n'+
+    'Owner: '+getOwnerEmail_()+'\n'+
+    'Sheet: '+getSpreadsheetId_();
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e){ Logger.log(msg); }
+}
+// S23.F05 — hard stop: delete triggers + set pause flag
+function EMERGENCY_PAUSE_NOW() {
+  var killed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    var fn = t.getHandlerFunction();
+    if (fn==='runPipeline'||fn==='processCandidateReplies') { ScriptApp.deleteTrigger(t); killed++; }
+  });
+  PropertiesService.getScriptProperties().setProperty('PIPELINE_PAUSED','TRUE');
+  Logger.log('EMERGENCY_PAUSE_NOW: '+killed+' trigger(s) deleted. PIPELINE_PAUSED=TRUE.');
+  try { SpreadsheetApp.getUi().alert('EMERGENCY STOP: '+killed+' triggers deleted. Pipeline paused.'); } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S24 · ALERTS
+// ═══════════════════════════════════════════════════════════════════
+// S24.F01 — send email alert to owner
+function sendAlert_(subject, body) {
+  try {
+    var owner = getOwnerEmail_();
+    if (!owner) return;
+    MailApp.sendEmail({ to: owner, subject: '[KAI Alert] '+subject, body: body });
+  } catch (e) { Logger.log('S24: sendAlert_ failed: '+e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S25 · LOG ROTATION
+// ═══════════════════════════════════════════════════════════════════
+// S25.F01 — archive rows > 30 days to Drive CSV
+function rotateLogs_() {
+  var ss      = getMasterSS_();
+  var cutoff  = new Date(Date.now() - 30 * 86400000);
+  var targets = [
+    { name: CONFIG.logSheetName,   headers: CONFIG.logHeaders },
+    { name: CONFIG.errorSheetName, headers: CONFIG.errorHeaders }
+  ];
+  var folder = ensureLogArchiveFolder_();
+  targets.forEach(function(sc) {
+    var sheet = ss.getSheetByName(sc.name);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var data = sheet.getRange(2, 1, sheet.getLastRow()-1, sc.headers.length).getValues();
+    var keep = [], archive = [];
+    data.forEach(function(row) {
+      if (row[0] instanceof Date && row[0] < cutoff) archive.push(row);
+      else keep.push(row);
+    });
+    if (!archive.length) return;
+    var csv = [sc.headers.join(',')].concat(archive.map(function(row) {
+      return row.map(function(v){ return '"'+String(v||'').replace(/"/g,'""')+'"'; }).join(',');
+    })).join('\n');
+    folder.createFile(
+      sc.name+'_'+Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd_HHmmss')+'.csv',
+      csv, 'text/csv'
+    );
+    sheet.getRange(2, 1, data.length, sc.headers.length).clearContent();
+    if (keep.length > 0) sheet.getRange(2, 1, keep.length, sc.headers.length).setValues(keep);
+  });
+}
+
+// S25.F02
+function ensureLogArchiveFolder_() {
+  var it = DriveApp.getFoldersByName(CONFIG.archiveLogsFolderName);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(CONFIG.archiveLogsFolderName);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S26 · HEALTH CHECK
+// ═══════════════════════════════════════════════════════════════════
+// S26.F01 — comprehensive diagnostic
+function healthCheck() {
+  var ss     = getMasterSS_();
+  var issues = [];
+
+  // Sheets
+  [CONFIG.sheetName, CONFIG.rejectedSheetName, CONFIG.archiveSheetName,
+   CONFIG.logSheetName, CONFIG.errorSheetName, CONFIG.metaSheetName,
+   CONFIG.rulesSheetName, CONFIG.taxonomySheetName, CONFIG.consentSheetName,
+   CONFIG.quotaSheetName, CONFIG.pendingEmailsSheet].forEach(function(name) {
+    if (!ss.getSheetByName(name)) issues.push('MISSING SHEET: '+name);
+  });
+
+  // Gmail labels
+  for (var lk in CONFIG.labels) {
+    if (!GmailApp.getUserLabelByName(CONFIG.labels[lk]))
+      issues.push('MISSING LABEL: '+CONFIG.labels[lk]);
+  }
+
+  // Script Properties
+  if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'))
+    issues.push('MISSING PROPERTY: GEMINI_API_KEY');
+
+  // Triggers
+  var fns = ScriptApp.getProjectTriggers().map(function(t){ return t.getHandlerFunction(); });
+  ['runPipeline','processCandidateReplies','dailyCleanup','sendDailyDigest'].forEach(function(fn) {
+    if (fns.indexOf(fn) < 0) issues.push('MISSING TRIGGER: '+fn);
+  });
+
+  var qs  = getQuotaState_();
+  var msg = 'KARIGAR AI v'+CONFIG.version+' — HEALTH CHECK\n\n';
+  if (!issues.length) {
+    msg += '✓ All checks passed.\n';
+  } else {
+    msg += '⚠ Issues found ('+issues.length+'):\n'+issues.map(function(i){ return '  • '+i; }).join('\n')+'\n\n';
+    msg += 'Run setupPipeline() to fix missing sheets/labels/triggers.\n';
+  }
+  msg += '\nQuota today:\n'+
+    '  CVs:     '+qs.cvTotalUsed+'/'+CONFIG_QUOTA.capDailyTotal+'\n'+
+    '  Emails:  '+qs.emailUsed+'/'+CONFIG_QUOTA.capEmail+'\n'+
+    '  Replies: '+qs.replyUsed+'/'+CONFIG_QUOTA.capReplyParse;
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e){ Logger.log(msg); }
+  return issues;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S27 · DASHBOARD API
+// ═══════════════════════════════════════════════════════════════════
+// S27.F01 — doGet MOVED TO KAI_16May2026_V2.gs (S39.F02)
+// V2 doGet serves KAI_16May2026_V2_Dashboard with fallback to V1 dashboard.
+// ⚠️ DO NOT re-add doGet here — GAS does not allow duplicate function names.
+// function doGet(e) { ... }  ← REMOVED: now handled by V2 file
+
+// S27.F02 — called from dashboard via google.script.run
+function getDashboardData() {
+  try {
+    var cache  = CacheService.getScriptCache();
+    var cached = cache.get('kai_dashboard_v1');
+    if (cached) {
+      try {
+        var p = JSON.parse(cached);
+        if (p && p.records && p.records.length > 0) return p;
+      } catch(e) {}
+    }
+
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet) return { metrics:{}, records:[], version:CONFIG.version };
+    var lr = sheet.getLastRow();
+    if (lr < 2) return { metrics:{totalProcessed:0}, records:[], version:CONFIG.version };
+
+    var data = sheet.getRange(2, 1, lr-1, CONFIG.headers.length).getValues();
+    var ic   = CONFIG.inputColumns;
+    var tz   = 'Asia/Kolkata';
+    var now  = new Date();
+    var today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+
+    var metrics = { totalProcessed:0, shortlisted:0, needsReview:0, needsCall:0,
+                    todayCount:0, last7Count:0, last30Count:0 };
+    var trades={}, verdicts={}, nationalities={};
+
+    var records = [];
+    data.forEach(function(row, idx) {
+      // FIX S27.F02 — accept blank _Active (legacy rows) + boolean true + string 'TRUE'
+      // Only skip rows explicitly marked SUPERSEDED or ARCHIVED
+      var _av = String(row[ic.active-1] || '').toUpperCase().trim();
+      if (_av === 'SUPERSEDED' || _av === 'ARCHIVED') return;
+      // Skip completely empty rows (no name AND no email)
+      if (!String(row[ic.name-1]||'').trim() && !String(row[ic.email-1]||'').trim()) return;
+      metrics.totalProcessed++;
+      var v   = String(row[ic.verdict-1]||'');
+      var t   = String(row[ic.trade-1]||'');
+      var nat = String(row[ic.nationality-1]||'');
+
+      if (v==='SHORTLISTED')  metrics.shortlisted++;
+      if (v==='NEEDS_REVIEW') metrics.needsReview++;
+      if (v==='NEEDS_CALL')   metrics.needsCall++;
+
+      // Robust date handling (Date object OR Excel serial OR string)
+      var appDtRaw = row[ic.applicationDate-1];
+      var appDt = null;
+      if (appDtRaw instanceof Date) appDt = appDtRaw;
+      else if (typeof appDtRaw==='number' && appDtRaw>25000 && appDtRaw<80000)
+        appDt = new Date(Math.round((appDtRaw-25569)*86400000));
+      else if (appDtRaw) { var tmp=new Date(String(appDtRaw)); if(!isNaN(tmp)) appDt=tmp; }
+      var appDtStr = appDt ? Utilities.formatDate(appDt, tz, 'yyyy-MM-dd HH:mm') : '';
+
+      if (appDt) {
+        if (Utilities.formatDate(appDt,tz,'yyyy-MM-dd')===today) metrics.todayCount++;
+        if (appDt >= new Date(now.getTime()-7*86400000)) metrics.last7Count++;
+        if (appDt >= new Date(now.getTime()-30*86400000)) metrics.last30Count++;
+      }
+
+      if (t) trades[t]=true; if (v) verdicts[v]=true; if (nat) nationalities[nat]=true;
+
+      records.push({
+        rowIndex:         idx+2,
+        stage:            String(row[ic.stage-1]||'Pending action'),
+        applicationDate:  appDtStr,
+        nationality:      nat,
+        name:             String(row[ic.name-1]||''),
+        mobile:           String(row[ic.mobile-1]||'').replace(/^'/,''),
+        email:            String(row[ic.email-1]||''),
+        education:        String(row[ic.education-1]||''),
+        positionApplied:  String(row[ic.positionApplied-1]||''),
+        trade:            t,
+        industry:         String(row[ic.industry-1]||''),
+        experience:       Number(row[ic.experience-1])||0,
+        gulfExperience:   String(row[ic.gulf-1]||''),
+        dob:              String(row[ic.dob-1]||''),
+        age:              String(row[ic.age-1]||''),
+        verdict:          v,
+        flags:            String(row[ic.flags-1]||''),
+        score:            Number(row[ic.score-1])||0,
+        scoreBreakdown:   String(row[ic.scoreBreakdown-1]||''),
+        recommendedRoles: String(row[ic.recommendedRoles-1]||''),
+        kaiAssessment:    String(row[ic.kaiAssessment-1]||''),
+        recruiterAction:  String(row[ic.recruiterAction-1]||''),
+        cvLink:           String(row[ic.cvLink-1]||''),
+        notes:            String(row[ic.notes-1]||''),
+        whatsapp:         buildWhatsAppLink_(row[ic.mobile-1], row[ic.name-1], row[ic.trade-1])
+      });
+    });
+
+    records.sort(function(a,b){ return String(b.applicationDate).localeCompare(String(a.applicationDate)); });
+    var result = {
+      metrics:       metrics,
+      records:       records,
+      trades:        Object.keys(trades).sort(),
+      verdicts:      Object.keys(verdicts).sort(),
+      nationalities: Object.keys(nationalities).sort(),
+      quota:         getQuotaState_(),
+      version:       CONFIG.version
+    };
+    try { cache.put('kai_dashboard_v1', JSON.stringify(result), 90); } catch(e) {}
+    return result;
+  } catch (err) {
+    Logger.log('S27: getDashboardData error: ' + err.message);
+    return { metrics:{}, records:[], error: err.message, version: CONFIG.version };
+  }
+}
+
+// S27.F03 — stage writeback from dashboard
+function updateCandidateStage(rowIndex, newStage) {
+  if (!rowIndex || rowIndex < 2) return { ok:false, msg:'Invalid row index' };
+  if (CONFIG.stageDropdown.indexOf(newStage) < 0) return { ok:false, msg:'Invalid stage value' };
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet) return { ok:false, msg:'Candidates sheet not found' };
+    sheet.getRange(rowIndex, CONFIG.inputColumns.stage).setValue(newStage);
+    CacheService.getScriptCache().remove('kai_dashboard_v1');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S27.F04 — WhatsApp link builder
+function buildWhatsAppLink_(mobile, name, trade) {
+  if (!mobile) return '';
+  var digits = String(mobile).replace(/^'/,'').replace(/\D/g,'');
+  if (digits.length < 10) return '';
+  var msg = 'Hi '+(name||'')+ ', we received your CV for the '+(trade||'')+ ' position. We would like to discuss your application.';
+  return 'https://wa.me/'+digits+'?text='+encodeURIComponent(msg);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S28 · UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+// S28.F01
+function normalizeEmail_(raw) {
+  if (!raw) return '';
+  var m = String(raw).match(/<([^>]+)>/);
+  return (m ? m[1] : String(raw)).toLowerCase().trim();
+}
+// S28.F02
+function parseEmailFromHeader_(hdr) {
+  if (!hdr) return '';
+  var m = String(hdr).match(/<([^>]+)>/);
+  return (m ? m[1] : String(hdr)).toLowerCase().trim();
+}
+// S28.F03 — extract actual candidate sender from forwarded email body
+function extractForwardedSender_(body) {
+  if (!body) return '';
+  var searchIn = body;
+  var markers  = ['Forwarded message', 'Begin forwarded', 'Original Message', 'Forwarded Message'];
+  var idx = -1;
+  markers.forEach(function(mk) {
+    var i = body.indexOf(mk);
+    if (i >= 0 && (idx < 0 || i < idx)) idx = i;
+  });
+  if (idx >= 0) searchIn = body.slice(idx, idx + 2000);
+  else          searchIn = body.slice(0, 2000);
+  var patterns = [
+    /From:\s*[^<\n]*<([^\s>]+@[^\s>]+)>/i,
+    /From:\s*([^\s<\n]+@[^\s<\n]+)/i,
+    /Reply-To:\s*<?([^\s>]+@[^\s>]+)>?/i,
+    /E-?mail:\s*<?([^\s>]+@[^\s>]+)>?/i,
+    /Contact:\s*<?([^\s>]+@[^\s>]+)>?/i,
+    /Sent by:\s*<?([^\s>]+@[^\s>]+)>?/i
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    var m = searchIn.match(patterns[i]);
+    if (m && m[1] && m[1].indexOf('@') >= 0) {
+      var cand = m[1].trim().toLowerCase();
+      if (!isInternalDomain_(cand)) return cand;
+    }
+  }
+  return '';
+}
+// S28.F04 — extract original Date from forwarded email body
+function extractOriginalApplicationDate_(message) {
+  var fallback = message.getDate ? message.getDate() : new Date();
+  try {
+    var body = message.getPlainBody() || '';
+    var idx  = -1;
+    ['Forwarded message','Begin forwarded','Original Message'].forEach(function(mk) {
+      var i = body.indexOf(mk);
+      if (i >= 0 && (idx < 0 || i < idx)) idx = i;
+    });
+    var region  = idx >= 0 ? body.slice(idx, idx+3000) : body.slice(0,2000);
+    var m       = region.match(/^[ \t]*Date:[ \t]+(.+)$/im);
+    if (!m) return { date: fallback, fallback: true };
+    var raw     = m[1].trim().replace(/\s*\([^)]+\)\s*$/,'');
+    var parsed  = parseFlexibleDate_(raw);
+    if (!parsed) return { date: fallback, fallback: true };
+    var now     = new Date();
+    var tenAgo  = new Date(now.getFullYear()-10, 0, 1);
+    if (parsed > now || parsed < tenAgo) return { date: fallback, fallback: true };
+    return { date: parsed, fallback: false };
+  } catch (e) { return { date: fallback, fallback: true }; }
+}
+// S28.F05
+function parseFlexibleDate_(raw) {
+  if (!raw) return null;
+  var ms = Date.parse(raw);
+  if (!isNaN(ms)) return new Date(ms);
+  var m = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+  if (m) {
+    var d=parseInt(m[1],10),mo=parseInt(m[2],10),y=parseInt(m[3],10);
+    if (d<=31&&mo<=12) return new Date(y,mo-1,d);
+  }
+  var MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+  var m2=raw.toLowerCase().match(/(\d{1,2})\s+([a-z]{3,})[a-z]*\s+(\d{4})/);
+  if (m2 && MONTHS.hasOwnProperty(m2[2].slice(0,3)))
+    return new Date(parseInt(m2[3],10), MONTHS[m2[2].slice(0,3)], parseInt(m2[1],10));
+  return null;
+}
+// S28.F06 — check if email belongs to an internal domain
+function isInternalDomain_v1_DEPRECATED_(email) {  // RENAMED — active version in patch_v282 (S48 internal domains)
+  if (!email) return false;
+  var at = String(email).toLowerCase().indexOf('@');
+  if (at < 0) return false;
+  var domain = String(email).toLowerCase().slice(at+1);
+  return CONFIG.internalDomains.some(function(d) {
+    d = d.toLowerCase();
+    return domain===d || (domain.length>d.length && domain.slice(-(d.length+1))==='.'+d);
+  });
+}
+// S28.F07 — save CV to Drive archive folder; returns file URL
+function saveCvToDrive_(attachment, senderEmail) {
+  try {
+    var it = DriveApp.getFoldersByName(CONFIG.folderName);
+    var folder = it.hasNext() ? it.next() : DriveApp.createFolder(CONFIG.folderName);
+    var ext = (attachment.getName()||'').split('.').pop();
+    var fn  = sanitizeFilename_((senderEmail||'cv') + '_' +
+      Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd_HHmmss') +
+      (ext ? '.'+ext : ''));
+    return folder.createFile(attachment.copyBlob().setName(fn)).getUrl();
+  } catch (e) { Logger.log('S28: saveCvToDrive_ error: '+e.message); return ''; }
+}
+// S28.F08
+function sanitizeFilename_(n) { return String(n).replace(/[^a-zA-Z0-9._@\-]/g,'_').slice(0,100); }
+// S28.F09 — move Gmail label
+function moveLabel_(thread, fromName, toName) {
+  try {
+    var from = GmailApp.getUserLabelByName(fromName);
+    var to   = GmailApp.getUserLabelByName(toName) || GmailApp.createLabel(toName);
+    if (from) thread.removeLabel(from);
+    thread.addLabel(to);
+  } catch (e) { Logger.log('S28: moveLabel_ error: '+e.message); }
+}
+// S28.F10
+function getMasterSS_() {
+  return SpreadsheetApp.openById(getSpreadsheetId_());
+}
+// S28.F11
+function getSpreadsheetId_() {
+  return PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') ||
+         '101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE';
+}
+// S28.F12
+function getOwnerEmail_() {
+  return PropertiesService.getScriptProperties().getProperty('OWNER_EMAIL') || 'ai@alyousufent.com';
+}
+// S28.F13
+function validateApiKey_() {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') ||
+            'AIzaSyCZL-NEYMWK1Z18Q2BTy_vRiyIiT_Yz1Qk';
+  if (!key) throw new Error('GEMINI_API_KEY not configured in Script Properties.');
+  return key;
+}
+// S28.F14 — PII masking
+function maskEmail_(e)  { if(!e)return''; var at=e.indexOf('@'); if(at<2)return'***'; return e.slice(0,2)+'***'+e.slice(at); }
+function maskPhone_(m)  { if(!m)return''; var s=String(m).replace(/^'/,''); return s.length>4?s.slice(0,3)+'****'+s.slice(-2):'****'; }
+function maskName_(n)   { if(!n)return''; var p=String(n).trim().split(/\s+/); return p[0]+(p.length>1?' '+p[p.length-1].charAt(0)+'.':''); }
+function escapeHtml_(v) { return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ═══════════════════════════════════════════════════════════════════
+// S29 · MENU
+// ═══════════════════════════════════════════════════════════════════
+// S29.F01 — spreadsheet menu
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Karigar AI')
+    .addItem('▶ Run Pipeline Now',        'runPipeline')
+    .addItem('📧 Process Replies Now',    'processCandidateReplies')
+    .addSeparator()
+    .addItem('⏸ Pause Pipeline',          'pausePipeline')
+    .addItem('▶ Resume Pipeline',         'resumePipeline')
+    .addItem('📊 Pipeline Status',        'pipelineStatus')
+    .addSeparator()
+    .addItem('🧹 Cleanup Duplicates',          'cleanupCandidates')
+    .addItem('📬 Send Daily Digest',           'sendDailyDigest')
+    .addItem('🔧 Fix Dashboard (Backfill)',    'backfillActiveColumn')
+    .addSeparator()
+    .addItem('🎨 Format Workbook',             'formatWorkbook')
+    .addItem('🩺 Diagnose Dashboard',          'diagnoseDashboard')
+    .addItem('🔍 Health Check',               'healthCheck')
+    .addItem('⚙️ Setup / Re-install',         'setupPipeline')
+    .addSeparator()
+    .addItem('🔄 Refresh Mobility & Deploy',  'refreshMobilityAndDeployability')
+    .addItem('📥 Setup Import Engine',        'setupImportEngine')
+    .addItem('▶ Process Import Queue Now',    'processImportQueue_')
+    .addSeparator()
+    .addItem('⭐ V282: Full Setup (run once)', 'setupV282')
+    .addItem('🌍 V282: Normalize Nationalities','batchNormalizeNationality')
+    .addItem('🎯 V282: Compute Top 3 Positions','batchComputeTop3Positions')
+    .addSeparator()
+    .addItem('🚀 V283: Activate Patch (run once)',  'setupV283')
+    .addItem('📊 V283: Recompute Deploy Ready',     'batchUpdateDeployReady')
+    .addItem('🔐 V283: Setup Login System',         'setupLoginSystem')
+    .addItem('🧹 V283: Schedule Backlog Clearance', 'scheduleBacklogClearance')
+    .addItem('▶ V283: Run Backlog Batch Now',       'runBacklogClearance')
+    .addSeparator()
+    .addItem('🏗 V284: Setup Projects Sheet',       'setupProjectsSheet')
+    .addItem('📋 V284: Recompute All Metrics',      'recomputeAllMetrics')
+    .addItem('⭐ V284: Activate Patch (run once)',  'setupV284')
+    .addSeparator()
+    .addItem('🎯 V285: Setup Match Engine (run once)', 'setupV285')
+    .addItem('⚡ V285: Test Match Engine',             'testMatchEngineV285')
+    .addItem('🔤 V285: Test Trade Taxonomy',           'testTaxonomyV285')
+    .addItem('🏷 V285: Tag All Candidates with Reqs',  'runMatchTaggingForAllReqs')
+    .addSeparator()
+    .addItem('📧 V286: Setup Email Intelligence',      'setupV286')
+    .addItem('🔍 V286: Test Email Classifier',         'testEmailClassifier')
+    .addItem('▶ V286: Process Emails Now',             'processIncomingEmails286')
+    .addSeparator()
+    .addItem('⚙️ V287: Setup Quota + Auto-Reply',      'setupV287')
+    .addItem('🧪 V287: Test Auto-Reply Engine',        'testAutoReplyV287')
+    .addItem('📊 V287: Check Quota Status',            'getParserQuotaStatus')
+    .addItem('🔄 V287: Run Auto-Reply Batch Now',      'runAutoReplyBatchV287')
+    .addItem('🔁 V287: Reset Quota (Emergency)',       'resetQuotaV287')
+    .addSeparator()
+    .addItem('📅 V287: Setup Daily Digest (run once)', 'setupDailyDigestV287')
+    .addItem('📨 V287: Send Test Digest Now',           'sendTestDigest287')
+    .addSeparator()
+    .addItem('⛔ V287: PAUSE Auto-Reply (kill switch)', 'emergencyPauseAutoReplyV287')
+    .addItem('🧹 V287: Quarantine Suspect Rows',         'quarantineSuspectRowsV287')
+    .addItem('🚒 V287: FULL EMERGENCY RESPONSE',         'emergencyAutoReplyResponseV287')
+    .addSeparator()
+    .addItem('🔢 V288: Fix Top 3 Positions (run once)', 'fixTop3PositionsV288')
+    .addItem('🗑️ V288: Clear Dashboard Cache',          'clearDashboardCachePublic')
+    .addSeparator()
+    .addItem('📥 V289: Process All Pending Replies NOW', 'forceProcessRepliesNow')
+    .addSeparator()
+    .addItem('🚨 EMERGENCY PAUSE',            'EMERGENCY_PAUSE_NOW')
+    .addToUi();
+}
+// ═══════════════════════════════════════════════════════════════════
+// S30 · LIVE DIAGNOSTICS  (run from editor to debug dashboard)
+// ═══════════════════════════════════════════════════════════════════
+// S30.F01 — run this from GAS editor to diagnose dashboard no-data
+function diagnoseDashboard() {
+  var results = [];
+  var pass = 0, fail = 0;
+
+  function chk(label, ok, detail) {
+    results.push((ok ? '✓' : '✗') + ' ' + label + (detail ? ': ' + detail : ''));
+    if (ok) pass++; else fail++;
+  }
+
+  // 1. Spreadsheet access
+  var ssId = getSpreadsheetId_();
+  chk('SpreadsheetID', !!ssId, ssId);
+  var ss = null;
+  try { ss = SpreadsheetApp.openById(ssId); chk('Sheet open OK', true, ss.getName()); }
+  catch(e) { chk('Sheet open', false, e.message); }
+
+  // 2. Candidates sheet
+  var sheet = ss ? ss.getSheetByName(CONFIG.sheetName) : null;
+  chk('Candidates sheet exists', !!sheet, CONFIG.sheetName);
+  var lr = sheet ? sheet.getLastRow() : 0;
+  chk('Candidates has data rows', lr > 1, lr + ' rows total');
+
+  // 3. _Active column check
+  if (sheet && lr > 1) {
+    var sample = sheet.getRange(2, CONFIG.inputColumns.active, Math.min(lr-1, 20), 1).getValues();
+    var trueCount=0, blankCount=0, otherCount=0;
+    sample.forEach(function(r) {
+      var v = String(r[0]||'').toUpperCase().trim();
+      if (v==='TRUE') trueCount++;
+      else if (!v)    blankCount++;
+      else            otherCount++;
+    });
+    chk('_Active col (first 20 rows)', true,
+      'TRUE='+trueCount+' BLANK='+blankCount+' OTHER='+otherCount);
+    if (blankCount > 0) results.push('  → Run backfillActiveColumn() from menu to fix blanks');
+  }
+
+  // 4. getDashboardData returns records
+  try {
+    CacheService.getScriptCache().remove('kai_dashboard_v1');
+    var d = getDashboardData();
+    chk('getDashboardData() records', d.records && d.records.length > 0,
+      (d.records ? d.records.length : 0) + ' records returned');
+    if (d.error) results.push('  → Error in getDashboardData: ' + d.error);
+  } catch(e) { chk('getDashboardData()', false, e.message); }
+
+  // 5. Script version
+  chk('Script version', true, 'KAI v' + CONFIG.version);
+
+  // 6. Cache cleared
+  CacheService.getScriptCache().remove('kai_dashboard_v1');
+  chk('Cache cleared', true, 'kai_dashboard_v1 removed');
+
+  var report = '═══ KAI DASHBOARD DIAGNOSTICS ═══\n\n' +
+    results.join('\n') + '\n\n' +
+    '─────────────────────────\n' +
+    'PASSED: ' + pass + '  FAILED: ' + fail + '\n\n' +
+    (fail > 0
+      ? '⚠  ACTION NEEDED — see ✗ items above.\n'
+      : '✓  All checks passed — redeploy the Web App then refresh.\n') +
+    '\nIf records=0 after fix: run Karigar AI → 🔧 Fix Dashboard (Backfill)';
+
+  Logger.log(report);
+  try { SpreadsheetApp.getUi().alert(report); } catch(e) {}
+  return report;
+}
+// ═══════════════════════════════════════════════════════════════════
+// S31 · WORKBOOK FORMATTING ENGINE
+// ═══════════════════════════════════════════════════════════════════
+// Purpose : Professional corporate styling for all KAI sheets.
+//           Modular, quota-safe, additive — never breaks existing
+//           data validation, formulas, or merged ranges.
+// Entry   : formatWorkbook()  — Karigar AI menu → 🎨 Format Workbook
+// ───────────────────────────────────────────────────────────────────
+
+// S31.F01 — Corporate theme constants (edit here to re-theme globally)
+var FMT_THEME = {
+  // ── Header row ───────────────────────────────────────────────
+  hdrBg:        '#16324f',   // navy — matches dashboard top bar
+  hdrFg:        '#ffffff',
+  hdrSize:      10,
+  hdrWeight:    'bold',
+  hdrHeight:    34,
+
+  // ── System/internal sheet headers (slightly lighter navy) ────
+  sysHdrBg:     '#1e3a5f',
+  sysHdrFg:     '#e8f0fe',
+
+  // ── Data rows ────────────────────────────────────────────────
+  rowEven:      '#ffffff',
+  rowOdd:       '#f4f7fb',   // very light blue-grey stripe
+  dataSize:     10,
+  dataHeight:   22,
+  dataFont:     'Arial',
+
+  // ── Borders ──────────────────────────────────────────────────
+  borderColor:  '#d8dde6',
+
+  // ── Verdict conditional colors ───────────────────────────────
+  vGreenBg:     '#dcfce7',  vGreenFg:  '#14532d',   // SHORTLISTED
+  vYellowBg:    '#fef9c3',  vYellowFg: '#713f12',   // NEEDS_REVIEW
+  vOrangeBg:    '#ffedd5',  vOrangeFg: '#7c2d12',   // NEEDS_CALL
+  vRedBg:       '#fee2e2',  vRedFg:    '#7f1d1d',   // REJECT
+
+  // ── Score tier backgrounds ───────────────────────────────────
+  sHigh:        '#dcfce7',   // >= 70  green
+  sMid:         '#fef9c3',   // 40–69  yellow
+  sLow:         '#ffedd5',   // < 40   orange
+
+  // ── Flag column backgrounds ──────────────────────────────────
+  fGreen:       '#bbf7d0',
+  fYellow:      '#fef08a',
+  fOrange:      '#fed7aa',
+  fRed:         '#fecaca',
+
+  // ── Log status backgrounds ───────────────────────────────────
+  lsProcessed:  '#f0fdf4',
+  lsError:      '#fef2f2',
+  lsFollowup:   '#f5f3ff',
+  lsCleanup:    '#eff6ff',
+  lsDigest:     '#fdf4ff',
+
+  // ── Pixel widths for each Candidates column (1–24) ──────────
+  candidateColW: [
+    120,  //  1  Stage
+     92,  //  2  Application Date
+     90,  //  3  Nationality
+    155,  //  4  Name
+    110,  //  5  Mobile
+    165,  //  6  Email
+    110,  //  7  Education
+    130,  //  8  Position Applied
+    135,  //  9  Trade
+    130,  // 10  Industry
+     65,  // 11  Experience
+    105,  // 12  Gulf Experience
+     82,  // 13  Date of Birth
+     50,  // 14  Age
+    112,  // 15  Verdict
+     82,  // 16  FLAGS
+     60,  // 17  Score
+    130,  // 18  Score Breakdown
+    145,  // 19  Recommended Roles
+    205,  // 20  KAI Assessment
+    165,  // 21  Recruiter Action
+     82,  // 22  CV Link
+    165,  // 23  Notes
+     72   // 24  _Active
+  ]
+};
+
+// ── Sheet type routing ───────────────────────────────────────────────
+var FMT_SHEET_MAP_ = null;
+function getFmtSheetMap_() {
+  if (FMT_SHEET_MAP_) return FMT_SHEET_MAP_;
+  FMT_SHEET_MAP_ = {};
+  FMT_SHEET_MAP_[CONFIG.sheetName]          = 'candidates';
+  FMT_SHEET_MAP_[CONFIG.rejectedSheetName]  = 'rejected';
+  FMT_SHEET_MAP_[CONFIG.archiveSheetName]   = 'standard';
+  FMT_SHEET_MAP_[CONFIG.logSheetName]       = 'logs';
+  FMT_SHEET_MAP_[CONFIG.errorSheetName]     = 'errors';
+  FMT_SHEET_MAP_[CONFIG.metaSheetName]      = 'compact';
+  FMT_SHEET_MAP_[CONFIG.rulesSheetName]     = 'standard';
+  FMT_SHEET_MAP_[CONFIG.taxonomySheetName]  = 'standard';
+  FMT_SHEET_MAP_[CONFIG.consentSheetName]   = 'compact';
+  FMT_SHEET_MAP_[CONFIG.quotaSheetName]     = 'standard';
+  FMT_SHEET_MAP_[CONFIG.pendingEmailsSheet] = 'compact';
+  return FMT_SHEET_MAP_;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F02 — formatWorkbook()  ← menu entry point
+// Iterates all sheets, routes to correct formatter, flushes once.
+// ───────────────────────────────────────────────────────────────────
+function formatWorkbook() {
+  var ss;
+  try { ss = getMasterSS_(); }
+  catch(e) { Logger.log('S31: Cannot open spreadsheet: ' + e.message); return; }
+
+  var startMs  = Date.now();
+  var map      = getFmtSheetMap_();
+  var sheets   = ss.getSheets();
+  var done = 0, skipped = 0;
+
+  sheets.forEach(function(sh) {
+    // Bail out if approaching 5-minute Apps Script limit
+    if (Date.now() - startMs > 280000) {
+      Logger.log('S31: Time limit approaching — stopping at sheet ' + sh.getName());
+      skipped++;
+      return;
+    }
+    var type = map[sh.getName()] || 'compact';
+    try {
+      formatSheet(sh, type);
+      done++;
+    } catch(e) {
+      Logger.log('S31: WARNING — skipped "' + sh.getName() + '": ' + e.message);
+      skipped++;
+    }
+  });
+
+  SpreadsheetApp.flush();
+  var elapsed = Math.round((Date.now() - startMs) / 1000);
+  Logger.log('S31: formatWorkbook done — ' + done + ' formatted, ' + skipped + ' skipped, ' + elapsed + 's');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✓ Workbook formatted.\n' + done + ' sheets styled in ' + elapsed + 's.'
+    );
+  } catch(e) {}
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F03 — formatSheet(sheet, type)   ← public dispatcher
+// type values: 'candidates' | 'rejected' | 'logs' | 'errors' |
+//              'standard' | 'compact'
+// ───────────────────────────────────────────────────────────────────
+function formatSheet(sheet, type) {
+  if (!sheet) return;
+  if (!type) {
+    var map = getFmtSheetMap_();
+    type = map[sheet.getName()] || 'compact';
+  }
+  switch (type) {
+    case 'candidates': formatCandidatesSheet_(sheet); break;
+    case 'rejected':   formatRejectedSheet_(sheet);   break;
+    case 'logs':       formatLogsSheet_(sheet);       break;
+    case 'errors':     formatErrorsSheet_(sheet);     break;
+    case 'standard':   formatStandardSheet_(sheet, false); break;
+    case 'compact':
+    default:           formatStandardSheet_(sheet, true);  break;
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F04 — formatCandidatesSheet_()
+// Full professional styling for the primary 24-column Candidates sheet.
+// ───────────────────────────────────────────────────────────────────
+function formatCandidatesSheet_(sheet) {
+  var lr  = sheet.getLastRow();
+  var lc  = CONFIG.headers.length;   // 24
+  var ic  = CONFIG.inputColumns;
+  var dr  = Math.max(0, lr - 1);     // data rows
+
+  // 1. Header
+  applyHeaderStyle(sheet, lc, FMT_THEME.hdrBg, FMT_THEME.hdrFg);
+
+  // 2. Freeze + heights
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(1);
+  sheet.setRowHeight(1, FMT_THEME.hdrHeight);
+  if (dr > 0) sheet.setRowHeightsForced(2, dr, FMT_THEME.dataHeight);
+
+  // 3. Font for entire sheet
+  standardizeFonts(sheet);
+
+  // 4. Column widths (exact pixel map)
+  FMT_THEME.candidateColW.forEach(function(w, i) {
+    sheet.setColumnWidth(i + 1, w);
+  });
+
+  // 5. Alignment
+  normalizeAlignment(sheet);
+  if (dr > 0) {
+    // Center numeric/status columns
+    [ic.age, ic.experience, ic.score, ic.applicationDate, ic.active]
+      .forEach(function(c) {
+        sheet.getRange(2, c, dr, 1).setHorizontalAlignment('center');
+      });
+    // Wrap only KAI Assessment + Notes
+    sheet.getRange(1, 1, lr, lc).setWrap(false);
+    sheet.getRange(2, ic.kaiAssessment, dr, 1).setWrap(true);
+    sheet.getRange(2, ic.notes,         dr, 1).setWrap(true);
+    // Name column bold
+    sheet.getRange(2, ic.name, dr, 1).setFontWeight('bold');
+    // Score column bold + centered
+    sheet.getRange(2, ic.score, dr, 1).setFontWeight('bold').setHorizontalAlignment('center');
+  }
+
+  // 6. Borders
+  applyBorders(sheet);
+
+  // 7. Conditional formatting (alternating + verdict + score + flags)
+  applyAlternatingRows(sheet);   // sets base alternating rule
+  fmtCandidateConditional_(sheet, lc, lr);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F05 — fmtCandidateConditional_()
+// Verdict / Score / FLAGS / _Active conditional format rules.
+// Collected into one array → applied in single setConditionalFormatRules call.
+// ───────────────────────────────────────────────────────────────────
+function fmtCandidateConditional_(sheet, lc, lr) {
+  if (lr < 2) return;
+  var dr  = Math.min(lr - 1, 1000);
+  var ic  = CONFIG.inputColumns;
+  var rules = [];
+
+  // ── Alternating rows (base — lowest priority, added first) ───
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=MOD(ROW(),2)=0')
+    .setBackground(FMT_THEME.rowOdd)
+    .setRanges([sheet.getRange(2, 1, dr, lc)])
+    .build());
+
+  // ── Verdict (col 15) ─────────────────────────────────────────
+  var vR = sheet.getRange(2, ic.verdict, dr, 1);
+  [
+    ['SHORTLISTED',  FMT_THEME.vGreenBg,  FMT_THEME.vGreenFg ],
+    ['NEEDS_REVIEW', FMT_THEME.vYellowBg, FMT_THEME.vYellowFg],
+    ['NEEDS_CALL',   FMT_THEME.vOrangeBg, FMT_THEME.vOrangeFg],
+    ['REJECT',       FMT_THEME.vRedBg,    FMT_THEME.vRedFg   ]
+  ].forEach(function(v) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(v[0])
+      .setBackground(v[1]).setFontColor(v[2])
+      .setRanges([vR]).build());
+  });
+
+  // ── FLAGS (col 16) ───────────────────────────────────────────
+  var fR = sheet.getRange(2, ic.flags, dr, 1);
+  [
+    ['GREEN',  FMT_THEME.fGreen ],
+    ['YELLOW', FMT_THEME.fYellow],
+    ['ORANGE', FMT_THEME.fOrange],
+    ['RED',    FMT_THEME.fRed   ]
+  ].forEach(function(f) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains(f[0])
+      .setBackground(f[1])
+      .setRanges([fR]).build());
+  });
+
+  // ── Score (col 17) ───────────────────────────────────────────
+  var sR = sheet.getRange(2, ic.score, dr, 1);
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberGreaterThanOrEqualTo(70)
+    .setBackground(FMT_THEME.sHigh).setRanges([sR]).build());
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberBetween(40, 69)
+    .setBackground(FMT_THEME.sMid).setRanges([sR]).build());
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenNumberLessThan(40)
+    .setBackground(FMT_THEME.sLow).setRanges([sR]).build());
+
+  // ── _Active (col 24) — grey-out superseded/archived ──────────
+  var aR = sheet.getRange(2, ic.active, dr, 1);
+  ['SUPERSEDED','ARCHIVED'].forEach(function(s) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains(s)
+      .setBackground('#f1f5f9').setFontColor('#94a3b8')
+      .setRanges([aR]).build());
+  });
+
+  sheet.setConditionalFormatRules(rules);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F06 — formatRejectedSheet_()
+// ───────────────────────────────────────────────────────────────────
+function formatRejectedSheet_(sheet) {
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lc < 1) return;
+  var dr = Math.max(0, lr - 1);
+
+  applyHeaderStyle(sheet, lc, '#7f1d1d', '#fef2f2');   // deep red header
+  sheet.setFrozenRows(1);
+  sheet.setRowHeight(1, FMT_THEME.hdrHeight);
+  if (dr > 0) sheet.setRowHeightsForced(2, dr, FMT_THEME.dataHeight);
+  standardizeFonts(sheet);
+  normalizeAlignment(sheet);
+  applyBorders(sheet);
+
+  // Highlight Reason column (col 9) and Age column (col 8)
+  if (dr > 0) {
+    var rules = [];
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=MOD(ROW(),2)=0')
+      .setBackground('#fef2f2')
+      .setRanges([sheet.getRange(2, 1, dr, lc)]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains('Age')
+      .setBackground('#fee2e2').setFontColor('#7f1d1d')
+      .setRanges([sheet.getRange(2, 9, dr, 1)]).build());
+    sheet.setConditionalFormatRules(rules);
+  }
+
+  autoResizeColumns(sheet);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F07 — formatLogsSheet_()
+// ───────────────────────────────────────────────────────────────────
+function formatLogsSheet_(sheet) {
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lc < 1) return;
+  var dr = Math.max(0, lr - 1);
+
+  applyHeaderStyle(sheet, lc, '#1e3a5f', FMT_THEME.hdrFg);
+  sheet.setFrozenRows(1);
+  sheet.setRowHeight(1, FMT_THEME.hdrHeight);
+  if (dr > 0) sheet.setRowHeightsForced(2, dr, 20);
+  standardizeFonts(sheet);
+  normalizeAlignment(sheet);
+  applyBorders(sheet);
+
+  // Status column (col 3) colour-coded
+  if (dr > 0) {
+    var sR = sheet.getRange(2, 3, dr, 1);
+    var rules = [];
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=MOD(ROW(),2)=0')
+      .setBackground(FMT_THEME.rowOdd)
+      .setRanges([sheet.getRange(2, 1, dr, lc)]).build());
+    [
+      ['PROCESSED',       FMT_THEME.lsProcessed,  '#166534'],
+      ['SHORTLISTED',     FMT_THEME.lsProcessed,  '#166534'],
+      ['FOLLOWUP_SENT',   FMT_THEME.lsFollowup,   '#4c1d95'],
+      ['CLEANUP_DONE',    FMT_THEME.lsCleanup,    '#1e3a5f'],
+      ['DIGEST_SENT',     FMT_THEME.lsDigest,     '#6b21a8'],
+      ['ERROR',           FMT_THEME.lsError,      '#991b1b'],
+      ['PIPELINE_PAUSED', '#fff7ed',               '#9a3412'],
+      ['PIPELINE_RESUMED',FMT_THEME.lsProcessed,  '#166534'],
+      ['QUOTA_CAP_HIT',   '#fef2f2',              '#991b1b']
+    ].forEach(function(s) {
+      rules.push(SpreadsheetApp.newConditionalFormatRule()
+        .whenTextContains(s[0])
+        .setBackground(s[1]).setFontColor(s[2])
+        .setRanges([sR]).build());
+    });
+    sheet.setConditionalFormatRules(rules);
+  }
+
+  autoResizeColumns(sheet);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F08 — formatErrorsSheet_()
+// ───────────────────────────────────────────────────────────────────
+function formatErrorsSheet_(sheet) {
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lc < 1) return;
+  var dr = Math.max(0, lr - 1);
+
+  applyHeaderStyle(sheet, lc, '#450a0a', '#fef2f2');   // dark red header
+  sheet.setFrozenRows(1);
+  sheet.setRowHeight(1, FMT_THEME.hdrHeight);
+  if (dr > 0) sheet.setRowHeightsForced(2, dr, 20);
+  standardizeFonts(sheet);
+  normalizeAlignment(sheet);
+  applyBorders(sheet);
+
+  if (dr > 0) {
+    var errR = sheet.getRange(2, 5, dr, 1);  // col 5 = Error
+    var rules = [];
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=MOD(ROW(),2)=0')
+      .setBackground('#fef2f2')
+      .setRanges([sheet.getRange(2, 1, dr, lc)]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains('null')
+      .setBackground('#fee2e2').setFontColor('#7f1d1d').setFontWeight('bold')
+      .setRanges([errR]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains('too large')
+      .setBackground('#fff7ed').setFontColor('#9a3412')
+      .setRanges([errR]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains('quota')
+      .setBackground('#fef9c3').setFontColor('#713f12')
+      .setRanges([errR]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains('No CV')
+      .setBackground('#f1f5f9').setFontColor('#475569')
+      .setRanges([errR]).build());
+    sheet.setConditionalFormatRules(rules);
+  }
+
+  autoResizeColumns(sheet);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F09 — formatStandardSheet_()
+// Generic formatter used for Archive, _Rules, Taxonomy, _Quota, etc.
+// compact=true → smaller rows + system header colour
+// ───────────────────────────────────────────────────────────────────
+function formatStandardSheet_(sheet, compact) {
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lc < 1) return;
+  var dr = Math.max(0, lr - 1);
+
+  var hBg = compact ? FMT_THEME.sysHdrBg : FMT_THEME.hdrBg;
+  var hFg = compact ? FMT_THEME.sysHdrFg : FMT_THEME.hdrFg;
+  applyHeaderStyle(sheet, lc, hBg, hFg);
+  sheet.setFrozenRows(1);
+  sheet.setRowHeight(1, FMT_THEME.hdrHeight);
+  if (dr > 0) {
+    sheet.setRowHeightsForced(2, dr, compact ? 20 : FMT_THEME.dataHeight);
+    sheet.getRange(2, 1, dr, lc)
+      .setFontFamily(FMT_THEME.dataFont)
+      .setFontSize(compact ? 9 : FMT_THEME.dataSize)
+      .setVerticalAlignment('middle')
+      .setHorizontalAlignment('left')
+      .setWrap(false);
+
+    var rules = [];
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=MOD(ROW(),2)=0')
+      .setBackground(FMT_THEME.rowOdd)
+      .setRanges([sheet.getRange(2, 1, dr, lc)]).build());
+    sheet.setConditionalFormatRules(rules);
+    applyBorders(sheet);
+  }
+
+  autoResizeColumns(sheet);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F10 — applyHeaderStyle(sheet, numCols, bgColor, fgColor)
+// Public — can be called standalone.
+// ───────────────────────────────────────────────────────────────────
+function applyHeaderStyle(sheet, numCols, bgColor, fgColor) {
+  if (!sheet || !numCols) return;
+  var hdr = sheet.getRange(1, 1, 1, numCols);
+  hdr.setBackground(bgColor   || FMT_THEME.hdrBg)
+     .setFontColor(fgColor    || FMT_THEME.hdrFg)
+     .setFontFamily(FMT_THEME.dataFont)
+     .setFontSize(FMT_THEME.hdrSize)
+     .setFontWeight('bold')
+     .setHorizontalAlignment('center')
+     .setVerticalAlignment('middle')
+     .setWrap(false);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F11 — autoResizeColumns(sheet)
+// Resize all columns, then enforce min 80 / max 300 caps.
+// ───────────────────────────────────────────────────────────────────
+function autoResizeColumns(sheet) {
+  if (!sheet) return;
+  var lc = sheet.getLastColumn();
+  if (lc < 1) return;
+  try {
+    sheet.autoResizeColumns(1, lc);
+    for (var c = 1; c <= lc; c++) {
+      var w = sheet.getColumnWidth(c);
+      if (w < 80)  sheet.setColumnWidth(c, 80);
+      if (w > 300) sheet.setColumnWidth(c, 300);
+    }
+  } catch(e) { Logger.log('S31: autoResizeColumns warning: ' + e.message); }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F12 — cleanEmptyRows(sheet)
+// Removes trailing blank rows (checks up to last 50 rows).
+// Safe: never removes row 1 (header).
+// ───────────────────────────────────────────────────────────────────
+function cleanEmptyRows(sheet) {
+  if (!sheet) return;
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lr < 2 || lc < 1) return;
+  var checkFrom = Math.max(2, lr - 49);
+  var numCheck  = lr - checkFrom + 1;
+  var data = sheet.getRange(checkFrom, 1, numCheck, lc).getValues();
+  var delCount = 0;
+  for (var i = data.length - 1; i >= 0; i--) {
+    var empty = data[i].every(function(c) { return String(c).trim() === ''; });
+    if (empty) delCount++;
+    else break;
+  }
+  if (delCount > 0) {
+    sheet.deleteRows(lr - delCount + 1, delCount);
+    Logger.log('S31: cleanEmptyRows removed ' + delCount + ' row(s) from ' + sheet.getName());
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F13 — applyBorders(sheet)
+// Outer + inner borders on header + all data rows (capped at 500 rows
+// to stay within quota limits on large sheets).
+// ───────────────────────────────────────────────────────────────────
+function applyBorders(sheet) {
+  if (!sheet) return;
+  var lr = Math.min(sheet.getLastRow(), 500);
+  var lc = sheet.getLastColumn();
+  if (lr < 1 || lc < 1) return;
+  try {
+    sheet.getRange(1, 1, lr, lc).setBorder(
+      true, true, true, true, true, true,
+      FMT_THEME.borderColor,
+      SpreadsheetApp.BorderStyle.SOLID
+    );
+  } catch(e) { Logger.log('S31: applyBorders warning: ' + e.message); }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F14 — applyAlternatingRows(sheet)
+// Applies MOD(ROW(),2)=0 conditional rule for zebra striping.
+// Merges with any existing rules on the sheet.
+// ───────────────────────────────────────────────────────────────────
+function applyAlternatingRows(sheet) {
+  if (!sheet) return;
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lr < 2 || lc < 1) return;
+  var dr = Math.min(lr - 1, 1000);
+  // Preserve existing rules, then add/replace alternating rule at index 0
+  var existing = sheet.getConditionalFormatRules().filter(function(r) {
+    // Remove any existing MOD(ROW() rules to avoid duplicates
+    try {
+      var spec = r.getBooleanCondition();
+      return !(spec && String(spec.getCriteriaValues()[0]).indexOf('MOD(ROW()') >= 0);
+    } catch(e) { return true; }
+  });
+  var altRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=MOD(ROW(),2)=0')
+    .setBackground(FMT_THEME.rowOdd)
+    .setRanges([sheet.getRange(2, 1, dr, lc)])
+    .build();
+  sheet.setConditionalFormatRules([altRule].concat(existing));
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F15 — standardizeFonts(sheet)
+// Applies uniform font family + size to the entire sheet.
+// Header row keeps bold weight; data rows normalised.
+// ───────────────────────────────────────────────────────────────────
+function standardizeFonts(sheet) {
+  if (!sheet) return;
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lr < 1 || lc < 1) return;
+  // Entire sheet: uniform font family
+  sheet.getRange(1, 1, lr, lc)
+    .setFontFamily(FMT_THEME.dataFont)
+    .setFontSize(FMT_THEME.dataSize);
+  // Header row: bold, slightly larger
+  sheet.getRange(1, 1, 1, lc)
+    .setFontSize(FMT_THEME.hdrSize)
+    .setFontWeight('bold');
+  // Data rows: normal weight
+  if (lr > 1) {
+    sheet.getRange(2, 1, lr - 1, lc).setFontWeight('normal');
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// S31.F16 — normalizeAlignment(sheet)
+// Header: centre. Data rows: left + middle vertical.
+// ───────────────────────────────────────────────────────────────────
+function normalizeAlignment(sheet) {
+  if (!sheet) return;
+  var lr = sheet.getLastRow();
+  var lc = sheet.getLastColumn();
+  if (lr < 1 || lc < 1) return;
+  sheet.getRange(1, 1, 1, lc)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+  if (lr > 1) {
+    sheet.getRange(2, 1, lr - 1, lc)
+      .setHorizontalAlignment('left')
+      .setVerticalAlignment('middle');
+  }
+}
+// END OF FILE — KAI_15May2026_V1.gs

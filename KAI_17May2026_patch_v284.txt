@@ -1,0 +1,1698 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI_17May2026_patch_v284.gs
+ *  JD INTELLIGENCE ENGINE — Gulf Recruitment OS
+ *  Build : 17-May-2026  |  Al Yousuf Enterprises LLP
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S66  MULTI-POSITION JD SPLITTER  — Aramco + GAS Arabian formats
+ *  S67  SALARY INTELLIGENCE LAYER   — Code 12, SAR, range, not-stated
+ *  S68  EDUCATION NORMALIZER        — Civil Engr / Mechanical / etc.
+ *  S69  ROLE CATEGORY CLASSIFIER    — PROFESSIONAL / TRADE / ADMIN
+ *  S70  CLIENT & LOCATION ENGINE    — DH→Dhahran, AMAAD→Saudi Aramco
+ *  S71  XLSX REQUIREMENTS PROCESSOR — each row = one requirement
+ *  S72  PROJECT MANAGEMENT ENGINE   — _Projects sheet CRUD
+ *  S73  ENHANCED JD EXTRACTOR       — supersedes extractJdEnhanced_
+ *  S74  SETUP & MENU FUNCTIONS      — setupV284, recomputeAllMetrics
+ *
+ *  ARCHITECTURE NOTES
+ *  ─────────────────────────────────────────────────────────────────
+ *  • All functions in this file are additive — no existing functions
+ *    are removed or renamed
+ *  • extractJdPublic() is the new dashboard entry point — supersedes
+ *    the old extractJd_ call path from V2
+ *  • saveRequirementV284_() supersedes saveRequirement_() from V2
+ *    with richer field support
+ *  • All location/salary/education normalizers are safe helpers —
+ *    they never write to sheets directly
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S66 · MULTI-POSITION JD SPLITTER
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S66.F01 — Clean OCR noise from scanned PDF text before parsing.
+ * Handles: &amp; entities, unicode dashes, cut margin chars, double spaces.
+ */
+function cleanOcrText_(text) {
+  if (!text) return '';
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/–|—/g, '-')      // em/en dash → hyphen
+    .replace(/‘|’/g, "'")      // smart quotes
+    .replace(/“|”/g, '"')
+    .replace(/ /g, '')              // replacement chars
+    .replace(/[ \t]{2,}/g, ' ')         // multiple spaces
+    .replace(/\n{3,}/g, '\n\n')         // excessive blank lines
+    .trim();
+}
+
+/**
+ * S66.F02 — Split a JD text block into individual position blocks.
+ *
+ * Handles 3 real formats observed from client files:
+ *   Format A: Aramco "Manpower Requisition Number XXXXXXXXXX"
+ *   Format B: Simple "Position: Sales Engineer\nLocation:..."
+ *   Format C: "Job Title  Sr Engineer" structured form
+ *
+ * Returns: Array of text strings — one per position detected.
+ * If only one position detected, returns [originalText].
+ */
+function splitMultipleJds_(text) {
+  var cleaned = cleanOcrText_(text);
+
+  // ── Format A: Aramco Manpower Requisition ──────────────────────
+  // Marker: "Manpower Requisition Number" appears once per position
+  var aramcoRe = /manpower\s+requisition\s+number/gi;
+  var aramcoIdxs = [];
+  var m;
+  while ((m = aramcoRe.exec(cleaned)) !== null) {
+    aramcoIdxs.push(m.index);
+  }
+  if (aramcoIdxs.length > 1) {
+    var blocks = [];
+    for (var a = 0; a < aramcoIdxs.length; a++) {
+      var aStart = aramcoIdxs[a];
+      var aEnd   = (a + 1 < aramcoIdxs.length) ? aramcoIdxs[a + 1] : cleaned.length;
+      var block  = cleaned.slice(aStart, aEnd).trim();
+      if (block.length > 40) blocks.push(block);
+    }
+    if (blocks.length > 0) return blocks;
+  }
+
+  // ── Format B: "Position:" at line start (GAS Arabian, simple) ──
+  var posRe = /^(?:position|role)\s*:/gim;
+  var posIdxs = [];
+  while ((m = posRe.exec(cleaned)) !== null) {
+    posIdxs.push(m.index);
+  }
+  if (posIdxs.length > 1) {
+    var pBlocks = [];
+    for (var p = 0; p < posIdxs.length; p++) {
+      var pStart = posIdxs[p];
+      var pEnd   = (p + 1 < posIdxs.length) ? posIdxs[p + 1] : cleaned.length;
+      var pBlock = cleaned.slice(pStart, pEnd).trim();
+      if (pBlock.length > 30) pBlocks.push(pBlock);
+    }
+    if (pBlocks.length > 0) return pBlocks;
+  }
+
+  // ── Format C: Repeated "Job Title" structured form ─────────────
+  var jtRe = /\bjob\s+title\b/gi;
+  var jtIdxs = [];
+  while ((m = jtRe.exec(cleaned)) !== null) {
+    jtIdxs.push(m.index);
+  }
+  if (jtIdxs.length > 1) {
+    var jBlocks = [];
+    for (var j = 0; j < jtIdxs.length; j++) {
+      var jStart = jtIdxs[j];
+      var jEnd   = (j + 1 < jtIdxs.length) ? jtIdxs[j + 1] : cleaned.length;
+      var jBlock = cleaned.slice(jStart, jEnd).trim();
+      if (jBlock.length > 30) jBlocks.push(jBlock);
+    }
+    if (jBlocks.length > 0) return jBlocks;
+  }
+
+  // Single JD — return as-is
+  return [cleaned];
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S67 · SALARY INTELLIGENCE LAYER
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S67.F01 — Aramco internal salary grade code lookup table.
+ * Source: publicly available Aramco grade descriptions (approximate).
+ */
+var ARAMCO_SALARY_CODES_ = {
+  '10': 'Grade 10 / ~SAR 8,000-10,000',
+  '11': 'Grade 11 / ~SAR 10,000-12,500',
+  '12': 'Grade 12 / ~SAR 12,500-15,500',
+  '13': 'Grade 13 / ~SAR 15,500-19,000',
+  '14': 'Grade 14 / ~SAR 19,000-23,500',
+  '15': 'Grade 15 / ~SAR 23,500-29,000',
+  '16': 'Grade 16 / ~SAR 29,000-36,000',
+  '17': 'Grade 17 / ~SAR 36,000+',
+};
+
+/**
+ * S67.F02 — Normalize salary from any raw text to structured object.
+ *
+ * Input examples:
+ *   "SAR 1,500"   → {salary:'SAR 1,500', salaryNum:1500, type:'STATED_AMOUNT'}
+ *   "Code 12 & 13"→ {salary:'Code 12-13', salaryRange:'Grade 12-13/~SAR 12,500-19,000', type:'SALARY_CODE'}
+ *   "12 & 13"     → same as above
+ *   "1500-2000"   → {salary:'1500-2000', salaryMin:1500, salaryMax:2000, type:'RANGE'}
+ *   "negotiable"  → {salary:'Negotiable', type:'NEGOTIABLE'}
+ *   ""            → {salary:'Not Stated', type:'NOT_STATED'}
+ *
+ * Returns: {salary, type, salaryNum?, salaryMin?, salaryMax?, salaryRange?}
+ */
+function normalizeSalaryIntelligent_(rawText) {
+  if (!rawText || String(rawText).trim().length === 0) {
+    return { salary: 'Not Stated', type: 'NOT_STATED' };
+  }
+  var text = cleanOcrText_(String(rawText)).trim();
+
+  // ── Stated currency amount: SAR 1,500 / AED 3,000 / OMR 400 ────
+  var currRe = /(SAR|SR|AED|OMR|QAR|BHD|KWD|USD)\s*([\d,]+)/i;
+  var currM  = text.match(currRe);
+  if (currM) {
+    var num = parseInt(currM[2].replace(/,/g, ''));
+    return { salary: currM[1].toUpperCase() + ' ' + currM[2], salaryNum: num, type: 'STATED_AMOUNT' };
+  }
+
+  // ── Aramco salary code: "Salary Code 12 & 13" / "Code 12" / "12 & 13" ──
+  var codeRe  = /(?:salary\s+)?code\s*(\d{1,2})\s*(?:[&and]+\s*(\d{1,2}))?/i;
+  var codeRe2 = /^(\d{1,2})\s*[&]\s*(\d{1,2})$/;
+  var codeM   = text.match(codeRe) || text.match(codeRe2);
+  if (codeM) {
+    var c1   = codeM[1];
+    var c2   = codeM[2] || '';
+    var lbl  = 'Code ' + c1 + (c2 ? '-' + c2 : '');
+    var rng1 = ARAMCO_SALARY_CODES_[c1] || ('Grade ' + c1);
+    var rng2 = c2 ? (ARAMCO_SALARY_CODES_[c2] || ('Grade ' + c2)) : '';
+    var rng  = rng1 + (rng2 ? ' / ' + rng2 : '');
+    return { salary: lbl, salaryRange: rng, type: 'SALARY_CODE' };
+  }
+
+  // ── Plain number range: 1500-2000 / "1,500 to 2,000" ────────────
+  var rangeRe = /([\d,]+)\s*(?:to|–|-)\s*([\d,]+)/;
+  var rangeM  = text.match(rangeRe);
+  if (rangeM) {
+    var lo = parseInt(rangeM[1].replace(/,/g, ''));
+    var hi = parseInt(rangeM[2].replace(/,/g, ''));
+    if (lo > 100 && hi > lo) {
+      return { salary: lo + '-' + hi, salaryMin: lo, salaryMax: hi, type: 'RANGE' };
+    }
+  }
+
+  // ── Negotiable / competitive ─────────────────────────────────────
+  if (/negotiable|competitive|tbd|to be discussed|as per company/i.test(text)) {
+    return { salary: 'Negotiable', type: 'NEGOTIABLE' };
+  }
+
+  // ── Anything else: store as-is, mark NOT_STATED ─────────────────
+  return { salary: 'Not Stated', type: 'NOT_STATED' };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S68 · EDUCATION NORMALIZER (PROFESSIONAL ROLES)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S68.F01 — Map of common abbreviations/shortforms to full descriptions.
+ * Covers all formats seen in real client JDs.
+ */
+var EDU_MAP_ = {
+  'electrical engineer':          'B.Sc. Electrical Engineering',
+  'electrical engineering':       'B.Sc. Electrical Engineering',
+  'civil engr':                   'B.Sc. Civil Engineering',
+  'civil engineer':               'B.Sc. Civil Engineering',
+  'civil engineering':            'B.Sc. Civil Engineering',
+  'mechanical':                   'B.Sc. Mechanical Engineering',
+  'mechanical engineer':          'B.Sc. Mechanical Engineering',
+  'mechanical engineering':       'B.Sc. Mechanical Engineering',
+  'chemical engineer':            'B.Sc. Chemical Engineering',
+  'chemical engineering':         'B.Sc. Chemical Engineering',
+  'structural engineer':          'B.Sc. Structural Engineering',
+  'instrumentation engineer':     'B.Sc. Instrumentation Engineering',
+  'process engineer':             'B.Sc. Process Engineering',
+  'petroleum engineer':           'B.Sc. Petroleum Engineering',
+  'industrial engineer':          'B.Sc. Industrial Engineering',
+  'electronics engineer':         'B.Sc. Electronics Engineering',
+  'computer science':             'B.Sc. Computer Science',
+  'information technology':       'B.Sc. Information Technology',
+  'it':                           'B.Sc. Information Technology',
+  'business administration':      'B.Sc. / BBA Business Administration',
+  'business':                     'B.Sc. Business Administration',
+  'mba':                          'MBA',
+  'commerce':                     'B.Com',
+  'science':                      'B.Sc.',
+  'engineering':                  'B.Sc. Engineering',
+  'medicine':                     'MBBS / M.D.',
+  'pharmacy':                     'B.Sc. Pharmacy',
+  'architecture':                 'B.Arch.',
+  'quantity survey':              'B.Sc. Quantity Surveying',
+};
+
+/**
+ * S68.F02 — Normalize education text to {eduText, eduEnum, discipline}.
+ *
+ * Input: "Civil Engr", "5 to 10 years mechanical engineering principles"
+ * Output: {eduText:'B.Sc. Civil Engineering', eduEnum:'Degree', discipline:'Civil'}
+ */
+function normalizeEducationProfessional_(rawText) {
+  if (!rawText) return { eduText: '', eduEnum: '', discipline: '' };
+  var text    = cleanOcrText_(String(rawText)).trim();
+  var textLow = text.toLowerCase();
+
+  // ── Direct lookup ────────────────────────────────────────────────
+  if (EDU_MAP_[textLow]) {
+    return {
+      eduText:    EDU_MAP_[textLow],
+      eduEnum:    /master|mba|phd/i.test(EDU_MAP_[textLow]) ? 'Master' : 'Degree',
+      discipline: textLow.replace(/\s+engineer(ing)?/i, '').trim()
+    };
+  }
+
+  // ── Partial match in lookup table ────────────────────────────────
+  var matched = '';
+  for (var key in EDU_MAP_) {
+    if (textLow.indexOf(key) >= 0) {
+      matched = EDU_MAP_[key];
+      break;
+    }
+  }
+  if (matched) {
+    return {
+      eduText:    matched,
+      eduEnum:    /master|mba|phd/i.test(matched) ? 'Master' : 'Degree',
+      discipline: ''
+    };
+  }
+
+  // ── Multi-option education ────────────────────────────────────────
+  // e.g. "Science, Business and Management, Engineering, or a High School diploma/Diploma"
+  if (/or\s+(?:a\s+)?(?:high\s+school|diploma)/i.test(textLow)) {
+    return {
+      eduText:    'Degree or Diploma (multiple options)',
+      eduEnum:    'Diploma',   // use lower threshold for matching
+      discipline: '',
+      note:       'Multiple education options accepted'
+    };
+  }
+
+  // ── Level extraction ─────────────────────────────────────────────
+  var level = '';
+  if (/\bphd\b|doctorate/i.test(textLow))                        level = 'Master';
+  else if (/master|m\.sc|mba|m\.eng|postgrad/i.test(textLow))    level = 'Master';
+  else if (/bachelor|b\.sc|b\.e\b|b\.tech|degree|graduate/i.test(textLow)) level = 'Degree';
+  else if (/\bdiploma\b/i.test(textLow))                         level = 'Diploma';
+  else if (/\biti\b|vocational|certificate\s+course/i.test(textLow)) level = 'ITI';
+  else if (/high\s+school|secondary|12th|hsc/i.test(textLow))   level = '12th Pass';
+  else if (/10th|ssc\b/i.test(textLow))                         level = '10th Pass';
+
+  // ── Discipline extraction ─────────────────────────────────────────
+  var discipline = '';
+  var discs = [
+    'electrical','mechanical','civil','chemical','structural',
+    'instrumentation','process','petroleum','computer','information',
+    'industrial','production','hvac','fire protection','piping',
+    'procurement','quantity','architecture'
+  ];
+  for (var d = 0; d < discs.length; d++) {
+    if (textLow.indexOf(discs[d]) >= 0) {
+      discipline = discs[d].charAt(0).toUpperCase() + discs[d].slice(1);
+      break;
+    }
+  }
+
+  var eduText = text; // fallback = raw text
+  if (level === 'Degree' && discipline) {
+    eduText = 'B.Sc. ' + discipline + (discipline.slice(-1).toLowerCase() !== 'g' ? ' Engineering' : '');
+  } else if (level) {
+    eduText = level;
+  }
+
+  return {
+    eduText:    eduText,
+    eduEnum:    level || 'Degree',
+    discipline: discipline
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S69 · ROLE CATEGORY CLASSIFIER
+// ═══════════════════════════════════════════════════════════════════
+
+var ROLE_KEYWORDS_ = {
+  TRADE: [
+    'welder','fabricator','fitter','helper','operator','rigger',
+    'scaffolder','painter','blaster','carpenter','mason','bricklayer',
+    'electrician','plumber','hvac technician','hvac tech','mechanic',
+    'technician','driver','foreman','wireman','lineman','cable jointer',
+    'ironworker','boilermaker','instrumentation tech','pipe fitter',
+    'pipefitter','millwright','crane operator','heavy equipment',
+    'shuttering','rebar','steel fixer','tiler','aluminium fabricator',
+    'glazier','ndt','radiographer','inspector tech','grp laminator',
+    'insulation','fire proofer','scaffolding','rigger','erector',
+    'maintenance tech','workshop','machinist','lathe'
+  ],
+  ADMIN: [
+    'secretary','receptionist','data entry','back office',
+    'hr assistant','payroll','document controller','typist','clerk',
+    'logistics coordinator','supply chain admin','procurement assistant',
+    'customer service','call center','telesales','marketing assistant',
+    'accounts assistant','billing','invoice','office boy','office helper',
+    'tea boy','peon','messenger','dispatcher'
+  ],
+  PROFESSIONAL: [
+    'engineer','manager','director','supervisor','analyst','consultant',
+    'doctor','nurse','pharmacist','accountant','auditor','lawyer',
+    'architect','designer','developer','programmer','scientist',
+    'sales engineer','project manager','site engineer','procurement',
+    'quantity surveyor','estimator','planner','coordinator','officer',
+    'executive','specialist','advisor','head of','vp','ceo','cfo','coo',
+    'associate engineer','sr engineer','senior engineer','lead engineer'
+  ]
+};
+
+/**
+ * S69.F01 — Classify job title into PROFESSIONAL / TRADE / ADMIN.
+ * Check TRADE first (most specific), then ADMIN, then default PROFESSIONAL.
+ */
+function detectRoleCategory_(title) {
+  if (!title) return 'PROFESSIONAL';
+  var t = title.toLowerCase();
+
+  for (var i = 0; i < ROLE_KEYWORDS_.TRADE.length; i++) {
+    if (t.indexOf(ROLE_KEYWORDS_.TRADE[i]) >= 0) return 'TRADE';
+  }
+  for (var j = 0; j < ROLE_KEYWORDS_.ADMIN.length; j++) {
+    if (t.indexOf(ROLE_KEYWORDS_.ADMIN[j]) >= 0) return 'ADMIN';
+  }
+  return 'PROFESSIONAL';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S70 · CLIENT & LOCATION INTELLIGENCE
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S70.F01 — Location abbreviation and alias resolver.
+ * Covers all GCC cities and common document abbreviations.
+ */
+var LOC_MAP_ = {
+  // Saudi Arabia
+  'dh':               'Dhahran',
+  'dmm':              'Dammam',
+  'dammam':           'Dammam',
+  'dhahran':          'Dhahran',
+  'ruh':              'Riyadh',
+  'riyadh':           'Riyadh',
+  'jed':              'Jeddah',
+  'jeddah':           'Jeddah',
+  'mak':              'Makkah',
+  'mecca':            'Makkah',
+  'madinah':          'Madinah',
+  'medina':           'Madinah',
+  'med':              'Madinah',
+  'khobar':           'Al Khobar',
+  'al khobar':        'Al Khobar',
+  'yanbu':            'Yanbu',
+  'jubail':           'Jubail',
+  'jizan':            'Jizan',
+  'tabuk':            'Tabuk',
+  'hail':             'Hail',
+  'abha':             'Abha',
+  'neom':             'NEOM / Tabuk',
+  'western region':   'Jeddah',
+  'eastern province': 'Dhahran',
+  'eastern region':   'Dhahran',
+  'central region':   'Riyadh',
+  'central province': 'Riyadh',
+  // UAE
+  'dxb':              'Dubai',
+  'dubai':            'Dubai',
+  'auh':              'Abu Dhabi',
+  'abu dhabi':        'Abu Dhabi',
+  'shj':              'Sharjah',
+  'sharjah':          'Sharjah',
+  'ajm':              'Ajman',
+  'ajman':            'Ajman',
+  'rak':              'Ras Al Khaimah',
+  'fuj':              'Fujairah',
+  // Qatar
+  'doh':              'Doha',
+  'doha':             'Doha',
+  'lusail':           'Lusail',
+  // Kuwait
+  'kwi':              'Kuwait City',
+  'kuwait city':      'Kuwait City',
+  'kuwait':           'Kuwait City',
+  // Oman
+  'mct':              'Muscat',
+  'mcm':              'Muscat',
+  'muscat':           'Muscat',
+  'sohar':            'Sohar',
+  'salalah':          'Salalah',
+  // Bahrain
+  'bah':              'Manama',
+  'manama':           'Manama',
+  'bahrain':          'Manama',
+};
+
+/**
+ * S70.F02 — Resolve location string to full name.
+ */
+function resolveLocation_(raw) {
+  if (!raw) return '';
+  var key = cleanOcrText_(String(raw)).toLowerCase().trim();
+  if (LOC_MAP_[key]) return LOC_MAP_[key];
+  // Partial scan
+  for (var k in LOC_MAP_) {
+    if (key.indexOf(k) >= 0) return LOC_MAP_[k];
+  }
+  // Capitalise words and return
+  return String(raw).trim().replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
+/**
+ * S70.F03 — Infer deploy country from location string.
+ */
+function inferCountryFromLocation_(loc) {
+  var l = String(loc || '').toLowerCase();
+  if (/saudi|ksa|riyadh|jeddah|dhahran|dammam|khobar|jubail|yanbu|makkah|medina|abha|tabuk|hail|neom|eastern province|western region/i.test(l)) return 'Saudi Arabia';
+  if (/uae|dubai|abu dhabi|sharjah|ajman|rak|fujairah/i.test(l)) return 'UAE';
+  if (/qatar|doha|lusail/i.test(l)) return 'Qatar';
+  if (/oman|muscat|sohar|salalah/i.test(l)) return 'Oman';
+  if (/kuwait/i.test(l)) return 'Kuwait';
+  if (/bahrain|manama/i.test(l)) return 'Bahrain';
+  return '';
+}
+
+/**
+ * S70.F04 — Known client / company name patterns from document text.
+ * Covers Aramco subsidiaries, major GCC contractors, known Al Yousuf clients.
+ */
+var CLIENT_PATTERNS_ = [
+  { re: /\bamaad\b/i,                              client: 'AMAAD',             parent: 'Saudi Aramco' },
+  { re: /saudi\s+aramco\b|aramco\b/i,              client: 'Saudi Aramco',      parent: 'Saudi Aramco' },
+  { re: /gas\s+arabian\s+services?/i,              client: 'GAS Arabian Services', parent: '' },
+  { re: /gas\s+arabian\b/i,                        client: 'GAS Arabian Services', parent: '' },
+  { re: /al\s+yousuf|alyousuf/i,                   client: 'Al Yousuf',         parent: 'Al Yousuf Enterprises' },
+  { re: /acwa\s+power/i,                           client: 'ACWA Power',        parent: '' },
+  { re: /\bneom\b/i,                               client: 'NEOM',              parent: '' },
+  { re: /\broshn\b/i,                              client: 'ROSHN',             parent: '' },
+  { re: /\bsabic\b/i,                              client: 'SABIC',             parent: '' },
+  { re: /\bstc\b/i,                                client: 'STC',               parent: '' },
+  { re: /\barco\b/i,                               client: 'ARCO',              parent: '' },
+  { re: /\bladc\b/i,                               client: 'LADC',              parent: '' },
+  { re: /\bsec\b.*\benergy\b/i,                    client: 'SEC',               parent: '' },
+  { re: /parsons\b/i,                              client: 'Parsons',           parent: '' },
+  { re: /wood\s+group|john\s+wood/i,               client: 'Wood Group',        parent: '' },
+  { re: /\bchiyoda\b/i,                            client: 'Chiyoda',           parent: '' },
+  { re: /technip\b/i,                              client: 'Technip',           parent: '' },
+  { re: /\bjgc\b/i,                                client: 'JGC',               parent: '' },
+  { re: /samsung\s+(?:engineering|c&t)/i,          client: 'Samsung Engineering', parent: '' },
+  { re: /\bhyundai\b.*(?:eng|constr)/i,            client: 'Hyundai E&C',       parent: '' },
+];
+
+/**
+ * S70.F05 — Extract client name from document text.
+ */
+function extractClientFromContext_(text) {
+  if (!text) return '';
+  for (var i = 0; i < CLIENT_PATTERNS_.length; i++) {
+    if (CLIENT_PATTERNS_[i].re.test(text)) {
+      return CLIENT_PATTERNS_[i].client;
+    }
+  }
+  return '';
+}
+
+/**
+ * S70.F06 — Parse experience range to {min, max, display}.
+ *
+ * Handles: "5 to 12 years", "2–5 years", "minimum 3-5 years",
+ *          "5 years experience", "at least 3 years"
+ */
+function normalizeExperienceRange_(raw) {
+  if (!raw) return { min: 0, max: 0, display: '' };
+  var text = cleanOcrText_(String(raw));
+
+  // Range: "5 to 12" / "2–5" / "5-12"
+  var rangeRe = /(\d+)\s*(?:to|–|-)\s*(\d+)\s*(?:years?|yrs?)?/i;
+  var rangeM  = text.match(rangeRe);
+  if (rangeM) {
+    var lo = parseInt(rangeM[1]);
+    var hi = parseInt(rangeM[2]);
+    if (hi > lo && lo >= 0) {
+      return { min: lo, max: hi, display: lo + '-' + hi + ' yrs' };
+    }
+  }
+
+  // Minimum: "minimum 5 years" / "at least 5 years" / "5+ years" / "5 years"
+  var singleRe = /(?:minimum|min|least|above|over|more\s+than)?\s*(\d+)\s*\+?\s*(?:years?|yrs?)/i;
+  var singleM  = text.match(singleRe);
+  if (singleM) {
+    var n = parseInt(singleM[1]);
+    return { min: n, max: 0, display: n + '+ yrs' };
+  }
+
+  return { min: 0, max: 0, display: text.slice(0, 20).trim() };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S71 · XLSX REQUIREMENTS BATCH PROCESSOR
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S71.F01 — Column header detection for requirements XLSX files.
+ * Maps column indices in the uploaded file to known field names.
+ */
+function detectRequirementColumns_(headers) {
+  var map = {
+    title:    -1, qty:    -1, loc:     -1, edu:   -1,
+    exp:      -1, sal:    -1, nat:     -1, notes: -1,
+    client:   -1, minAge: -1, maxAge:  -1, cert:  -1
+  };
+
+  var kw = {
+    title:  ['position','title','trade','role','job','designation','post'],
+    qty:    ['qty','quantity','nos','number of positions','positions','headcount','count','pax','no.'],
+    loc:    ['location','country','site','city','work location','deploy','place'],
+    edu:    ['education','qualification','degree','edu','academic'],
+    exp:    ['experience','exp','years','min exp','minimum experience'],
+    sal:    ['salary','package','ctc','compensation','sal','pay','remuneration'],
+    nat:    ['nationality','national','citizen','passport'],
+    notes:  ['notes','remarks','special','requirements','note','comment','other'],
+    client: ['client','company','employer','organization'],
+    minAge: ['min age','minimum age','age from','age min'],
+    maxAge: ['max age','maximum age','age to','age max','age limit'],
+    cert:   ['certification','certificate','license','cert']
+  };
+
+  headers.forEach(function(h, i) {
+    var hl = String(h).toLowerCase().trim();
+    Object.keys(kw).forEach(function(field) {
+      if (map[field] < 0 && kw[field].some(function(k) { return hl.indexOf(k) >= 0; })) {
+        map[field] = i;
+      }
+    });
+  });
+
+  return map;
+}
+
+/**
+ * S71.F02 — Main XLSX requirements processor.
+ * Called from dashboard when user uploads a requirements XLSX file.
+ * Each data row = one position requirement → creates one _Requirements row.
+ *
+ * Returns: {ok, requirements:[], count, errors:[]}
+ */
+function processXlsxRequirements_(base64Data, filename, clientOverride) {
+  var results = { ok: false, requirements: [], count: 0, errors: [] };
+  var tempFileId = null;
+  var docId      = null;
+
+  try {
+    // ── Save blob to Drive ──────────────────────────────────────────
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(base64Data),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      filename || 'requirements.xlsx'
+    );
+    var tempFile = DriveApp.createFile(blob);
+    tempFileId   = tempFile.getId();
+
+    // ── Open as spreadsheet ────────────────────────────────────────
+    var ss    = SpreadsheetApp.openById(tempFileId);
+    var sheet = ss.getSheets()[0];
+    var data  = sheet.getDataRange().getValues();
+
+    if (data.length < 2) {
+      results.errors.push('File appears empty or has only headers.');
+      return results;
+    }
+
+    // ── Header detection ───────────────────────────────────────────
+    var headers = data[0].map(function(h) { return String(h).toLowerCase().trim(); });
+    var colMap  = detectRequirementColumns_(headers);
+
+    // ── Process each row ───────────────────────────────────────────
+    var saved = [];
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      // Skip completely blank rows
+      if (row.every(function(c) { return !String(c).trim(); })) continue;
+
+      // ── Field extraction ─────────────────────────────────────────
+      var rawTitle  = colMap.title  >= 0 ? String(row[colMap.title]  || '') : '';
+      var rawQty    = colMap.qty    >= 0 ? String(row[colMap.qty]    || '1') : '1';
+      var rawLoc    = colMap.loc    >= 0 ? String(row[colMap.loc]    || '') : '';
+      var rawEdu    = colMap.edu    >= 0 ? String(row[colMap.edu]    || '') : '';
+      var rawExp    = colMap.exp    >= 0 ? String(row[colMap.exp]    || '') : '';
+      var rawSal    = colMap.sal    >= 0 ? String(row[colMap.sal]    || '') : '';
+      var rawNat    = colMap.nat    >= 0 ? String(row[colMap.nat]    || '') : '';
+      var rawNotes  = colMap.notes  >= 0 ? String(row[colMap.notes]  || '') : '';
+      var rawClient = colMap.client >= 0 ? String(row[colMap.client] || '') : '';
+      var rawCert   = colMap.cert   >= 0 ? String(row[colMap.cert]   || '') : '';
+
+      if (!rawTitle.trim()) continue; // skip rows with no title
+
+      // ── Normalize ──────────────────────────────────────────────
+      var salNorm  = normalizeSalaryIntelligent_(rawSal);
+      var eduNorm  = normalizeEducationProfessional_(rawEdu);
+      var expNorm  = normalizeExperienceRange_(rawExp);
+      var locFull  = resolveLocation_(rawLoc);
+      var country  = inferCountryFromLocation_(locFull) || locFull;
+      var roleType = detectRoleCategory_(rawTitle);
+      var qty      = parseInt(rawQty) || 1;
+      var client   = (clientOverride || rawClient || '').trim();
+
+      var jd = {
+        trade:          rawTitle.trim(),
+        quantity:       qty,
+        deployCountry:  country,
+        location:       locFull,
+        minExperience:  expNorm.min,
+        maxExperience:  expNorm.max,
+        educationReq:   eduNorm.eduText,
+        eduEnum:        eduNorm.eduEnum,
+        salary:         salNorm.salary,
+        salaryType:     salNorm.type,
+        nationality:    rawNat.trim(),
+        notes:          rawNotes.trim(),
+        certifications: rawCert ? rawCert.split(/[,;]/).map(function(c){return c.trim();}).filter(Boolean) : [],
+        roleCategory:   roleType,
+        clientName:     client,
+        sourceFile:     filename || '',
+        sourceType:     'XLSX_REQUIREMENTS',
+        localTransfer:  false,
+        visitVisaOK:    false,
+        gccPreference:  false,
+        urgency:        'NORMAL'
+      };
+
+      try {
+        var reqId = saveRequirementV284_(jd);
+        jd.reqId = reqId;
+        saved.push(jd);
+      } catch (saveErr) {
+        results.errors.push('Row ' + (i + 1) + ': ' + saveErr.message);
+      }
+    }
+
+    results.ok           = true;
+    results.requirements = saved;
+    results.count        = saved.length;
+    return results;
+
+  } catch (err) {
+    results.errors.push(err.message);
+    return results;
+  } finally {
+    // ── Cleanup temp file ──────────────────────────────────────────
+    try { if (tempFileId) DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e2) {}
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S72 · PROJECT MANAGEMENT ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+var PROJECTS_HEADERS_ = [
+  'Project ID', 'Project Name', 'Client', 'Country', 'Status',
+  'Created Date', 'Active Reqs', 'Total Positions', 'Notes'
+];
+
+/**
+ * S72.F01 — Create _Projects sheet if not exists.
+ */
+function setupProjectsSheet() {
+  var ss = getMasterSS_();
+  ensureSheet_(ss, '_Projects', PROJECTS_HEADERS_, '#1e3a5f');
+  SpreadsheetApp.flush();
+  Logger.log('S72: _Projects sheet ready');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✅ Projects sheet created.\n\n' +
+      'You can now create and manage recruitment projects from the dashboard Import Center.'
+    );
+  } catch(e) {}
+}
+
+/**
+ * S72.F02 — Return list of all projects for dashboard dropdown.
+ * Returns: [{id, name, client, country, status}]
+ */
+function listProjects() {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName('_Projects');
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+    return data
+      .filter(function(r) { return String(r[0]).trim(); })
+      .map(function(r) {
+        return {
+          id:      String(r[0]).trim(),
+          name:    String(r[1]).trim(),
+          client:  String(r[2]).trim(),
+          country: String(r[3]).trim(),
+          status:  String(r[4]).trim()
+        };
+      });
+  } catch(e) {
+    Logger.log('listProjects error: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * S72.F03 — Create a new project.
+ * Returns the new project ID.
+ */
+function createProject_(name, client, country) {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName('_Projects') ||
+              ensureSheet_(ss, '_Projects', PROJECTS_HEADERS_, '#1e3a5f');
+
+  var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy');
+  var id    = 'PROJ-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+              '-' + String(sheet.getLastRow()).padStart(3, '0');
+
+  sheet.appendRow([
+    id,
+    (name || 'Unnamed Project').trim(),
+    (client || '').trim(),
+    (country || '').trim(),
+    'ACTIVE',
+    today,
+    0,
+    0,
+    ''
+  ]);
+  SpreadsheetApp.flush();
+  return id;
+}
+
+/**
+ * S72.F04 — Create project from dashboard (public entry point).
+ * Returns: {ok, projectId, projectName}
+ */
+function createProjectPublic(name, client, country) {
+  try {
+    var id = createProject_(name, client, country);
+    return { ok: true, projectId: id, projectName: name };
+  } catch(e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+/**
+ * S72.F05 — Map an existing requirement to a project.
+ */
+function mapReqToProject_(reqId, projectId) {
+  try {
+    var ss    = getMasterSS_();
+    var rSheet = ss.getSheetByName(CONFIG_V2.requirementsSheet);
+    if (!rSheet || rSheet.getLastRow() < 2) return { ok: false, msg: 'Requirements sheet not found' };
+
+    var data = rSheet.getRange(2, 1, rSheet.getLastRow() - 1, CONFIG_V2.reqHeaders.length).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === String(reqId).trim()) {
+        // Store project ID in the Notes column (last column) as a prefix
+        var notesCol = CONFIG_V2.reqHeaders.length; // 1-indexed
+        var existingNotes = String(rSheet.getRange(i + 2, notesCol).getValue() || '');
+        var newNotes = '[Project:' + projectId + '] ' +
+                       existingNotes.replace(/\[Project:[^\]]*\]\s*/g, '').trim();
+        rSheet.getRange(i + 2, notesCol).setValue(newNotes);
+        SpreadsheetApp.flush();
+        return { ok: true };
+      }
+    }
+    return { ok: false, msg: 'Req ID not found: ' + reqId };
+  } catch(e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+/**
+ * S72.F06 — Map req to project (public entry point for dashboard).
+ */
+function mapReqToProjectPublic(reqId, projectId) {
+  return mapReqToProject_(reqId, projectId);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S73 · ENHANCED JD EXTRACTOR (supersedes extractJdEnhanced_)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S73.F01 — Extract structured data from a single JD text block.
+ * Uses Gemini first, then falls back to regex-based extraction.
+ * Language detection, transfer flags, role category all extracted.
+ */
+function extractSingleJdBlock_(text, subject) {
+  var jd = {};
+
+  // ── STEP 1: Try Gemini extraction ─────────────────────────────────
+  try {
+    var geminiPrompt =
+      'Extract structured data from this job description. Return ONLY valid JSON, no markdown.\n\n' +
+      'Fields to extract:\n' +
+      '{"trade":"","quantity":1,"deployCountry":"","location":"","minExperience":0,"maxExperience":0,' +
+      '"educationReq":"","salary":"","clientName":"","localTransfer":false,"visitVisaOK":false,' +
+      '"gccPreference":false,"languageReq":"","certifications":[],"urgency":"NORMAL",' +
+      '"specialRequirements":{"rotation":"","accommodation":"","transport":"","iqamaTransfer":false},' +
+      '"externalRefNo":"","notes":""}\n\n' +
+      'JD Text:\n' + cleanOcrText_(text).slice(0, 4000);
+
+    var raw = callGemini_(geminiPrompt);
+    if (raw) {
+      var s = raw.indexOf('{'), e2 = raw.lastIndexOf('}') + 1;
+      if (s >= 0 && e2 > s) {
+        var parsed = JSON.parse(raw.slice(s, e2));
+        if (parsed.trade) jd = parsed;
+      }
+    }
+  } catch(gemErr) {
+    Logger.log('S73 Gemini failed, using fuzzy fallback: ' + gemErr.message);
+  }
+
+  // ── STEP 2: Aramco-specific field extraction ──────────────────────
+  // These fields are never in Gemini output because Gemini doesn't know
+  // Aramco's internal form structure
+
+  var cleaned = cleanOcrText_(text);
+
+  var manpowerReqMatch = cleaned.match(/manpower\s+requisition\s+number\s+([\d\s\/]+)/i);
+  if (manpowerReqMatch && !jd.externalRefNo) {
+    jd.externalRefNo = manpowerReqMatch[1].trim().replace(/\s+/g, ' ');
+  }
+
+  var salaryCodeMatch = cleaned.match(/salary\s+code\s+([^\n]+)/i);
+  if (salaryCodeMatch && (!jd.salary || jd.salary === 'Not Stated')) {
+    var sc = normalizeSalaryIntelligent_(salaryCodeMatch[1]);
+    jd.salary     = sc.salary;
+    jd.salaryType = sc.type;
+  }
+
+  // ── STEP 3: Fuzzy regex fallback for core fields ──────────────────
+
+  // Trade / Title
+  if (!jd.trade) {
+    var tradePatterns = [
+      /^position\s*:\s*([^\n]+)/im,
+      /job\s+title\s+([^\n]+)/i,
+      /(?:we\s+are\s+)?seeking\s+(?:a|an)\s+([^\n]+?)(?:\s+to\s+join|\s+for|\s*$)/i,
+      /role\s*:\s*([^\n]+)/i,
+      /position\s*:\s*([^\n]+)/i
+    ];
+    for (var ti = 0; ti < tradePatterns.length; ti++) {
+      var tm = cleaned.match(tradePatterns[ti]);
+      if (tm && tm[1] && tm[1].trim().length > 2 && tm[1].trim().length < 80) {
+        jd.trade = tm[1].trim();
+        break;
+      }
+    }
+    // Last resort: subject line
+    if (!jd.trade && subject) {
+      jd.trade = subject.replace(/^(?:re:|fwd?:|fw:)\s*/i, '').trim();
+    }
+  }
+
+  // Quantity
+  if (!jd.quantity) {
+    var qtyPatterns = [
+      /(?:#|no\.|num|number)\s*of\s*positions?\s*[\:\s]+(\d+)/i,
+      /quantity\s*[\:\s]+(\d+)/i,
+      /(\d+)\s+nos?\b/i,
+      /positions?\s*[\:\s]+(\d+)/i
+    ];
+    for (var qi = 0; qi < qtyPatterns.length; qi++) {
+      var qm = cleaned.match(qtyPatterns[qi]);
+      if (qm) { jd.quantity = parseInt(qm[1]); break; }
+    }
+    if (!jd.quantity) jd.quantity = 1;
+  }
+
+  // Location
+  if (!jd.location && !jd.deployCountry) {
+    var locPatterns = [
+      /work\s+location\s*[\:\s]+([^\n]+)/i,
+      /^location\s*[\:\s]+([^\n]+)/im,
+      /site\s*[\:\s]+([^\n]+)/i
+    ];
+    for (var li = 0; li < locPatterns.length; li++) {
+      var lm = cleaned.match(locPatterns[li]);
+      if (lm) { jd.location = resolveLocation_(lm[1].trim()); break; }
+    }
+  }
+
+  // Deploy country
+  if (!jd.deployCountry) {
+    jd.deployCountry = inferCountryFromLocation_(jd.location || cleaned) ||
+      (function() {
+        if (/saudi|ksa/i.test(cleaned)) return 'Saudi Arabia';
+        if (/\buae\b|dubai|abu dhabi/i.test(cleaned)) return 'UAE';
+        if (/\bqatar\b|doha/i.test(cleaned)) return 'Qatar';
+        if (/\boman\b|muscat/i.test(cleaned)) return 'Oman';
+        if (/\bkuwait\b/i.test(cleaned)) return 'Kuwait';
+        if (/\bbahrain\b/i.test(cleaned)) return 'Bahrain';
+        return '';
+      })();
+  }
+
+  // Education
+  if (!jd.educationReq) {
+    var eduPatterns = [
+      /^education\s*[\:\s]+([^\n]+)/im,
+      /qualification\s*[\:\s]+([^\n]+)/i,
+      /bachelor(?:'s)?\s+(?:of\s+science|degree)\s+in\s+([^\n,\.]{3,60})/i,
+      /b\.sc[\.  ]\s*(?:in\s+)?([^\n,\.]{3,60})/i,
+      /degree\s+in\s+([^\n,\.]{3,60})/i
+    ];
+    for (var ei = 0; ei < eduPatterns.length; ei++) {
+      var em = cleaned.match(eduPatterns[ei]);
+      if (em) {
+        var eduNorm = normalizeEducationProfessional_(em[1] || em[0]);
+        jd.educationReq = eduNorm.eduText;
+        if (!jd.eduEnum) jd.eduEnum = eduNorm.eduEnum;
+        break;
+      }
+    }
+  }
+
+  // Experience
+  if (!jd.minExperience) {
+    var expPatterns = [
+      /(\d+)\s*(?:to|–|-)\s*(\d+)\s*years?\s+(?:of\s+)?(?:experience|exp)/i,
+      /(?:minimum|min)?\s*(\d+)\s*(?:to|–|-)\s*(\d+)\s*years?/i,
+      /(?:minimum|min|at\s+least)?\s*(\d+)\s+years?\s+(?:of\s+)?(?:experience|exp)/i,
+      /you\s+(?:will\s+have|must\s+have)\s+(?:a\s+)?(\d+)\s+to\s+(\d+)\s+years?/i
+    ];
+    for (var xi = 0; xi < expPatterns.length; xi++) {
+      var xm = cleaned.match(expPatterns[xi]);
+      if (xm) {
+        var expNorm = normalizeExperienceRange_(xm[0]);
+        jd.minExperience = expNorm.min;
+        jd.maxExperience = expNorm.max || 0;
+        break;
+      }
+    }
+  }
+
+  // Salary
+  if (!jd.salary || jd.salary === 'Not Stated') {
+    var salPatterns = [
+      /salary\s+code\s+([^\n]+)/i,
+      /(?:salary|package|pay)\s*[\:\s]+([^\n]+)/i,
+      /(?:SAR|SR|AED|OMR|QAR|KWD)\s*[\d,]+/i
+    ];
+    for (var si = 0; si < salPatterns.length; si++) {
+      var sm = cleaned.match(salPatterns[si]);
+      if (sm) {
+        var salNorm = normalizeSalaryIntelligent_(sm[0]);
+        if (salNorm.type !== 'NOT_STATED') {
+          jd.salary     = salNorm.salary;
+          jd.salaryType = salNorm.type;
+          break;
+        }
+      }
+    }
+    if (!jd.salary) jd.salary = 'Not Stated';
+  }
+
+  // Client name
+  if (!jd.clientName) {
+    jd.clientName = extractClientFromContext_(cleaned) ||
+                    extractClientFromContext_(subject || '');
+  }
+
+  // ── STEP 4: Always-on flag extraction ────────────────────────────
+  jd.localTransfer  = jd.localTransfer  || /local\s+transfer|transferable\s+(?:iqama|visa)|iqama\s+transfer/i.test(cleaned);
+  jd.visitVisaOK    = jd.visitVisaOK    || /visit\s+visa\s+(?:ok|accepted|allowed)|on\s+visit\s+visa/i.test(cleaned);
+  jd.gccPreference  = jd.gccPreference  || /gcc\s+(?:experience|preferred|candidates|exp)/i.test(cleaned);
+
+  // Language
+  if (!jd.languageReq) {
+    if (/arabic[\s-]speaking|arabic\s+mandatory|must\s+(?:speak|know)\s+arabic/i.test(cleaned)) {
+      jd.languageReq = 'Arabic Required';
+    } else if (/arabic[\s-]preferred|arabic\s+is\s+(?:an\s+)?(?:advantage|plus)/i.test(cleaned)) {
+      jd.languageReq = 'Arabic Preferred';
+    } else if (/english\s+(?:mandatory|required|proficiency)|proficiency\s+in\s+english/i.test(cleaned)) {
+      jd.languageReq = 'English Required';
+    }
+  }
+
+  // Rotation / Accommodation / Transport (special requirements)
+  if (!jd.specialRequirements) jd.specialRequirements = {};
+  var sr = jd.specialRequirements;
+  if (!sr.rotation) {
+    var rotM = cleaned.match(/(?:rotation|roster)\s*[\:\s]+([^\n]+)/i) ||
+               cleaned.match(/(\d+\/\d+|\d+\s+days?\s+on[^\n]+)/i);
+    if (rotM) sr.rotation = rotM[1] ? rotM[1].trim() : rotM[0].trim();
+  }
+  if (!sr.accommodation) {
+    sr.accommodation = /accommodation\s+(?:provided|included|free|available)/i.test(cleaned) ? 'Provided' :
+                       /no\s+accommodation|own\s+accommodation/i.test(cleaned) ? 'Not Provided' : '';
+  }
+  if (!sr.transport) {
+    sr.transport = /transport\s+(?:provided|included|free|available)/i.test(cleaned) ? 'Provided' :
+                   /own\s+transport|no\s+transport/i.test(cleaned) ? 'Not Provided' : '';
+  }
+  sr.iqamaTransfer = jd.localTransfer || false;
+
+  // Role category
+  jd.roleCategory = detectRoleCategory_(jd.trade || '');
+
+  // Urgency
+  if (!jd.urgency) {
+    jd.urgency = /urgent|immediate|asap|as soon as possible/i.test(cleaned) ? 'URGENT' : 'NORMAL';
+  }
+
+  return jd;
+}
+
+/**
+ * S73.F02 — Top-level JD extraction: splits multi-JD documents,
+ * extracts each block, returns array of structured JD objects.
+ */
+function extractJdV284_(text, subject) {
+  var result = { ok: false, jds: [], count: 0, errors: [] };
+
+  var blocks = splitMultipleJds_(text);
+  blocks.forEach(function(block, idx) {
+    try {
+      var jd = extractSingleJdBlock_(block, subject);
+      if (jd.trade || jd.externalRefNo) {
+        result.jds.push(jd);
+      }
+    } catch(e) {
+      result.errors.push('Block ' + (idx + 1) + ': ' + e.message);
+      Logger.log('S73 block error: ' + e.message);
+    }
+  });
+
+  result.ok    = result.jds.length > 0;
+  result.count = result.jds.length;
+  return result;
+}
+
+/**
+ * S73.F03 — Save one requirement to _Requirements sheet.
+ * Supersedes saveRequirement_() from V2 — uses all V284 fields.
+ */
+function saveRequirementV284_(jd) {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(CONFIG_V2.requirementsSheet) ||
+              ensureSheet_(ss, CONFIG_V2.requirementsSheet, CONFIG_V2.reqHeaders, '#1e3a5f');
+
+  // Auto-increment Req ID
+  var props   = PropertiesService.getScriptProperties();
+  var counter = parseInt(props.getProperty(CONFIG_V2.reqIdCounterKey) || '0') + 1;
+  props.setProperty(CONFIG_V2.reqIdCounterKey, String(counter));
+  var reqId  = 'REQ-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+               '-' + String(counter).padStart(4, '0');
+  var today  = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm');
+
+  var certsStr = Array.isArray(jd.certifications) ?
+    jd.certifications.join(', ') : (jd.certifications || '');
+
+  var notes = [
+    jd.educationReq  ? 'Edu: ' + jd.educationReq                      : '',
+    jd.externalRefNo ? 'ExtRef: ' + jd.externalRefNo                   : '',
+    jd.roleCategory  ? 'Type: ' + jd.roleCategory                      : '',
+    jd.languageReq   ? jd.languageReq                                  : '',
+    jd.salaryType === 'SALARY_CODE' ? 'SalaryRange: ' + (jd.salaryRange || '') : '',
+    jd.sourceFile    ? 'Source: ' + jd.sourceFile                      : '',
+    jd.notes         || ''
+  ].filter(Boolean).join(' | ');
+
+  var specStr = '';
+  if (jd.specialRequirements && typeof jd.specialRequirements === 'object') {
+    try { specStr = JSON.stringify(jd.specialRequirements); } catch(e) { specStr = ''; }
+  }
+
+  // Map to reqHeaders:
+  // 'Req ID','Received Date','Client Name','Deploy Country','Trade','Quantity',
+  // 'Min Experience (yr)','Min Age','Max Age','Salary','Local Transfer',
+  // 'Visit Visa OK','GCC Preferred','Certifications','Special Requirements',
+  // 'Urgency','Status','Notes'
+  sheet.appendRow([
+    reqId,
+    today,
+    jd.clientName     || '',
+    jd.deployCountry  || jd.location || '',
+    jd.trade          || '',
+    jd.quantity       || 1,
+    jd.minExperience  || 0,
+    jd.minAge         || '',
+    jd.maxAge         || '',
+    jd.salary         || 'Not Stated',
+    jd.localTransfer  ? 'Yes' : '',
+    jd.visitVisaOK    ? 'Yes' : '',
+    jd.gccPreference  ? 'Yes' : '',
+    certsStr,
+    specStr,
+    jd.urgency        || 'NORMAL',
+    'OPEN',
+    notes
+  ]);
+
+  SpreadsheetApp.flush();
+  return reqId;
+}
+
+/**
+ * S73.F04 — Public entry point called by dashboard via google.script.run.
+ * Accepts base64-encoded file data, extracts text, runs V284 extractor.
+ *
+ * Returns: {ok, count, jds:[], isMulti, msg, errors:[]}
+ */
+function extractJdPublic(base64Data, filename, mimeType) {
+  var result = { ok: false, count: 0, jds: [], isMulti: false, msg: '', errors: [] };
+  var tempFileId = null;
+  var docFileId  = null;
+
+  try {
+    var mime = mimeType || 'application/pdf';
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(base64Data),
+      mime,
+      filename || 'jd_upload'
+    );
+
+    // ── Extract text via Drive conversion ──────────────────────────
+    var text = '';
+    try {
+      var tempFile  = DriveApp.createFile(blob);
+      tempFileId    = tempFile.getId();
+      // Convert to Google Doc for text extraction
+      var docMeta   = Drive.Files.copy(
+        { title: 'kai_tmp_jd_' + Date.now(),
+          mimeType: 'application/vnd.google-apps.document' },
+        tempFileId
+      );
+      docFileId = docMeta.id;
+      var doc   = DocumentApp.openById(docFileId);
+      text      = doc.getBody().getText();
+    } catch(convErr) {
+      Logger.log('Drive conversion failed: ' + convErr.message);
+      result.errors.push('PDF text extraction limited: ' + convErr.message);
+    }
+
+    if (!text || text.trim().length < 20) {
+      result.msg = 'Could not extract readable text. Please paste the JD text manually.';
+      return result;
+    }
+
+    // ── Run V284 extractor ─────────────────────────────────────────
+    var extracted = extractJdV284_(text, filename);
+    if (!extracted.ok || extracted.jds.length === 0) {
+      result.msg = 'Could not identify a valid JD in this file. Check file content.';
+      result.errors = extracted.errors;
+      return result;
+    }
+
+    // ── Save all detected JDs ──────────────────────────────────────
+    var saved = [];
+    extracted.jds.forEach(function(jd) {
+      try {
+        var reqId  = saveRequirementV284_(jd);
+        jd.reqId   = reqId;
+        saved.push(jd);
+      } catch(saveErr) {
+        result.errors.push('Save failed: ' + saveErr.message);
+        Logger.log('Save error: ' + saveErr.message);
+      }
+    });
+
+    result.ok      = saved.length > 0;
+    result.count   = saved.length;
+    result.jds     = saved;
+    result.isMulti = saved.length > 1;
+    result.msg     = saved.length + ' position' + (saved.length > 1 ? 's' : '') +
+                     ' extracted and saved';
+    return result;
+
+  } catch(err) {
+    result.msg = 'Extraction error: ' + err.message;
+    Logger.log('extractJdPublic error: ' + err.message);
+    return result;
+  } finally {
+    try { if (tempFileId) DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e3) {}
+    try { if (docFileId)  DriveApp.getFileById(docFileId).setTrashed(true);  } catch(e4) {}
+  }
+}
+
+/**
+ * S73.F05 — Extract JD from pasted text (called from Paste JD tab).
+ * Supersedes extractJdFromText_ from V2.
+ */
+function extractJdFromPastePublic(text, title) {
+  var result = { ok: false, count: 0, jds: [], isMulti: false, msg: '', errors: [] };
+  if (!text || text.trim().length < 15) {
+    result.msg = 'Please paste the JD text first.';
+    return result;
+  }
+
+  var extracted = extractJdV284_(text.trim(), title || '');
+  if (!extracted.ok) {
+    result.msg    = 'Could not detect a valid JD in the pasted text.';
+    result.errors = extracted.errors;
+    return result;
+  }
+
+  var saved = [];
+  extracted.jds.forEach(function(jd) {
+    try {
+      var reqId = saveRequirementV284_(jd);
+      jd.reqId  = reqId;
+      saved.push(jd);
+    } catch(e) {
+      result.errors.push('Save error: ' + e.message);
+    }
+  });
+
+  result.ok      = saved.length > 0;
+  result.count   = saved.length;
+  result.jds     = saved;
+  result.isMulti = saved.length > 1;
+  result.msg     = saved.length + ' position(s) saved';
+  return result;
+}
+
+/**
+ * S73.F06 — Process requirements XLSX file (public entry point).
+ * Now accepts optional country parameter from dashboard selector.
+ */
+function processXlsxRequirementsPublic(base64Data, filename, clientName, countryOverride) {
+  var result = processXlsxRequirements_(base64Data, filename, clientName);
+  // If countryOverride specified, apply to all saved requirements
+  if (result.ok && countryOverride && countryOverride !== 'GCC') {
+    (result.requirements || []).forEach(function(r) {
+      if (!r.deployCountry || r.deployCountry === 'GCC' || r.deployCountry === '') {
+        r.deployCountry = countryOverride;
+      }
+    });
+  }
+  result.clientName = clientName || '';
+  result.saved      = (result.requirements || []).length;
+  result.skipped    = result.errors ? result.errors.length : 0;
+  return result;
+}
+
+/**
+ * S73.F07 — Save a batch of multi-JD positions (called from dashboard
+ * multi-JD confirmation screen after recruiter selects which to keep).
+ *
+ * @param {string} batchId  - Not used (data already in cache/temp); kept for API compat
+ * @param {number[]} indices - 0-based indices of positions to save from JD_BATCH_ cache
+ * Returns: {ok, saved, reqIds:[]}
+ */
+function saveMultiJdBatch(batchId, indices) {
+  try {
+    var cache  = CacheService.getScriptCache();
+    var cached = cache.get('JD_BATCH_' + batchId);
+    if (!cached) {
+      return { ok: false, msg: 'Batch data expired or not found. Please re-upload the JD file.' };
+    }
+    var jds = JSON.parse(cached);
+    var reqIds = [];
+    var saved  = 0;
+    (indices || []).forEach(function(idx) {
+      if (idx >= 0 && idx < jds.length) {
+        try {
+          var reqId = saveRequirementV284_(jds[idx]);
+          reqIds.push(reqId);
+          saved++;
+        } catch(e) {
+          Logger.log('saveMultiJdBatch row ' + idx + ' error: ' + e.message);
+        }
+      }
+    });
+    return { ok: true, saved: saved, reqIds: reqIds };
+  } catch(err) {
+    return { ok: false, msg: err.message };
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S74 · SETUP & MENU FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S74.F01 — Recompute all system metrics.
+ * Called from menu: V284: Recompute All Metrics
+ */
+function recomputeAllMetrics() {
+  var log = [];
+
+  // 1. Recompute Deploy Ready for all candidates
+  try {
+    batchUpdateDeployReady();
+    log.push('✓ Deploy Ready recomputed');
+  } catch(e) {
+    log.push('✗ Deploy Ready: ' + e.message);
+  }
+
+  // 2. Update requirement match counts
+  try {
+    refreshRequirementMatchCounts_();
+    log.push('✓ Requirement match counts updated');
+  } catch(e2) {
+    log.push('✗ Match counts: ' + e2.message);
+  }
+
+  Logger.log('S74 recomputeAllMetrics:\n' + log.join('\n'));
+  try {
+    SpreadsheetApp.getUi().alert('Metrics Recomputed\n\n' + log.join('\n'));
+  } catch(e) {}
+}
+
+/**
+ * S74.F02 — Update requirement match counts in _Requirements sheet.
+ * Counts candidates per trade and writes to _Requirements.
+ */
+function refreshRequirementMatchCounts_() {
+  var ss     = getMasterSS_();
+  var cSheet = ss.getSheetByName(CONFIG.sheetName);
+  var rSheet = ss.getSheetByName(CONFIG_V2.requirementsSheet);
+  if (!cSheet || !rSheet || rSheet.getLastRow() < 2) return;
+
+  var lastCandRow = cSheet.getLastRow() - 1;
+  if (lastCandRow < 1) return;
+
+  var candData = cSheet.getRange(2, 1, lastCandRow, 24).getValues();
+  // Trade is col 9 (index 8)
+  var tradeCounts = {};
+  candData.forEach(function(row) {
+    var t = String(row[8] || '').toLowerCase().trim();
+    if (t) tradeCounts[t] = (tradeCounts[t] || 0) + 1;
+  });
+
+  var lastReqRow = rSheet.getLastRow() - 1;
+  if (lastReqRow < 1) return;
+  var reqData = rSheet.getRange(2, 1, lastReqRow, CONFIG_V2.reqHeaders.length).getValues();
+
+  reqData.forEach(function(row, i) {
+    var trade = String(row[4] || '').toLowerCase().trim(); // col 5 = Trade
+    var cnt   = tradeCounts[trade] || 0;
+    Logger.log('Req ' + row[0] + ' (' + trade + '): ' + cnt + ' candidates in pool');
+  });
+}
+
+/**
+ * S74.F04 — Shortlist a single candidate for a specific requirement.
+ * Updates candidate state to SHORTLISTED and links the Req ID in their row.
+ * Called from dashboard jd-match-row "⭐ Shortlist" button.
+ */
+function shortlistCandidateForReq(rowIndex, reqId) {
+  try {
+    var ss     = getMasterSS_();
+    var sheet  = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet || !rowIndex || !reqId) {
+      return { ok: false, msg: 'Invalid parameters' };
+    }
+    // Update state to SHORTLISTED (col 19 based on V2 schema)
+    var stateCol = 19;
+    sheet.getRange(rowIndex, stateCol).setValue('SHORTLISTED');
+    // Write Req ID into Pending Action / Notes area (col 24 or last col)
+    var notesCol = 24;
+    var existingNotes = String(sheet.getRange(rowIndex, notesCol).getValue() || '');
+    var newNotes = '[Shortlisted:' + reqId + ' ' +
+      Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy') + '] ' +
+      existingNotes.replace(/\[Shortlisted:[^\]]*\]\s*/g, '').trim();
+    sheet.getRange(rowIndex, notesCol).setValue(newNotes);
+    SpreadsheetApp.flush();
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+/**
+ * S74.F03 — Master setup for V284 patch.
+ * Called from menu: V284: Activate Patch
+ */
+function setupV284() {
+  var log = [];
+
+  try {
+    setupProjectsSheet();
+    log.push('✓ _Projects sheet ready');
+  } catch(e) {
+    log.push('✗ Projects sheet: ' + e.message);
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('KAI_V284_ACTIVE', 'true');
+  props.setProperty('KAI_V284_DATE',
+    Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd'));
+  log.push('✓ V284 properties set');
+
+  Logger.log('S74 setupV284:\n' + log.join('\n'));
+
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✅ V284 JD Intelligence Engine Active!\n\n' +
+      log.join('\n') + '\n\n' +
+      'New capabilities:\n' +
+      '• Multi-position splitter (Aramco format)\n' +
+      '• Salary Code intelligence (Grade 12 → SAR range)\n' +
+      '• Education normalizer (Civil Engr → B.Sc. Civil)\n' +
+      '• Role classifier (PROFESSIONAL / TRADE / ADMIN)\n' +
+      '• Location resolver (DH → Dhahran)\n' +
+      '• Client name inference (AMAAD → Saudi Aramco)\n' +
+      '• Experience range parser (5–12 yrs → min:5, max:12)\n' +
+      '• OCR noise cleaner (&amp; → &, cut margins)\n' +
+      '• XLSX requirements batch import\n' +
+      '• Project management engine\n\n' +
+      'Test: Upload the AMMAD PROJECT_JD.pdf via Import Center.'
+    );
+  } catch(e) {}
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S75 · LOGIN SYSTEM + doGet UPGRADE
+// ═══════════════════════════════════════════════════════════════════
+
+var LOGIN_SHEET_NAME_ = '_LoginSystem';
+var SESSION_TTL_MS_   = 24 * 60 * 60 * 1000; // 24 hours — full working day + overnight
+var LOGIN_HEADERS_    = [
+  'Email', 'Password Hash', 'Role', 'Display Name',
+  'Last Login', 'Session Token', 'Token Expiry', 'Active'
+];
+
+/**
+ * S75.F01 — Serve the correct page based on session state.
+ *
+ * Logic:
+ *   • Request has valid ?token=XYZ in URL  → serve dashboard
+ *   • No token / expired token             → serve KAI_Login.html
+ *
+ * Deploy as: "Execute as me (your Google account)"
+ *            "Who has access: Anyone within org" (or Anyone for external team)
+ */
+function doGet(e) {
+  var params = e && e.parameter ? e.parameter : {};
+  var token  = params.token || params.t || '';
+
+  // ── Fast path: valid token → dashboard ──────────────────────────
+  if (token && isValidToken_(token)) {
+    return HtmlService.createHtmlOutputFromFile('KAI_16May2026_V2_Dashboard')
+      .setTitle('KAI — GCC Recruitment OS')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+
+  // ── No valid token → login page ─────────────────────────────────
+  return HtmlService.createHtmlOutputFromFile('KAI_Login')
+    .setTitle('KAI — Recruiter Login')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * S75.F02 — Verify email + password, issue session token.
+ * Called by KAI_Login.html via google.script.run.
+ *
+ * Returns: {ok, token, user, role, redirectUrl, msg}
+ */
+function verifyLoginAndIssueToken(email, password) {
+  try {
+    if (!email || !password) {
+      return { ok: false, msg: 'Email and password are required.' };
+    }
+
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(LOGIN_SHEET_NAME_);
+    if (!sheet || sheet.getLastRow() < 2) {
+      return { ok: false, msg: 'Login system not set up. Ask admin to run "Setup Login System" from the KAI menu.' };
+    }
+
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, LOGIN_HEADERS_.length).getValues();
+    var emailLower = email.trim().toLowerCase();
+    var pwHash     = Utilities.computeDigest(
+      Utilities.DigestAlgorithm.SHA_256,
+      password,
+      Utilities.Charset.UTF_8
+    ).map(function(b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
+
+    for (var i = 0; i < data.length; i++) {
+      var row      = data[i];
+      var rowEmail = String(row[0] || '').trim().toLowerCase();
+      var rowHash  = String(row[1] || '').trim().toLowerCase();
+      var rowRole  = String(row[2] || 'recruiter').trim();
+      var rowName  = String(row[3] || email.split('@')[0]).trim();
+      var isActive = String(row[7] || 'YES').trim().toUpperCase() !== 'NO';
+
+      if (rowEmail === emailLower && rowHash === pwHash && isActive) {
+        // Issue token
+        var token   = Utilities.getUuid() + '-' + Date.now().toString(36);
+        var expiry  = new Date(Date.now() + SESSION_TTL_MS_);
+        var expiryStr = Utilities.formatDate(expiry, 'Asia/Kolkata', 'yyyy-MM-dd HH:mm:ss');
+        var loginTs   = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm');
+
+        // Write token + last login to sheet
+        sheet.getRange(i + 2, 5).setValue(loginTs);
+        sheet.getRange(i + 2, 6).setValue(token);
+        sheet.getRange(i + 2, 7).setValue(expiryStr);
+        SpreadsheetApp.flush();
+
+        // Cache for fast validation (GAS CacheService hard cap = 21600s / 6h)
+        // Sheet-based fallback covers the full 24h SESSION_TTL_MS_ window
+        CacheService.getScriptCache().put(
+          'KAI_TOK_' + token,
+          JSON.stringify({ email: rowEmail, role: rowRole, name: rowName }),
+          21600  // 6 hours max (GAS hard limit) — sheet fallback handles 6h–24h
+        );
+
+        var scriptUrl = ScriptApp.getService().getUrl();
+        var redirectUrl = scriptUrl + '?token=' + encodeURIComponent(token);
+
+        return {
+          ok:          true,
+          token:       token,
+          user:        rowName,
+          role:        rowRole,
+          redirectUrl: redirectUrl
+        };
+      }
+    }
+
+    return { ok: false, msg: 'Invalid email or password. Contact your KAI admin.' };
+
+  } catch(err) {
+    Logger.log('S75 login error: ' + err.message);
+    return { ok: false, msg: 'System error: ' + err.message };
+  }
+}
+
+/**
+ * S75.F03 — Validate a session token (called from login page on re-visit).
+ * Returns: true if valid, false if expired/not found.
+ */
+function validateSessionToken(token) {
+  if (!token) return false;
+  try {
+    var cached = CacheService.getScriptCache().get('KAI_TOK_' + token);
+    if (cached) return true;
+
+    // Fallback: check sheet directly
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(LOGIN_SHEET_NAME_);
+    if (!sheet || sheet.getLastRow() < 2) return false;
+
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][5] || '').trim() === token) {
+        var expiry = new Date(data[i][6]);
+        return expiry > new Date();
+      }
+    }
+    return false;
+  } catch(e) {
+    return false;
+  }
+}
+
+/**
+ * S75.F04 — Internal token validator used by doGet.
+ */
+function isValidToken_(token) {
+  return validateSessionToken(token);
+}
+
+/**
+ * S75.F05 — One-time setup for login system.
+ * Creates _LoginSystem sheet and seeds initial users.
+ * Called from menu: V283: Setup Login System
+ * (Supersedes the stub in patch_v283.gs if present)
+ */
+function setupLoginSystem() {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(LOGIN_SHEET_NAME_);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(LOGIN_SHEET_NAME_);
+    sheet.getRange(1, 1, 1, LOGIN_HEADERS_.length)
+         .setValues([LOGIN_HEADERS_])
+         .setBackground('#0d2137')
+         .setFontColor('#ffffff')
+         .setFontWeight('bold');
+    sheet.setColumnWidth(1, 220);
+    sheet.setColumnWidth(2, 280);
+    sheet.setColumnWidth(6, 320);
+  }
+
+  // ── Seed default users (change passwords after first deploy) ───────
+  var defaultUsers = [
+    ['hr5@alyousufent.com', 'KAI@2026hr5', 'recruiter', 'HR5'],
+    ['hr7@alyousufent.com', 'KAI@2026hr7', 'recruiter', 'HR7'],
+    ['hr8@alyousufent.com', 'KAI@2026hr8', 'recruiter', 'HR8'],
+    ['admin@alyousufent.com', 'KAIAdmin@2026', 'admin', 'KAI Admin']
+  ];
+
+  var existingEmails = [];
+  if (sheet.getLastRow() > 1) {
+    existingEmails = sheet.getRange(2, 1, sheet.getLastRow()-1, 1)
+                         .getValues().map(function(r){ return String(r[0]).toLowerCase().trim(); });
+  }
+
+  var added = 0;
+  defaultUsers.forEach(function(u) {
+    var email = u[0].toLowerCase().trim();
+    if (existingEmails.indexOf(email) >= 0) return;  // already exists
+
+    var hash = Utilities.computeDigest(
+      Utilities.DigestAlgorithm.SHA_256,
+      u[1],
+      Utilities.Charset.UTF_8
+    ).map(function(b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
+
+    var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy');
+    sheet.appendRow([email, hash, u[2], u[3], today, '', '', 'YES']);
+    added++;
+  });
+
+  SpreadsheetApp.flush();
+
+  Logger.log('S75 setupLoginSystem: ' + added + ' users added');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '🔐 Login System Ready!\n\n' +
+      'Sheet: _LoginSystem\n' +
+      'Users added: ' + added + '\n\n' +
+      'Default users created:\n' +
+      '• hr5@alyousufent.com → KAI@2026hr5\n' +
+      '• hr7@alyousufent.com → KAI@2026hr7\n' +
+      '• hr8@alyousufent.com → KAI@2026hr8\n' +
+      '• admin@alyousufent.com → KAIAdmin@2026\n\n' +
+      '⚠️  IMPORTANT: Change passwords via the _LoginSystem sheet after first login.\n\n' +
+      'To add a user: paste their email, compute SHA-256 of their password,\n' +
+      'and add a row. Or extend this function with your own user management.'
+    );
+  } catch(e) {}
+}

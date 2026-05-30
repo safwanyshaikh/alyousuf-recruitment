@@ -1,0 +1,340 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * KAI OS — PATCH v289 · CANDIDATE REPLY PROCESSING ENGINE
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  Build   : 18-May-2026
+ *  Company : Al Yousuf Enterprises LLP
+ *
+ *  PROBLEM FIXED
+ *  ─────────────────────────────────────────────────────────────────
+ *  ❌ BEFORE: Only "Ref: KAR-" reply emails were parsed.
+ *     "Action Required: Complete Your Application" replies were
+ *     completely IGNORED — no KAR token in subject, no matching.
+ *
+ *  ❌ BEFORE: Gemini only extracted 5 fields (dob, nationality,
+ *     education, mobile, trade). Missed employment_status,
+ *     passport_type (ECR/ECNR), current_location, notice_period.
+ *
+ *  ❌ BEFORE: applyFollowUpReplyToRow_ only wrote to 5 input cols.
+ *     Extended cols 26-32 (location, empStatus, ecrStatus,
+ *     noticeDays) were never updated from replies.
+ *
+ *  ✅ AFTER (v289):
+ *     • Dual-search: KAR token + "Action Required" replies both processed
+ *     • Email-based matching: reply FROM address → candidate row
+ *     • Gemini extracts 9 fields including all extended fields
+ *     • Extended columns 26-32 updated from every reply
+ *     • Force-run menu option clears entire inbox backlog
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+var PATCH_V289 = {
+  version: '289',
+  build:   '18-May-2026',
+  // Search queries for the two reply types
+  karQuery: 'label:inbox is:unread subject:"Ref: KAR-"',
+  arQuery:  'label:inbox is:unread subject:"Action Required: Complete Your Application"'
+};
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S99.A — EMAIL-MATCHED REPLY PROCESSOR
+// Handles replies to "Action Required: Complete Your Application" emails.
+// These have NO KAR token — matched by sender FROM email → candidate row.
+// Called automatically by processCandidateReplies() every 10 minutes.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S99.A.F01 — Process unread "Action Required" reply threads.
+ * Matches each reply by sender email to a candidate row.
+ * Called from within processCandidateReplies() Phase 2.
+ */
+function processActionRequiredRepliesV289_() {
+  try {
+    var threads = GmailApp.search(PATCH_V289.arQuery, 0, 30);
+    if (!threads || !threads.length) return;
+
+    var sheet      = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var emailIndex = buildCandidateEmailIndexV289_(sheet);
+    var ownerDomains = ['alyousufent.com', 'alyousufjobs.com'];
+
+    for (var t = 0; t < threads.length; t++) {
+      try {
+        var thread = threads[t];
+        var msgs   = thread.getMessages();
+
+        // Find the candidate's reply (not from our domain)
+        var replyMsg = null;
+        for (var j = msgs.length - 1; j >= 0; j--) {
+          var fromRaw = String(msgs[j].getFrom() || '').toLowerCase();
+          var isOurs  = ownerDomains.some(function(d) { return fromRaw.indexOf(d) >= 0; });
+          if (!isOurs) { replyMsg = msgs[j]; break; }
+        }
+        if (!replyMsg) { thread.markRead(); continue; }
+
+        // Extract sender email
+        var fromRaw  = replyMsg.getFrom() || '';
+        var fromMatch = fromRaw.match(/<([^>]+)>/);
+        var fromEmail = (fromMatch ? fromMatch[1] : fromRaw).toLowerCase().trim();
+        if (!fromEmail) { thread.markRead(); continue; }
+
+        // Match to candidate row
+        var rowNum = emailIndex[fromEmail];
+        if (!rowNum) {
+          Logger.log('S99.A: No candidate match for email: ' + fromEmail);
+          thread.markRead();
+          continue;
+        }
+
+        var replyBody = replyMsg.getPlainBody() || '';
+        if (replyBody.length < 5) { thread.markRead(); continue; }
+
+        // Parse with expanded Gemini (same function used by KAR path)
+        var parsed = callGeminiForReply_(replyBody);
+        if (parsed) {
+          applyEmailMatchedReplyV289_(sheet, rowNum, parsed, fromEmail);
+          appendLog_({
+            status: 'AR_REPLY_PROCESSED',
+            notes:  'Email-match row=' + rowNum + ' from=' + fromEmail
+          });
+          Logger.log('S99.A: Processed reply from ' + fromEmail + ' → row ' + rowNum);
+        }
+        thread.markRead();
+      } catch (e) {
+        appendLog_({ status: 'AR_REPLY_ERROR', notes: e.message });
+        Logger.log('S99.A: Error: ' + e.message);
+      }
+    }
+  } catch (e) {
+    Logger.log('S99.A: processActionRequiredRepliesV289_ error: ' + e.message);
+  }
+}
+
+/**
+ * S99.A.F02 — Build FROM-email → row-number index from Candidates sheet.
+ * Used to match candidate replies by sender email address.
+ */
+function buildCandidateEmailIndexV289_(sheet) {
+  var index  = {};
+  var lr     = sheet.getLastRow();
+  if (lr < 2) return index;
+  var col    = CONFIG.inputColumns.email;
+  var emails = sheet.getRange(2, col, lr - 1, 1).getValues();
+  for (var i = 0; i < emails.length; i++) {
+    var em = String(emails[i][0] || '').trim().toLowerCase();
+    if (em && em.indexOf('@') > 0) index[em] = i + 2;
+  }
+  Logger.log('S99.A: Email index built — ' + Object.keys(index).length + ' candidates');
+  return index;
+}
+
+/**
+ * S99.A.F03 — Apply parsed reply fields to a candidate row (email-matched path).
+ * Writes all 9 parsed fields including extended columns 26-32.
+ * Does NOT require a notesObj (no KAR token tracking needed).
+ */
+function applyEmailMatchedReplyV289_(sheet, rowNum, parsed, fromEmail) {
+  var col     = CONFIG.inputColumns;
+  var ec      = CONFIG_V2.extCol;
+  var readCols = Math.max(CONFIG.headers.length, ec.noticeDays || 32, 38);
+  var row      = sheet.getRange(rowNum, 1, 1, readCols).getValues()[0];
+  var upd      = {};
+
+  function empty_(v) { return !v || String(v).trim() === ''; }
+
+  // ── Input columns (1-24) ──────────────────────────────────────────
+  if (parsed.date_of_birth && empty_(row[col.dob - 1])) {
+    var dob = normalizeDob_(parsed.date_of_birth);
+    if (dob) {
+      upd[col.dob] = dob;
+      var age = computeAge_(dob);
+      if (age && empty_(row[col.age - 1])) upd[col.age] = age;
+    }
+  }
+  if (parsed.nationality && empty_(row[col.nationality - 1]))
+    upd[col.nationality]    = normalizeNationality_(parsed.nationality);
+  if (parsed.education    && empty_(row[col.education - 1]))
+    upd[col.education]      = parsed.education;
+  if (parsed.mobile       && empty_(row[col.mobile - 1]))
+    upd[col.mobile]         = normalizePhone_(parsed.mobile);
+  if (parsed.trade        && empty_(row[col.trade - 1]))
+    upd[col.trade]          = parsed.trade;
+
+  // ── Extended columns (25-38) ──────────────────────────────────────
+  if (parsed.employment_status && empty_(row[ec.empStatus - 1]))
+    upd[ec.empStatus]         = parsed.employment_status;
+  if (parsed.passport_type    && empty_(row[ec.ecrStatus - 1]))
+    upd[ec.ecrStatus]         = parsed.passport_type;
+  if (parsed.current_location && empty_(row[ec.currentLocation - 1]))
+    upd[ec.currentLocation]   = parsed.current_location;
+  if (parsed.notice_period_days) {
+    var nd = parseInt(parsed.notice_period_days) || 0;
+    if (nd > 0 && empty_(row[ec.noticeDays - 1])) upd[ec.noticeDays] = nd;
+  }
+
+  // ── Recruiter action flag ─────────────────────────────────────────
+  upd[col.recruiterAction] =
+    'Candidate replied (AR email) — fields updated. Verify and re-screen.';
+
+  // ── Write all updates in one pass ────────────────────────────────
+  Object.keys(upd).forEach(function(c) {
+    try {
+      sheet.getRange(rowNum, parseInt(c, 10)).setValue(upd[c]);
+    } catch (e) {
+      Logger.log('S99.A: write error col ' + c + ': ' + e.message);
+    }
+  });
+
+  Logger.log('S99.A: Updated row ' + rowNum + ' — ' +
+    Object.keys(upd).length + ' fields written for ' + fromEmail);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S99.B — FORCE-RUN: CLEAR ENTIRE REPLY BACKLOG NOW
+// Bypasses daily quota. Run once from menu to process all pending
+// candidate replies sitting unread in inbox.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S99.B.F01 — Force-process ALL pending candidate replies right now.
+ * Searches last 5 days of unread inbox for BOTH reply types.
+ * Bypasses daily quota. Shows summary alert.
+ *
+ * Run from menu: KAI Tools → 📥 V289: Process All Pending Replies NOW
+ */
+function forceProcessRepliesNow() {
+  var ui = SpreadsheetApp.getUi();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) {
+    ui.alert('⚠️ Another pipeline run is in progress. Wait 30 seconds and try again.');
+    return;
+  }
+
+  var karCount = 0, arCount = 0, errors = 0;
+
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet) { ui.alert('❌ Candidates sheet not found.'); return; }
+
+    Logger.log('S99.B: ══ FORCE REPLY PROCESS START ══');
+
+    // ── Pass 1: KAR-token replies (original format) ─────────────────
+    var karThreads = GmailApp.search(
+      'label:inbox is:unread subject:"Ref: KAR-" newer_than:5d', 0, 50);
+    var index = buildFollowUpIndex_();
+    Logger.log('S99.B: KAR threads found: ' + karThreads.length);
+
+    for (var t = 0; t < karThreads.length; t++) {
+      try {
+        var thread  = karThreads[t];
+        var subject = thread.getFirstMessageSubject() || '';
+        var m       = subject.match(/Ref:\s*KAR-([A-Z0-9]+)/i);
+        if (!m) { thread.markRead(); continue; }
+        var token = m[1].toUpperCase();
+        var hit   = index[token];
+        if (!hit) { thread.markRead(); continue; }
+
+        var msgs     = thread.getMessages();
+        var ownerLc  = getOwnerEmail_().toLowerCase();
+        var replyMsg = null;
+        for (var j = msgs.length - 1; j >= 0; j--) {
+          if (String(msgs[j].getFrom() || '').toLowerCase().indexOf(ownerLc) < 0) {
+            replyMsg = msgs[j]; break;
+          }
+        }
+        if (!replyMsg || (replyMsg.getPlainBody() || '').length < 5) {
+          thread.markRead(); continue;
+        }
+
+        var parsed = callGeminiForReply_(replyMsg.getPlainBody());
+        if (parsed) {
+          applyFollowUpReplyToRow_(hit.sheet, hit.rowNumber, hit.notesObj, token, parsed);
+          karCount++;
+        }
+        thread.markRead();
+      } catch (e) { errors++; Logger.log('S99.B: KAR error: ' + e.message); }
+    }
+
+    // ── Pass 2: "Action Required" replies (email-matched) ───────────
+    var arThreads = GmailApp.search(
+      'label:inbox is:unread subject:"Action Required: Complete Your Application" newer_than:5d',
+      0, 50);
+    var emailIndex = buildCandidateEmailIndexV289_(sheet);
+    var ownerDomains = ['alyousufent.com', 'alyousufjobs.com'];
+    Logger.log('S99.B: Action Required threads found: ' + arThreads.length);
+
+    for (var t2 = 0; t2 < arThreads.length; t2++) {
+      try {
+        var thread2  = arThreads[t2];
+        var msgs2    = thread2.getMessages();
+        var replyMsg2 = null;
+        for (var j2 = msgs2.length - 1; j2 >= 0; j2--) {
+          var fromRaw2 = String(msgs2[j2].getFrom() || '').toLowerCase();
+          var isOurs2  = ownerDomains.some(function(d) { return fromRaw2.indexOf(d) >= 0; });
+          if (!isOurs2) { replyMsg2 = msgs2[j2]; break; }
+        }
+        if (!replyMsg2) { thread2.markRead(); continue; }
+
+        var fromRaw3    = replyMsg2.getFrom() || '';
+        var fromMatch3  = fromRaw3.match(/<([^>]+)>/);
+        var fromEmail3  = (fromMatch3 ? fromMatch3[1] : fromRaw3).toLowerCase().trim();
+        var rowNum3     = emailIndex[fromEmail3];
+        if (!rowNum3) { thread2.markRead(); continue; }
+
+        var body3 = replyMsg2.getPlainBody() || '';
+        if (body3.length < 5) { thread2.markRead(); continue; }
+
+        var parsed3 = callGeminiForReply_(body3);
+        if (parsed3) {
+          applyEmailMatchedReplyV289_(sheet, rowNum3, parsed3, fromEmail3);
+          arCount++;
+        }
+        thread2.markRead();
+      } catch (e) { errors++; Logger.log('S99.B: AR error: ' + e.message); }
+    }
+
+    // ── Clear cache so dashboard shows updated data ─────────────────
+    if (typeof clearDashboardCacheV288_ === 'function') clearDashboardCacheV288_();
+    SpreadsheetApp.flush();
+
+    var total = karCount + arCount;
+    Logger.log('S99.B: ══ DONE — KAR:' + karCount + ' AR:' + arCount + ' Errors:' + errors + ' ══');
+
+    ui.alert(
+      '✅ Reply Processing Complete!\n\n' +
+      '📧 KAR-token replies processed : ' + karCount + '\n' +
+      '📧 "Action Required" replies   : ' + arCount  + '\n' +
+      '📋 Total candidates updated    : ' + total    + '\n' +
+      (errors > 0 ? '⚠️ Errors (check Logs sheet) : ' + errors + '\n' : '') +
+      '\n🔄 Refresh the dashboard to see updated candidate records.\n\n' +
+      'Fields now recorded from replies:\n' +
+      '✓ DOB  ✓ Education  ✓ Mobile  ✓ Trade\n' +
+      '✓ Employment Status  ✓ ECR/ECNR Passport\n' +
+      '✓ Current Location  ✓ Notice Period (days)'
+    );
+
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S99.C — MENU REGISTRATION
+// Adds force-run option to KAI Tools menu.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S99.C.F01 — Called by onOpen to add v289 menu items.
+ * Uses safe try-catch so it never breaks the menu.
+ */
+function addV289MenuItems_(menu) {
+  try {
+    menu
+      .addItem('📥 V289: Process All Pending Replies NOW',  'forceProcessRepliesNow');
+  } catch (e) {}
+}

@@ -1,0 +1,1631 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI_17May2026_patch_v285.gs
+ *  JD MATCHING ENGINE — Gulf Recruitment OS
+ *  Build : 17-May-2026  |  Al Yousuf Enterprises LLP
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S82  TRADE TAXONOMY ENGINE    — GCC trade groups, similarity map
+ *  S83  CANDIDATE SCORE COMPUTER — per-dimension scoring (7 axes)
+ *  S84  JD MATCH ENGINE          — batch rank all candidates vs req
+ *  S85  PUBLIC MATCH API         — dashboard entry points
+ *  S86  MULTI-JD CACHE FIX       — extractJdPublicV2 two-phase commit
+ *  S87  SETUP & MENU             — setupV285, menu items
+ *
+ *  ARCHITECTURE NOTES
+ *  ─────────────────────────────────────────────────────────────────
+ *  • All functions are additive — no existing functions modified
+ *  • extractJdPublicV2() replaces extractJdPublic() for new deploys
+ *    (old extractJdPublic() retained for backward compat)
+ *  • matchCandidatesForReqPublic() is the new primary dashboard API
+ *  • Scoring is deterministic — same inputs always produce same rank
+ *  • Read-only against candidate sheet — no side effects from scoring
+ *
+ *  SCORING MODEL (max 100 pts)
+ *  ─────────────────────────────────────────────────────────────────
+ *  Trade Similarity      0-40  (primary axis — GCC taxonomy aware)
+ *  Freshness             0-20  (days since application date)
+ *  Deploy Readiness      0-15  (candidate state + deployability score)
+ *  Experience Match      0-10  (candidate yrs vs req min yrs)
+ *  GCC Experience Bonus  0-05  (Gulf years accelerator)
+ *  Nationality Match     0-05  (vs req GCC preference)
+ *  Passport Status       0-05  (expiry window)
+ *
+ *  CONFIDENCE TIERS
+ *  ─────────────────────────────────────────────────────────────────
+ *  STRONG      75-100  → deploy-ready, high confidence
+ *  GOOD        55-74   → strong candidate, minor gaps
+ *  POSSIBLE    35-54   → review manually, potential fit
+ *  LONG_SHOT   0-34    → low alignment, last-resort pool
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S82 · TRADE TAXONOMY ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S82.C01 — GCC Trade Taxonomy
+ * Each group has:
+ *   primary  — canonical names (exact = 40 pts)
+ *   similar  — direct equivalents (= 30 pts)
+ *   related  — adjacent trades in workflow chain (= 18 pts)
+ *
+ * Coverage: 20 trade groups spanning all major GCC project categories.
+ */
+var TRADE_GROUPS_V285_ = [
+
+  // ── STRUCTURAL STEEL ─────────────────────────────────────────────
+  {
+    id: 'structural_steel',
+    label: 'Structural Steel',
+    primary: [
+      'structural steel fabricator','structural fabricator','steel fabricator',
+      'st fabricator','structural steel erector','structural erector',
+      'structural steel fitter','structural steelwork fabricator'
+    ],
+    similar: [
+      'structural fitter','plate fitter','steelwork fabricator',
+      'structural welder','steel fitter','structural ironworker','iron worker'
+    ],
+    related: [
+      'rigger','steel erector','fabricator helper',
+      'scaffolder','crane rigger','ironworker'
+    ]
+  },
+
+  // ── PIPE FITTING / PIPING ────────────────────────────────────────
+  {
+    id: 'pipe_fitting',
+    label: 'Pipe Fitting / Piping',
+    primary: [
+      'pipe fitter','pipefitter','piping fitter','pipe mechanic',
+      'piping erector','mechanical pipe fitter'
+    ],
+    similar: [
+      'pipe welder','pipe fabricator','pipeline fitter','pipe plumber',
+      'industrial plumber','plumber','pipework fitter'
+    ],
+    related: [
+      'mechanical fitter','instrument fitter',
+      'valve technician','pressure vessel fitter'
+    ]
+  },
+
+  // ── WELDING ──────────────────────────────────────────────────────
+  {
+    id: 'welding',
+    label: 'Welding',
+    primary: [
+      'welder','coded welder','certified welder','structural welder',
+      'pipe welder','pressure welder','6g welder','3g welder'
+    ],
+    similar: [
+      'mig welder','tig welder','smaw welder','fcaw welder','saw welder',
+      'gtaw welder','gmaw welder','flux core welder','stick welder'
+    ],
+    related: [
+      'fabricator','cutting technician',
+      'grinding technician','welder helper','fitter welder'
+    ]
+  },
+
+  // ── ELECTRICAL ───────────────────────────────────────────────────
+  {
+    id: 'electrical',
+    label: 'Electrical',
+    primary: [
+      'electrician','electrical technician','electrical engineer',
+      'industrial electrician','maintenance electrician'
+    ],
+    similar: [
+      'wireman','cable jointer','cable puller','switchboard operator',
+      'panel wireman','lineman','hv electrician','lv electrician',
+      'mv electrician','cable technician'
+    ],
+    related: [
+      'instrument technician','hvac technician','transformer technician',
+      'substation operator','power plant electrician'
+    ]
+  },
+
+  // ── INSTRUMENTATION ─────────────────────────────────────────────
+  {
+    id: 'instrumentation',
+    label: 'Instrumentation / Control',
+    primary: [
+      'instrument technician','instrumentation technician','instrument fitter',
+      'control technician','field instrument technician'
+    ],
+    similar: [
+      'inst tech','control room operator','dcs operator','scada technician',
+      'plc technician','calibration technician','metering technician',
+      'analyser technician','safety instrumentation technician'
+    ],
+    related: [
+      'electrical technician','hvac controls','automation technician',
+      'instrument engineer','commissioning technician'
+    ]
+  },
+
+  // ── HVAC / A/C ───────────────────────────────────────────────────
+  {
+    id: 'hvac',
+    label: 'HVAC / Air Conditioning',
+    primary: [
+      'hvac technician','ac technician','air conditioning technician',
+      'hvac mechanic','ac mechanic','a c mechanic',
+      'hvac engineer','air conditioning mechanic'
+    ],
+    similar: [
+      'refrigeration technician','hvac engineer','chiller technician',
+      'bms technician','mep technician','ahu technician','vrf technician'
+    ],
+    related: [
+      'electrical technician','pipe fitter','mechanical technician',
+      'building services technician','facilities technician'
+    ]
+  },
+
+  // ── CIVIL / CONSTRUCTION ─────────────────────────────────────────
+  {
+    id: 'civil',
+    label: 'Civil / Construction',
+    primary: [
+      'mason','bricklayer','block layer','concrete worker',
+      'shuttering carpenter','formwork carpenter','bar bender',
+      'steel fixer','rebar fixer','rebar bender'
+    ],
+    similar: [
+      'civil worker','construction worker','floor layer','tile fixer',
+      'plasterer','civil mason','waterproofing applicator'
+    ],
+    related: [
+      'civil helper','laborer','construction helper','general worker',
+      'site helper','building worker'
+    ]
+  },
+
+  // ── INDUSTRIAL PAINTING / BLASTING ──────────────────────────────
+  {
+    id: 'painting',
+    label: 'Industrial Painting / Blasting',
+    primary: [
+      'industrial painter','painter','spray painter','coating applicator',
+      'industrial blaster','grit blaster','sandblaster'
+    ],
+    similar: [
+      'surface preparation technician','corrosion protection applicator',
+      'fireproofing applicator','protective coatings applicator',
+      'painter blaster'
+    ],
+    related: [
+      'painter helper','structural steel worker','scaffolder',
+      'rope access technician','coating inspector'
+    ]
+  },
+
+  // ── SCAFFOLDING ──────────────────────────────────────────────────
+  {
+    id: 'scaffolding',
+    label: 'Scaffolding',
+    primary: [
+      'scaffolder','scaffold erector','scaffolding erector',
+      'tube and fitting scaffolder','system scaffolder'
+    ],
+    similar: [
+      'scaffold supervisor','scaffold inspector','scaffold coordinator',
+      'leading scaffolder','access erector'
+    ],
+    related: [
+      'rigger','rope access technician','construction worker',
+      'insulation installer','painter'
+    ]
+  },
+
+  // ── MECHANICAL FITTING ───────────────────────────────────────────
+  {
+    id: 'mechanical',
+    label: 'Mechanical / Maintenance',
+    primary: [
+      'mechanical fitter','mechanical technician','mechanic',
+      'maintenance technician','plant mechanic','rotating equipment technician'
+    ],
+    similar: [
+      'equipment mechanic','machine fitter','turbine technician',
+      'pump technician','compressor technician','gearbox technician',
+      'general mechanic'
+    ],
+    related: [
+      'pipe fitter','instrument technician','hvac technician',
+      'vibration analyst','lubrication technician'
+    ]
+  },
+
+  // ── RIGGING / LIFTING ────────────────────────────────────────────
+  {
+    id: 'rigging',
+    label: 'Rigging / Lifting',
+    primary: [
+      'rigger','rigging supervisor','crane rigger','lifting rigger',
+      'industrial rigger'
+    ],
+    similar: [
+      'banksman','signal man','lifting supervisor','slinger rigger',
+      'dogman','rigging technician','heavy lift rigger'
+    ],
+    related: [
+      'scaffolder','crane operator','forklift operator','structural steel worker'
+    ]
+  },
+
+  // ── DRIVING / TRANSPORT ─────────────────────────────────────────
+  {
+    id: 'driving',
+    label: 'Driving / Transport',
+    primary: [
+      'heavy driver','hgv driver','trailer driver','tanker driver',
+      'tipper driver','truck driver'
+    ],
+    similar: [
+      'ltv driver','bus driver','mini bus driver','pickup driver',
+      'car driver','light vehicle driver','staff bus driver'
+    ],
+    related: [
+      'forklift operator','mobile crane operator','vehicle coordinator',
+      'transport coordinator'
+    ]
+  },
+
+  // ── CRANE / HEAVY PLANT ─────────────────────────────────────────
+  {
+    id: 'crane_plant',
+    label: 'Crane / Heavy Plant Operations',
+    primary: [
+      'crane operator','mobile crane operator','tower crane operator',
+      'overhead crane operator','crawler crane operator'
+    ],
+    similar: [
+      'forklift operator','telehandler operator','rough terrain crane operator',
+      'pick and carry operator','all terrain crane operator'
+    ],
+    related: [
+      'jcb operator','excavator operator','backhoe operator','plant operator',
+      'heavy driver','rigger'
+    ]
+  },
+
+  // ── HSE / SAFETY ─────────────────────────────────────────────────
+  {
+    id: 'hse',
+    label: 'HSE / Safety',
+    primary: [
+      'safety officer','hse officer','safety engineer','osh officer',
+      'safety advisor','health safety environment officer'
+    ],
+    similar: [
+      'safety supervisor','fire warden','safety inspector','hse coordinator',
+      'safety technician','fire safety officer','process safety engineer'
+    ],
+    related: [
+      'project engineer','first aider','security officer',
+      'risk assessor','toolbox talk coordinator'
+    ]
+  },
+
+  // ── QA/QC / INSPECTION ──────────────────────────────────────────
+  {
+    id: 'qaqc',
+    label: 'QA/QC / Inspection',
+    primary: [
+      'qc inspector','qa qc inspector','quality inspector','ndt inspector',
+      'welding inspector','cwi','cswip'
+    ],
+    similar: [
+      'qc engineer','qa engineer','quality engineer','ndt technician',
+      'ut technician','rt inspector','mt inspector','pt inspector',
+      'civil qc inspector','structural qc inspector'
+    ],
+    related: [
+      'site engineer','project engineer',
+      'metrologist','dimensional control inspector'
+    ]
+  },
+
+  // ── CIVIL SUPERVISION ────────────────────────────────────────────
+  {
+    id: 'civil_supervisor',
+    label: 'Civil Supervision',
+    primary: [
+      'civil foreman','construction supervisor','site supervisor',
+      'site foreman','general foreman','area supervisor'
+    ],
+    similar: [
+      'civil supervisor','sub foreman','leading hand','charge hand',
+      'construction foreman','structural supervisor','gang foreman'
+    ],
+    related: [
+      'project engineer','planning engineer','site engineer',
+      'area engineer','works supervisor'
+    ]
+  },
+
+  // ── ADMINISTRATION / OFFICE ──────────────────────────────────────
+  {
+    id: 'admin',
+    label: 'Administration / Office',
+    primary: [
+      'admin officer','administrative officer','office administrator',
+      'office manager','administrative assistant'
+    ],
+    similar: [
+      'hr assistant','secretary','receptionist','document controller',
+      'document control officer','records clerk','office clerk'
+    ],
+    related: [
+      'hr officer','project coordinator','procurement officer',
+      'account assistant','logistics coordinator'
+    ]
+  },
+
+  // ── STORES / LOGISTICS ───────────────────────────────────────────
+  {
+    id: 'store_logistics',
+    label: 'Stores / Logistics',
+    primary: [
+      'store keeper','storekeeper','warehouse keeper','stores officer',
+      'warehouse supervisor','inventory controller'
+    ],
+    similar: [
+      'logistics coordinator','material controller','material engineer',
+      'expeditor','supply chain coordinator','warehouse assistant'
+    ],
+    related: [
+      'admin officer','purchasing officer','document controller',
+      'forklift operator','fleet coordinator'
+    ]
+  },
+
+  // ── SURVEYING ────────────────────────────────────────────────────
+  {
+    id: 'surveying',
+    label: 'Surveying',
+    primary: [
+      'surveyor','civil surveyor','layout surveyor','quantity surveyor',
+      'survey technician'
+    ],
+    similar: [
+      'survey engineer','leveling technician','gps surveyor',
+      'total station operator','qs engineer','cost estimator'
+    ],
+    related: [
+      'civil engineer','site engineer','project engineer',
+      'planning engineer','as built surveyor'
+    ]
+  },
+
+  // ── ENGINEERING (PROFESSIONAL) ───────────────────────────────────
+  {
+    id: 'engineering',
+    label: 'Engineering (Professional)',
+    primary: [
+      'civil engineer','structural engineer','mechanical engineer',
+      'electrical engineer','process engineer','chemical engineer',
+      'petroleum engineer'
+    ],
+    similar: [
+      'project engineer','site engineer','design engineer',
+      'planning engineer','commissioning engineer','cost engineer',
+      'piping engineer','instrument engineer'
+    ],
+    related: [
+      'project manager','construction manager','technical advisor',
+      'consultant','technical coordinator'
+    ]
+  }
+
+]; // end TRADE_GROUPS_V285_
+
+
+/**
+ * S82.F01 — Normalize a trade string for comparison.
+ * Strips punctuation, collapses whitespace, lowercases.
+ */
+function normalizeTrade285_(trade) {
+  if (!trade) return '';
+  return String(trade)
+    .toLowerCase()
+    // ── Abbreviation expansions BEFORE slash/dash removal ──
+    .replace(/\ba\/c\b/g,  'ac')           // a/c → ac  (must be before slash→space)
+    .replace(/\bqa\/qc\b/g,'qa qc')        // qa/qc → qa qc
+    // ── Remove punctuation ──
+    .replace(/[\/\-\(\)\.&,]+/g, ' ')
+    // ── Common abbreviations ──
+    .replace(/\bsr\b/g,   'senior')
+    .replace(/\bjr\b/g,   'junior')
+    .replace(/\bqc\b/g,   'quality control')
+    .replace(/\bqa\b/g,   'quality assurance')
+    .replace(/\bhse\b/g,  'health safety environment')
+    .replace(/\bhvac\b/g, 'heating ventilation air conditioning')
+    .replace(/\bndt\b/g,  'non destructive testing')
+    .replace(/\bst\b/g,   'structural')    // ST Fabricator → structural fabricator
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+
+/**
+ * S82.F01b — Token-based trade term matching.
+ *
+ * Prevents greedy substring false positives where single-word patterns
+ * like 'fitter' or 'mechanic' incorrectly match multi-word trades.
+ *
+ * Rules:
+ *   1. Exact string equality → always true
+ *   2. ALL tokens of pattern in input tokens (containment) — only when
+ *      pattern has 2+ meaningful tokens (prevents 'welder' matching 'pipe welder')
+ *   3. Reverse containment — same 2+ token rule
+ *   4. Single-token patterns: only exact string match
+ */
+function tradeTermMatch285_(input, pattern) {
+  if (!input || !pattern) return false;
+  if (input === pattern) return true;
+
+  // Tokenise: words > 2 chars only to filter out 'of','to','in' etc
+  var STOP_ = { 'and':1,'the':1,'for':1,'with':1,'in':1,'of':1,'to':1,'a':1,'an':1 };
+  function tokenize(s) {
+    return s.split(/\s+/).filter(function(t) {
+      return t.length > 2 && !STOP_[t];
+    });
+  }
+
+  var iToks = tokenize(input);
+  var pToks = tokenize(pattern);
+
+  if (iToks.length === 0 || pToks.length === 0) return false;
+
+  // For single-token patterns: ONLY exact string match (already handled above)
+  // This prevents 'welder' from matching 'pipe welder', 'fitter' from 'pipe fitter'
+  if (pToks.length === 1) {
+    return iToks.length === 1 && iToks[0] === pToks[0];
+  }
+  if (iToks.length === 1) {
+    return pToks.length === 1 && pToks[0] === iToks[0];
+  }
+
+  // Both have 2+ tokens: check if all tokens of the shorter exist in the longer
+  var shorter = pToks.length <= iToks.length ? pToks : iToks;
+  var longer  = pToks.length <= iToks.length ? iToks  : pToks;
+
+  // Require ALL shorter tokens to be in longer tokens
+  var allIn = shorter.every(function(t) { return longer.indexOf(t) > -1; });
+  if (!allIn) return false;
+
+  // Guard: the longer must not have more than 2 extra discriminating tokens
+  // (prevents 'pipe' matching 'mechanical pipe fitter hydraulic')
+  var extra = longer.filter(function(t) { return shorter.indexOf(t) < 0; });
+  return extra.length <= 2;
+}
+
+
+/**
+ * S82.F02 — Find which taxonomy group a trade belongs to.
+ *
+ * THREE-PASS architecture (critical for correctness):
+ *   Pass 1: Check ALL groups for PRIMARY match
+ *   Pass 2: Check ALL groups for SIMILAR match
+ *   Pass 3: Check ALL groups for RELATED match
+ *
+ * This ensures a primary match in ANY group wins over a related match
+ * in an earlier group — prevents 'HVAC Technician' being routed to
+ * pipe_fitting as related instead of hvac as primary.
+ *
+ * Returns: { groupId, matchLevel:'primary'|'similar'|'related'|null }
+ */
+function findTradeGroup285_(trade) {
+  var norm = normalizeTrade285_(trade);
+  if (!norm) return { groupId: null, matchLevel: null };
+
+  var g, grp, i, termNorm;
+
+  // ── PASS 1: PRIMARY across all groups ─────────────────────────────
+  for (g = 0; g < TRADE_GROUPS_V285_.length; g++) {
+    grp = TRADE_GROUPS_V285_[g];
+    for (i = 0; i < grp.primary.length; i++) {
+      termNorm = normalizeTrade285_(grp.primary[i]);
+      if (norm === termNorm || tradeTermMatch285_(norm, termNorm)) {
+        return { groupId: grp.id, matchLevel: 'primary', label: grp.label };
+      }
+    }
+  }
+
+  // ── PASS 2: SIMILAR across all groups ─────────────────────────────
+  for (g = 0; g < TRADE_GROUPS_V285_.length; g++) {
+    grp = TRADE_GROUPS_V285_[g];
+    for (i = 0; i < grp.similar.length; i++) {
+      termNorm = normalizeTrade285_(grp.similar[i]);
+      if (norm === termNorm || tradeTermMatch285_(norm, termNorm)) {
+        return { groupId: grp.id, matchLevel: 'similar', label: grp.label };
+      }
+    }
+  }
+
+  // ── PASS 3: RELATED across all groups ─────────────────────────────
+  for (g = 0; g < TRADE_GROUPS_V285_.length; g++) {
+    grp = TRADE_GROUPS_V285_[g];
+    for (i = 0; i < grp.related.length; i++) {
+      termNorm = normalizeTrade285_(grp.related[i]);
+      if (norm === termNorm || tradeTermMatch285_(norm, termNorm)) {
+        return { groupId: grp.id, matchLevel: 'related', label: grp.label };
+      }
+    }
+  }
+
+  return { groupId: null, matchLevel: null };
+}
+
+
+/**
+ * S82.F03 — Compute trade similarity score (0–40).
+ *
+ * Scoring:
+ *   Exact string match           → 40
+ *   Both in same primary list    → 38
+ *   Candidate primary = req sim  → 32  (or reverse)
+ *   Both in same similar list    → 28
+ *   Candidate related to req     → 18
+ *   Both in same taxonomy group  → 10  (fallback group match)
+ *   No relationship found        → 0
+ */
+function getTradeScore285_(candidateTrade, reqTrade) {
+  if (!candidateTrade || !reqTrade) return 0;
+
+  var cNorm = normalizeTrade285_(candidateTrade);
+  var rNorm = normalizeTrade285_(reqTrade);
+
+  // Exact string match
+  if (cNorm === rNorm) return 40;
+  // Near-exact: token-based bidirectional match
+  if (tradeTermMatch285_(cNorm, rNorm)) return 38;
+
+  var cGroup = findTradeGroup285_(candidateTrade);
+  var rGroup = findTradeGroup285_(reqTrade);
+
+  if (!cGroup.groupId || !rGroup.groupId) {
+    // Partial token overlap (last-resort for unknown trades)
+    var STOP2_ = { 'and':1,'the':1,'for':1,'with':1,'in':1,'of':1,'to':1,'a':1,'an':1 };
+    var cTokens = cNorm.split(' ').filter(function(t){ return t.length > 3 && !STOP2_[t]; });
+    var rTokens = rNorm.split(' ').filter(function(t){ return t.length > 3 && !STOP2_[t]; });
+    var overlap = 0;
+    cTokens.forEach(function(t) {
+      if (rTokens.indexOf(t) > -1) overlap++;
+    });
+    if (overlap >= 2) return 15;
+    if (overlap === 1) return 8;
+    return 0;
+  }
+
+  // Same group?
+  if (cGroup.groupId !== rGroup.groupId) {
+    // Check related group cross-references
+    // (different group but common related member)
+    return 0;
+  }
+
+  // Same group — score by level combination
+  var cLevel = cGroup.matchLevel;
+  var rLevel = rGroup.matchLevel;
+
+  if (cLevel === 'primary' && rLevel === 'primary')   return 38;
+  if (cLevel === 'primary' && rLevel === 'similar')   return 32;
+  if (cLevel === 'similar' && rLevel === 'primary')   return 32;
+  if (cLevel === 'similar' && rLevel === 'similar')   return 28;
+  if (cLevel === 'primary' && rLevel === 'related')   return 22;
+  if (cLevel === 'related' && rLevel === 'primary')   return 22;
+  if (cLevel === 'similar' && rLevel === 'related')   return 18;
+  if (cLevel === 'related' && rLevel === 'similar')   return 18;
+  if (cLevel === 'related' && rLevel === 'related')   return 10;
+
+  return 10; // same group, unclassified
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S83 · CANDIDATE SCORE COMPUTER
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S83.F01 — Freshness score based on application date (0–20).
+ *
+ * Bucket  Days Since Application  Score
+ * ──────  ───────────────────────  ─────
+ * HOT     0–15 days               20
+ * WARM    16–30 days              17
+ * FRESH   31–60 days              14
+ * GOOD    61–90 days              10
+ * AGED    91–180 days              6
+ * OLD     181–365 days             3
+ * LEGACY  365+ days                1
+ */
+// HIGH-PRIORITY freshness scoring — newest profiles dominate ranking.
+// Today/Yesterday MUST beat any 30+ day profile regardless of other scores.
+function getFreshnessScore285_(appDateStr) {
+  if (!appDateStr) return 2; // very low for unknown dates (deprioritize)
+  try {
+    var appDate = new Date(appDateStr);
+    if (isNaN(appDate.getTime())) return 2;
+    var days = Math.floor((Date.now() - appDate.getTime()) / 86400000);
+    if (days <= 0)   return 30;  // Today        — top priority
+    if (days === 1)  return 28;  // Yesterday
+    if (days <= 7)   return 25;  // Last 7 Days
+    if (days <= 15)  return 22;  // Last 15 Days
+    if (days <= 30)  return 18;  // Last 30 Days
+    if (days <= 45)  return 14;  // Last 45 Days
+    if (days <= 60)  return 11;  // Last 60 Days
+    if (days <= 90)  return 8;   // Last 90 Days
+    if (days <= 180) return 4;   // 3 Months+
+    return 1;                    // 6 Months+
+  } catch(e) {
+    return 2;
+  }
+}
+
+
+/**
+ * S83.F02 — Deploy readiness score (0–15).
+ * Uses Candidate State (V2 col 28) + Deployability Score (V2 col 34).
+ */
+function getDeployReadyScore285_(candidateState, deployabilityScore) {
+  var dScore = parseFloat(deployabilityScore) || 0;
+
+  // If we have a numeric deployability score, weight it
+  if (dScore >= 80) return 15;
+  if (dScore >= 65) return 12;
+  if (dScore >= 50) return 9;
+  if (dScore >= 30) return 6;
+  if (dScore > 0)   return 4;
+
+  // Fall back to state-based scoring
+  var state = String(candidateState || '').toUpperCase().trim();
+  var stateMap = {
+    'READY_TO_DEPLOY': 15,
+    'INDIA_READY':     14,
+    'GCC_RETURN':      13,
+    'SHORTLISTED':     11,
+    'UNDER_REVIEW':    9,
+    'PARSED':          8,
+    'NEW':             7,
+    'FRESHER_POOL':    6,
+    'INCOMPLETE_CONTACT': 5,
+    'UNKNOWN_TRADE':   4,
+    'HOLD':            3,
+    'VISA_PROCESS':    2,
+    'MEDICAL_PENDING': 2,
+    'DEPLOYED':        0,
+    'REJECTED':        0
+  };
+  return stateMap[state] !== undefined ? stateMap[state] : 5;
+}
+
+
+/**
+ * S83.F03 — Experience match score (0–10).
+ * Compares candidate total experience vs req minimum.
+ */
+function getExperienceScore285_(candidateExpStr, reqMinYearsStr) {
+  var cExp    = parseFloat(String(candidateExpStr  || '').replace(/[^\d\.]/g,'')) || 0;
+  var reqMin  = parseFloat(String(reqMinYearsStr   || '').replace(/[^\d\.]/g,'')) || 0;
+
+  if (reqMin === 0) return 7; // no experience requirement = neutral bonus
+  if (cExp === 0)   return 3; // candidate has no experience data
+
+  var gap = cExp - reqMin;
+  if (gap >= 0 && gap <= 5)  return 10; // meets requirement
+  if (gap > 5)               return 9;  // over-qualified (slight penalty for over-spec)
+  if (gap >= -2)             return 6;  // slightly below
+  if (gap >= -5)             return 3;  // below requirement
+  return 1;                             // far below
+}
+
+
+/**
+ * S83.F04 — Gulf experience bonus (0–5).
+ * Candidates with Gulf experience are higher deployment confidence.
+ */
+function getGulfExpScore285_(gulfExpStr) {
+  var gExp = parseFloat(String(gulfExpStr || '').replace(/[^\d\.]/g,'')) || 0;
+  if (gExp >= 5)  return 5;
+  if (gExp >= 3)  return 4;
+  if (gExp >= 1)  return 3;
+  if (gExp > 0)   return 2;
+  return 0;
+}
+
+
+/**
+ * S83.F05 — Nationality preference match (0–5).
+ * Req GCC Preference col says e.g. "INDIAN", "ANY", "ARAB", "GCC"
+ */
+function getNationalityScore285_(candidateNationality, reqGccPref) {
+  var cNat = String(candidateNationality || '').toLowerCase().trim();
+  var pref = String(reqGccPref         || '').toLowerCase().trim();
+
+  if (!pref || pref === 'any' || pref === 'gcc' || pref === '') return 3; // no preference = neutral
+
+  var NATIONALITY_MAP_ = {
+    'indian':     ['india','indian'],
+    'pakistani':  ['pakistan','pakistani'],
+    'nepali':     ['nepal','nepali','nepalese'],
+    'bangladeshi':['bangladesh','bangladeshi'],
+    'filipino':   ['philippines','filipino','filipina'],
+    'sri lankan': ['sri lanka','sri lankan'],
+    'arab':       ['saudi','uae','qatar','kuwait','bahrain','oman','jordan','egypt','syria','iraq','lebanon','yemen'],
+    'gcc':        ['saudi','uae','qatar','kuwait','bahrain','oman']
+  };
+
+  var prefNats = NATIONALITY_MAP_[pref] || [pref];
+  for (var i = 0; i < prefNats.length; i++) {
+    if (cNat.indexOf(prefNats[i]) > -1) return 5;
+  }
+  return 1; // explicit mismatch on nationality preference
+}
+
+
+/**
+ * S83.F06 — Passport validity score (0–5).
+ * Uses passport expiry date from V2 col 30.
+ */
+function getPassportScore285_(passportExpiry) {
+  if (!passportExpiry || passportExpiry === '' || passportExpiry === 'Unknown') return 2;
+  try {
+    var exp  = new Date(passportExpiry);
+    if (isNaN(exp.getTime())) return 2;
+    var daysLeft = Math.floor((exp.getTime() - Date.now()) / 86400000);
+    if (daysLeft > 180) return 5;  // valid >6m
+    if (daysLeft > 90)  return 3;  // expiring soon
+    if (daysLeft > 0)   return 1;  // expires within 3m
+    return 0;                      // already expired
+  } catch(e) {
+    return 2;
+  }
+}
+
+
+/**
+ * S83.F07 — Compute total match score for one candidate vs one requirement.
+ *
+ * @param {Object} candidate - {trade, nationality, experience, gulfExp, appDate,
+ *                              candidateState, deployabilityScore, passportExpiry}
+ * @param {Object} req       - {trade, minExperience, gccPref}
+ *
+ * Returns:
+ * {
+ *   total      : 0–100,
+ *   tier       : 'STRONG'|'GOOD'|'POSSIBLE'|'LONG_SHOT',
+ *   breakdown  : { trade, freshness, deployReady, experience, gulfExp, nationality, passport },
+ *   signals    : string[]   — human-readable score drivers
+ * }
+ */
+function computeMatchScore285_(candidate, req) {
+  var tradeScore     = getTradeScore285_(candidate.trade, req.trade);
+  var freshScore     = getFreshnessScore285_(candidate.appDate);
+  var deployScore    = getDeployReadyScore285_(candidate.candidateState, candidate.deployabilityScore);
+  var expScore       = getExperienceScore285_(candidate.experience, req.minExperience);
+  var gulfScore      = getGulfExpScore285_(candidate.gulfExp);
+  var natScore       = getNationalityScore285_(candidate.nationality, req.gccPref);
+  var passportScore  = getPassportScore285_(candidate.passportExpiry);
+
+  var total = tradeScore + freshScore + deployScore + expScore + gulfScore + natScore + passportScore;
+  total = Math.min(100, Math.max(0, total));
+
+  var tier = total >= 75 ? 'STRONG' :
+             total >= 55 ? 'GOOD'   :
+             total >= 35 ? 'POSSIBLE' : 'LONG_SHOT';
+
+  // Build signal explanations
+  var signals = [];
+  if (tradeScore >= 38)       signals.push('exact trade match');
+  else if (tradeScore >= 28)  signals.push('same trade group');
+  else if (tradeScore >= 18)  signals.push('related trade');
+  else if (tradeScore > 0)    signals.push('partial trade overlap');
+  else                        signals.push('trade mismatch');
+
+  if (freshScore >= 17)       signals.push('active candidate (≤30d)');
+  else if (freshScore >= 10)  signals.push('recent candidate');
+  else if (freshScore <= 3)   signals.push('aged profile');
+
+  if (deployScore >= 13)      signals.push('deploy ready');
+  else if (deployScore >= 8)  signals.push('available');
+  else if (deployScore <= 3)  signals.push('deployment uncertain');
+
+  if (expScore === 10)        signals.push('experience meets req');
+  else if (expScore <= 3)     signals.push('experience below req');
+
+  if (gulfScore >= 4)         signals.push('strong GCC exp');
+  else if (gulfScore >= 2)    signals.push('some GCC exp');
+
+  if (natScore === 5)         signals.push('preferred nationality');
+  if (passportScore === 5)    signals.push('passport valid');
+  else if (passportScore === 0) signals.push('passport expired');
+
+  return {
+    total     : total,
+    tier      : tier,
+    breakdown : {
+      trade       : tradeScore,
+      freshness   : freshScore,
+      deployReady : deployScore,
+      experience  : expScore,
+      gulfExp     : gulfScore,
+      nationality : natScore,
+      passport    : passportScore
+    },
+    signals: signals
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S84 · JD MATCH ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S84.F01 — Load one requirement from _Requirements sheet by Req ID.
+ * Returns normalized req object or null.
+ */
+function loadRequirementById285_(reqId) {
+  var ss     = getMasterSS_();
+  var sheet  = ss.getSheetByName(CONFIG_V2.requirementsSheet);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG_V2.reqHeaders.length).getValues();
+
+  // reqHeaders: 'Req ID','Received Date','Client Name','Deploy Country','Trade',
+  //             'Quantity','Min Experience (yr)','Min Age','Max Age','GCC Preference',
+  //             'Local Transfer Req','Visit Visa OK','Certifications','Urgency',
+  //             'Status','Sourced By','Special Requirements','Shortlist Count',
+  //             'Selected Count','Notes','Raw JD'
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(reqId).trim()) {
+      return {
+        reqId:         String(data[i][0] || ''),
+        receivedDate:  data[i][1],
+        clientName:    String(data[i][2] || ''),
+        deployCountry: String(data[i][3] || ''),
+        trade:         String(data[i][4] || ''),
+        quantity:      parseInt(data[i][5]) || 1,
+        minExperience: String(data[i][6] || '0'),
+        minAge:        parseInt(data[i][7]) || 18,
+        maxAge:        parseInt(data[i][8]) || 60,
+        gccPref:       String(data[i][9] || ''),
+        localTransfer: String(data[i][10] || ''),
+        visitVisaOk:   String(data[i][11] || ''),
+        certifications:String(data[i][12] || ''),
+        urgency:       String(data[i][13] || ''),
+        status:        String(data[i][14] || ''),
+        sourcedBy:     String(data[i][15] || ''),
+        shortlistCount:parseInt(data[i][17]) || 0,
+        selectedCount: parseInt(data[i][18]) || 0,
+        notes:         String(data[i][19] || '')
+      };
+    }
+  }
+  return null;
+}
+
+
+/**
+ * S84.F02 — Load all active candidates from main sheet.
+ * Reads cols 1–38 (base + V2 extended). Returns array of candidate objects.
+ * Filters: _Active (col 24) must not be 'REJECTED'/'ARCHIVED'.
+ */
+function loadCandidates285_() {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  var lastRow  = sheet.getLastRow() - 1;
+  var lastCol  = Math.min(38, sheet.getLastColumn());
+  var data     = sheet.getRange(2, 1, lastRow, lastCol).getValues();
+
+  var candidates = [];
+  data.forEach(function(row, idx) {
+    var active = String(row[23] || '').toUpperCase();
+    if (active === 'REJECTED' || active === 'ARCHIVED') return;
+
+    // V2 extended columns (0-indexed from row, so col25=idx24)
+    var candidateState   = lastCol >= 28 ? String(row[27] || '') : '';
+    var deployScore      = lastCol >= 34 ? parseFloat(row[33]) || 0 : 0;
+    var passportExpiry   = lastCol >= 30 ? String(row[29] || '') : '';
+    var currentLocation  = lastCol >= 26 ? String(row[25] || '') : '';
+    var gulfExp          = String(row[11] || '');
+
+    candidates.push({
+      rowIndex:          idx + 2,  // 1-based row in sheet
+      stage:             String(row[0]  || ''),
+      appDate:           row[1]  ? String(row[1]) : '',
+      nationality:       String(row[2]  || ''),
+      name:              String(row[3]  || ''),
+      mobile:            String(row[4]  || ''),
+      email:             String(row[5]  || ''),
+      education:         String(row[6]  || ''),
+      positionApplied:   String(row[7]  || ''),
+      trade:             String(row[8]  || ''),
+      industry:          String(row[9]  || ''),
+      experience:        String(row[10] || ''),
+      gulfExp:           gulfExp,
+      dob:               row[12] ? String(row[12]) : '',
+      age:               parseInt(row[13]) || 0,
+      verdict:           String(row[14] || ''),
+      score:             parseFloat(row[16]) || 0,
+      kaiAssessment:     String(row[19] || ''),
+      cvLink:            String(row[21] || ''),
+      notes:             String(row[22] || ''),
+      // V2 ext
+      candidateState:    candidateState,
+      currentLocation:   currentLocation,
+      passportExpiry:    passportExpiry,
+      deployabilityScore:deployScore
+    });
+  });
+
+  return candidates;
+}
+
+
+/**
+ * S84.F03 — Main match engine. Ranks all active candidates against a requirement.
+ *
+ * @param {string} reqId    — e.g. "REQ-20260517-0001"
+ * @param {number} limit    — max candidates to return (default 20)
+ * @param {string} tierFloor— minimum tier to include: 'STRONG'|'GOOD'|'POSSIBLE'|'LONG_SHOT'
+ *
+ * Returns:
+ * {
+ *   ok:      boolean,
+ *   reqId:   string,
+ *   req:     { trade, clientName, deployCountry, quantity, ... },
+ *   matches: [{ rowIndex, name, trade, nationality, score, tier, breakdown, signals, ...candidate fields }],
+ *   summary: { total, strong, good, possible, longShot }
+ * }
+ */
+function matchCandidatesForReq285_(reqId, limit, tierFloor) {
+  limit    = limit    || 20;
+  tierFloor= tierFloor|| 'POSSIBLE';
+
+  var req = loadRequirementById285_(reqId);
+  if (!req) return { ok: false, msg: 'Requirement ' + reqId + ' not found.' };
+
+  var candidates = loadCandidates285_();
+  if (candidates.length === 0) return { ok: false, msg: 'No candidates in sheet.' };
+
+  var TIER_ORDER_ = { 'STRONG': 4, 'GOOD': 3, 'POSSIBLE': 2, 'LONG_SHOT': 1 };
+  var floorVal    = TIER_ORDER_[tierFloor] || 2;
+
+  var scored = [];
+  candidates.forEach(function(c) {
+    var result = computeMatchScore285_(c, req);
+    if (TIER_ORDER_[result.tier] >= floorVal) {
+      scored.push({
+        rowIndex:     c.rowIndex,
+        name:         c.name,
+        nationality:  c.nationality,
+        trade:        c.trade,
+        experience:   c.experience,
+        gulfExp:      c.gulfExp,
+        age:          c.age,
+        stage:        c.stage,
+        currentLocation: c.currentLocation,
+        passportExpiry: c.passportExpiry,
+        kaiAssessment: c.kaiAssessment,
+        cvLink:       c.cvLink,
+        score:        result.total,
+        tier:         result.tier,
+        breakdown:    result.breakdown,
+        signals:      result.signals
+      });
+    }
+  });
+
+  // Sort: tier first, then total score
+  scored.sort(function(a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    return 0;
+  });
+
+  // Summary counts
+  var summary = { total: scored.length, strong: 0, good: 0, possible: 0, longShot: 0 };
+  scored.forEach(function(m) {
+    if (m.tier === 'STRONG')    summary.strong++;
+    else if (m.tier === 'GOOD') summary.good++;
+    else if (m.tier === 'POSSIBLE') summary.possible++;
+    else summary.longShot++;
+  });
+
+  return {
+    ok:      true,
+    reqId:   reqId,
+    req:     req,
+    matches: scored.slice(0, limit),
+    summary: summary
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S85 · PUBLIC MATCH API
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S85.F01 — Primary match API called from dashboard.
+ * Called via: google.script.run.matchCandidatesForReqPublic(reqId, limit)
+ *
+ * Returns the ranked match result for display in the JD drawer.
+ */
+function matchCandidatesForReqPublic(reqId, limit) {
+  try {
+    if (!reqId) return { ok: false, msg: 'No Req ID provided.' };
+    return matchCandidatesForReq285_(reqId, limit || 20, 'POSSIBLE');
+  } catch(err) {
+    Logger.log('matchCandidatesForReqPublic error: ' + err.message);
+    return { ok: false, msg: 'Match engine error: ' + err.message };
+  }
+}
+
+
+/**
+ * S85.F02 — Quick top-3 summary for JD card preview (lightweight call).
+ * Returns { ok, reqId, trade, clientName, summary, top3:[{name,score,tier}] }
+ */
+function getTopMatchSummaryPublic(reqId) {
+  try {
+    if (!reqId) return { ok: false };
+    var result = matchCandidatesForReq285_(reqId, 3, 'POSSIBLE');
+    if (!result.ok) return result;
+    return {
+      ok:        true,
+      reqId:     reqId,
+      trade:     result.req.trade,
+      clientName:result.req.clientName,
+      summary:   result.summary,
+      top3:      (result.matches || []).slice(0, 3).map(function(m) {
+        return { name: m.name, score: m.score, tier: m.tier, nationality: m.nationality };
+      })
+    };
+  } catch(e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+
+/**
+ * S85.F03 — Get a single requirement's full detail (for JD sidebar header).
+ * Called via: google.script.run.getRequirementByIdPublic(reqId)
+ */
+function getRequirementByIdPublic(reqId) {
+  try {
+    if (!reqId) return { ok: false, msg: 'No Req ID provided.' };
+    var req = loadRequirementById285_(reqId);
+    if (!req) return { ok: false, msg: 'Requirement not found: ' + reqId };
+    return { ok: true, req: req };
+  } catch(e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+
+/**
+ * S85.F04 — Get all open requirements (for the Requirements panel in dashboard).
+ * Returns array of req objects filtered to Status = OPEN / ACTIVE.
+ */
+function getOpenRequirementsPublic() {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG_V2.requirementsSheet);
+    if (!sheet || sheet.getLastRow() < 2) return { ok: true, reqs: [] };
+
+    var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG_V2.reqHeaders.length).getValues();
+    var reqs  = [];
+
+    data.forEach(function(row) {
+      var status = String(row[14] || '').toUpperCase();
+      if (status === 'CLOSED' || status === 'CANCELLED' || status === 'FILLED') return;
+
+      reqs.push({
+        reqId:         String(row[0] || ''),
+        receivedDate:  row[1] ? Utilities.formatDate(new Date(row[1]), 'Asia/Kolkata', 'dd-MMM-yyyy') : '',
+        clientName:    String(row[2] || ''),
+        deployCountry: String(row[3] || ''),
+        trade:         String(row[4] || ''),
+        quantity:      parseInt(row[5]) || 1,
+        minExperience: String(row[6] || ''),
+        gccPref:       String(row[9] || ''),
+        urgency:       String(row[13] || ''),
+        status:        String(row[14] || 'OPEN'),
+        shortlistCount:parseInt(row[17]) || 0,
+        selectedCount: parseInt(row[18]) || 0
+      });
+    });
+
+    // Sort by received date descending
+    reqs.sort(function(a, b) {
+      return new Date(b.receivedDate) - new Date(a.receivedDate);
+    });
+
+    return { ok: true, reqs: reqs };
+  } catch(e) {
+    Logger.log('getOpenRequirementsPublic error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+
+/**
+ * S85.F05 — Run match + auto-tag candidates with matching req IDs.
+ * Writes matched reqIds into V2 col 37 (Req Match IDs) for each STRONG/GOOD match.
+ * Called from menu — NOT called from dashboard directly.
+ */
+function runMatchTaggingForAllReqs() {
+  var ss     = getMasterSS_();
+  var rSheet = ss.getSheetByName(CONFIG_V2.requirementsSheet);
+  var cSheet = ss.getSheetByName(CONFIG.sheetName);
+  if (!rSheet || !cSheet) {
+    Logger.log('runMatchTagging: Required sheets not found.');
+    try { SpreadsheetApp.getUi().alert('Cannot find required sheets.'); } catch(e) {}
+    return;
+  }
+
+  var reqs = getOpenRequirementsPublic();
+  if (!reqs.ok || reqs.reqs.length === 0) {
+    Logger.log('runMatchTagging: No open requirements.');
+    try { SpreadsheetApp.getUi().alert('No open requirements to match.'); } catch(e) {}
+    return;
+  }
+
+  var tagged = 0;
+  var log    = [];
+
+  reqs.reqs.forEach(function(req) {
+    var result = matchCandidatesForReq285_(req.reqId, 50, 'GOOD');
+    if (!result.ok) return;
+
+    result.matches.forEach(function(match) {
+      try {
+        var rowIdx   = match.rowIndex;
+        var existing = String(cSheet.getRange(rowIdx, CONFIG_V2.extCol.reqMatch).getValue() || '');
+        if (existing.indexOf(req.reqId) === -1) {
+          var newVal = existing ? existing + ', ' + req.reqId : req.reqId;
+          cSheet.getRange(rowIdx, CONFIG_V2.extCol.reqMatch).setValue(newVal);
+          tagged++;
+        }
+      } catch(e2) {
+        Logger.log('Tag error row ' + match.rowIndex + ': ' + e2.message);
+      }
+    });
+
+    log.push(req.reqId + ' (' + req.trade + '): ' +
+             result.summary.strong + ' STRONG, ' + result.summary.good + ' GOOD');
+  });
+
+  SpreadsheetApp.flush();
+  Logger.log('Match tagging complete:\n' + log.join('\n'));
+  try {
+    SpreadsheetApp.getUi().alert(
+      'Match Tagging Complete\n\n' +
+      tagged + ' candidate-requirement tags written.\n\n' +
+      log.join('\n')
+    );
+  } catch(e) {}
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S86 · MULTI-JD CACHE FIX — extractJdPublicV2
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S86 OVERVIEW
+ * ─────────────────────────────────────────────────────────────────
+ * Problem: extractJdPublic() in patch_v284 immediately saves ALL JDs
+ * to the sheet even when multi-JD is detected. The dashboard then shows
+ * a confirmation screen that calls saveMultiJdBatch() — but since the
+ * JDs are already saved AND never written to cache, saveMultiJdBatch
+ * always returns "Batch data expired."
+ *
+ * Fix (two-phase commit):
+ *   Phase 1: extractJdPublicV2() extracts JDs. If multi:
+ *            → does NOT save to sheet
+ *            → writes jds[] to CacheService with key JD_BATCH_{batchId}
+ *            → returns { isMulti:true, batchId, pendingSave:true, jds:[preview] }
+ *   Phase 2: saveMultiJdBatch(batchId, indices) saves only selected items
+ *
+ *   Single JD: saves immediately (no change in behaviour).
+ *
+ * Dashboard update: change google.script.run.extractJdPublic(...)
+ *                         → google.script.run.extractJdPublicV2(...)
+ * ─────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * S86.F01 — Corrected JD extraction entry point with two-phase multi-JD commit.
+ * Supersedes extractJdPublic() from patch_v284 for dashboard calls.
+ *
+ * Returns for single JD: { ok, count:1, jds:[saved_jd], isMulti:false }
+ * Returns for multi JD:  { ok:true, isMulti:true, pendingSave:true,
+ *                          batchId, count:N, jds:[preview_objects] }
+ */
+function extractJdPublicV2(base64Data, filename, mimeType) {
+  var result = { ok: false, count: 0, jds: [], isMulti: false, msg: '', errors: [] };
+  var tempFileId = null;
+  var docFileId  = null;
+
+  try {
+    var mime = mimeType || 'application/pdf';
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(base64Data),
+      mime,
+      filename || 'jd_upload'
+    );
+
+    // ── Extract text via Drive conversion ──────────────────────────
+    var text = '';
+    var isXlsx = (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                  (filename||'').toLowerCase().slice(-5) === '.xlsx');
+    try {
+      var tempFile = DriveApp.createFile(blob);
+      tempFileId   = tempFile.getId();
+
+      if (isXlsx) {
+        // XLSX → convert to Google Sheets, read all cell text
+        var sheetMeta = Drive.Files.copy(
+          { title: 'kai_tmp_jd_xlsx_' + Date.now(),
+            mimeType: 'application/vnd.google-apps.spreadsheet' },
+          tempFileId
+        );
+        docFileId = sheetMeta.id;
+        var ss    = SpreadsheetApp.openById(docFileId);
+        var lines = [];
+        ss.getSheets().forEach(function(sh) {
+          var lr = sh.getLastRow(), lc = sh.getLastColumn();
+          if (lr < 1 || lc < 1) return;
+          var vals = sh.getRange(1, 1, lr, lc).getValues();
+          vals.forEach(function(row) {
+            var rowStr = row.map(function(c) { return String(c||'').trim(); })
+                           .filter(Boolean).join(' | ');
+            if (rowStr) lines.push(rowStr);
+          });
+        });
+        text = lines.join('\n');
+        Logger.log('S86: XLSX extracted ' + lines.length + ' rows of text');
+      } else {
+        // PDF / DOCX / TXT → convert to Google Docs
+        var docMeta  = Drive.Files.copy(
+          { title: 'kai_tmp_jd_' + Date.now(),
+            mimeType: 'application/vnd.google-apps.document' },
+          tempFileId
+        );
+        docFileId = docMeta.id;
+        var doc   = DocumentApp.openById(docFileId);
+        text      = doc.getBody().getText();
+      }
+    } catch(convErr) {
+      Logger.log('Drive conversion failed: ' + convErr.message);
+      result.errors.push('File text extraction failed: ' + convErr.message);
+    }
+
+    if (!text || text.trim().length < 20) {
+      result.msg = 'Could not extract readable text. Please paste the JD text manually.';
+      return result;
+    }
+
+    // ── Run V284 extractor ─────────────────────────────────────────
+    var extracted = extractJdV284_(text, filename);
+    if (!extracted.ok || extracted.jds.length === 0) {
+      result.msg    = 'Could not identify a valid JD in this file. Check file content.';
+      result.errors = extracted.errors;
+      return result;
+    }
+
+    var jds = extracted.jds;
+
+    // ── Single JD: save immediately ────────────────────────────────
+    if (jds.length === 1) {
+      try {
+        var reqId  = saveRequirementV284_(jds[0]);
+        jds[0].reqId = reqId;
+        result.ok    = true;
+        result.count = 1;
+        result.jds   = jds;
+        result.isMulti = false;
+        result.msg   = '1 position extracted and saved';
+      } catch(saveErr) {
+        result.msg = 'Save failed: ' + saveErr.message;
+      }
+      return result;
+    }
+
+    // ── Multi-JD: cache and return preview ─────────────────────────
+    var batchId = 'B' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    var cache   = CacheService.getScriptCache();
+
+    // CacheService max value size is ~100KB — safe for typical multi-JD (2-15 positions)
+    try {
+      cache.put('JD_BATCH_' + batchId, JSON.stringify(jds), 1800); // 30 min TTL
+    } catch(cacheErr) {
+      // Cache write failed — fallback: save all immediately
+      Logger.log('Cache write failed, fallback to immediate save: ' + cacheErr.message);
+      var saved = [];
+      jds.forEach(function(jd) {
+        try {
+          var rId = saveRequirementV284_(jd);
+          jd.reqId = rId;
+          saved.push(jd);
+        } catch(e) { result.errors.push(e.message); }
+      });
+      result.ok      = true;
+      result.count   = saved.length;
+      result.jds     = saved;
+      result.isMulti = true;
+      result.msg     = saved.length + ' positions saved (cache unavailable)';
+      return result;
+    }
+
+    // Build lightweight preview objects for the confirmation screen
+    var previews = jds.map(function(jd, idx) {
+      return {
+        idx:           idx,
+        trade:         jd.trade         || '',
+        clientName:    jd.clientName    || '',
+        deployCountry: jd.deployCountry || '',
+        quantity:      jd.quantity      || 1,
+        minExperience: jd.minExperience || '',
+        salary:        jd.salary        || '',
+        urgency:       jd.urgency       || '',
+        certifications:Array.isArray(jd.certifications) ? jd.certifications.join(', ') : (jd.certifications || '')
+      };
+    });
+
+    result.ok          = true;
+    result.isMulti     = true;
+    result.pendingSave = true;
+    result.batchId     = batchId;
+    result.count       = jds.length;
+    result.jds         = previews;
+    result.msg         = jds.length + ' positions found — please confirm which to save';
+    return result;
+
+  } catch(err) {
+    result.msg = 'Extraction error: ' + err.message;
+    Logger.log('extractJdPublicV2 error: ' + err.message);
+    return result;
+
+  } finally {
+    try { if (tempFileId) DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e3) {}
+    try { if (docFileId)  DriveApp.getFileById(docFileId).setTrashed(true);  } catch(e4) {}
+  }
+}
+
+
+/**
+ * S86.F02 — Corrected Paste JD entry point with two-phase multi-JD commit.
+ * Supersedes extractJdFromPastePublic() from patch_v284.
+ */
+function extractJdFromPastePublicV2(text, title) {
+  var result = { ok: false, count: 0, jds: [], isMulti: false, msg: '', errors: [] };
+  if (!text || text.trim().length < 15) {
+    result.msg = 'Please paste the JD text first.';
+    return result;
+  }
+
+  try {
+    var extracted = extractJdV284_(text.trim(), title || '');
+    if (!extracted.ok || extracted.jds.length === 0) {
+      result.msg    = 'Could not detect a valid JD in the pasted text.';
+      result.errors = extracted.errors;
+      return result;
+    }
+
+    var jds = extracted.jds;
+
+    // Single JD: save immediately
+    if (jds.length === 1) {
+      var reqId  = saveRequirementV284_(jds[0]);
+      jds[0].reqId = reqId;
+      result.ok    = true;
+      result.count = 1;
+      result.jds   = jds;
+      result.isMulti = false;
+      result.msg   = '1 position saved';
+      return result;
+    }
+
+    // Multi-JD: cache
+    var batchId = 'B' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    var cache   = CacheService.getScriptCache();
+
+    try {
+      cache.put('JD_BATCH_' + batchId, JSON.stringify(jds), 1800);
+    } catch(ce) {
+      // Fallback: save all
+      var saved = [];
+      jds.forEach(function(jd) {
+        try {
+          var rId = saveRequirementV284_(jd);
+          jd.reqId = rId;
+          saved.push(jd);
+        } catch(e) { result.errors.push(e.message); }
+      });
+      result.ok      = true;
+      result.count   = saved.length;
+      result.jds     = saved;
+      result.isMulti = true;
+      result.msg     = saved.length + ' positions saved (cache fallback)';
+      return result;
+    }
+
+    var previews = jds.map(function(jd, idx) {
+      return {
+        idx: idx, trade: jd.trade || '', clientName: jd.clientName || '',
+        deployCountry: jd.deployCountry || '', quantity: jd.quantity || 1,
+        minExperience: jd.minExperience || '', salary: jd.salary || ''
+      };
+    });
+
+    result.ok          = true;
+    result.isMulti     = true;
+    result.pendingSave = true;
+    result.batchId     = batchId;
+    result.count       = jds.length;
+    result.jds         = previews;
+    result.msg         = jds.length + ' positions found — please confirm which to save';
+    return result;
+
+  } catch(e) {
+    result.msg = 'Parse error: ' + e.message;
+    return result;
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S87 · SETUP & MENU
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S87.F01 — Setup for patch_v285 (no sheet changes — pure compute engine).
+ * Validates that required sheets exist and logs taxonomy coverage.
+ */
+function setupV285() {
+  var ss   = getMasterSS_();
+  var log  = [];
+
+  // Verify required sheets
+  var reqSheet  = ss.getSheetByName(CONFIG_V2.requirementsSheet);
+  var candSheet = ss.getSheetByName(CONFIG.sheetName);
+
+  if (!reqSheet)  log.push('⚠️  _Requirements sheet not found — run setupV284 first');
+  else            log.push('✓  _Requirements sheet: ' + (reqSheet.getLastRow() - 1) + ' requirements');
+
+  if (!candSheet) log.push('⚠️  Candidates sheet not found');
+  else            log.push('✓  Candidates sheet: ' + (candSheet.getLastRow() - 1) + ' candidates');
+
+  // Log taxonomy coverage
+  log.push('✓  Trade taxonomy: ' + TRADE_GROUPS_V285_.length + ' groups loaded');
+
+  var totalPrimary  = 0;
+  var totalSimilar  = 0;
+  var totalRelated  = 0;
+  TRADE_GROUPS_V285_.forEach(function(g) {
+    totalPrimary  += g.primary.length;
+    totalSimilar  += g.similar.length;
+    totalRelated  += g.related.length;
+  });
+  log.push('   Primary terms:  ' + totalPrimary);
+  log.push('   Similar terms:  ' + totalSimilar);
+  log.push('   Related terms:  ' + totalRelated);
+  log.push('   Total coverage: ' + (totalPrimary + totalSimilar + totalRelated) + ' trade terms');
+
+  // Test match engine
+  var testResult = matchCandidatesForReq285_('__TEST__', 1, 'LONG_SHOT');
+  if (testResult.msg && testResult.msg.indexOf('not found') > -1) {
+    log.push('✓  Match engine responding correctly');
+  }
+
+  log.push('');
+  log.push('V285 READY — dashboard can now call:');
+  log.push('  matchCandidatesForReqPublic(reqId, limit)');
+  log.push('  getTopMatchSummaryPublic(reqId)');
+  log.push('  getRequirementByIdPublic(reqId)');
+  log.push('  getOpenRequirementsPublic()');
+  log.push('  extractJdPublicV2(base64, filename, mimeType)');
+  log.push('  extractJdFromPastePublicV2(text, title)');
+
+  var msg = log.join('\n');
+  Logger.log('setupV285:\n' + msg);
+  try { SpreadsheetApp.getUi().alert('V285 Setup Complete\n\n' + msg); } catch(e) {}
+}
+
+
+/**
+ * S87.F02 — Live match test from menu.
+ * Picks the most recent open requirement and runs match engine.
+ * Safe: read-only, no writes.
+ */
+function testMatchEngineV285() {
+  var reqs = getOpenRequirementsPublic();
+  if (!reqs.ok || reqs.reqs.length === 0) {
+    Logger.log('V285 Match Test: No open requirements found.');
+    try { SpreadsheetApp.getUi().alert('No open requirements found to test.'); } catch(e) {}
+    return;
+  }
+
+  // Use first (most recent) requirement
+  var req    = reqs.reqs[0];
+  var result = matchCandidatesForReqPublic(req.reqId, 5);
+
+  if (!result.ok) {
+    Logger.log('V285 Match Test failed: ' + result.msg);
+    try { SpreadsheetApp.getUi().alert('Match test failed: ' + result.msg); } catch(e) {}
+    return;
+  }
+
+  var lines = [
+    '═══ MATCH ENGINE TEST ═══',
+    'Req: ' + result.reqId,
+    'Trade: ' + result.req.trade,
+    'Client: ' + result.req.clientName,
+    '',
+    'SUMMARY: ' + result.summary.total + ' candidates matched',
+    '  STRONG:    ' + result.summary.strong,
+    '  GOOD:      ' + result.summary.good,
+    '  POSSIBLE:  ' + result.summary.possible,
+    '',
+    'TOP 5 MATCHES:'
+  ];
+
+  result.matches.slice(0, 5).forEach(function(m, i) {
+    lines.push(
+      (i+1) + '. [' + m.tier + ' ' + m.score + '] ' + m.name +
+      ' (' + m.nationality + ') — ' + m.trade +
+      '\n   → ' + m.signals.slice(0,3).join(', ')
+    );
+  });
+
+  Logger.log(lines.join('\n'));
+  try { SpreadsheetApp.getUi().alert(lines.join('\n')); } catch(e) {}
+}
+
+
+/**
+ * S87.F03 — Test trade taxonomy matching from menu.
+ * Shows similarity scores for a sample of known trade pairs.
+ */
+function testTaxonomyV285() {
+  var testPairs = [
+    ['Structural Steel Fabricator',  'ST Fabricator'],
+    ['Pipe Fitter',                  'Piping Fitter'],
+    ['Welder',                       'Coded Welder'],
+    ['Electrician',                  'Electrical Technician'],
+    ['HVAC Technician',              'AC Mechanic'],
+    ['Safety Officer',               'HSE Officer'],
+    ['QC Inspector',                 'Quality Inspector'],
+    ['Civil Foreman',                'Site Supervisor'],
+    ['Crane Operator',               'Heavy Driver'],   // should be low
+    ['Scaffolder',                   'Mason']           // should be 0
+  ];
+
+  var lines = ['═══ TAXONOMY TEST ═══', ''];
+  testPairs.forEach(function(pair) {
+    var score = getTradeScore285_(pair[0], pair[1]);
+    var label = score >= 30 ? '🟢' : score >= 18 ? '🟡' : score >= 8 ? '🟠' : '🔴';
+    lines.push(label + ' ' + score + '/40  ' + pair[0] + ' ↔ ' + pair[1]);
+  });
+
+  Logger.log(lines.join('\n'));
+  try { SpreadsheetApp.getUi().alert(lines.join('\n')); } catch(e) {
+    Logger.log('(alert unavailable in this context — see logs above)');
+  }
+}

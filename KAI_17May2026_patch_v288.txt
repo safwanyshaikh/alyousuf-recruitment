@@ -1,0 +1,454 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * KAI OS — PATCH v288 · STABILITY & UX FIXES
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  Build   : 18-May-2026
+ *  Company : Al Yousuf Enterprises LLP
+ *
+ *  SECTIONS
+ *  ─────────────────────────────────────────────────────────────────
+ *  S94  SESSION IDENTITY     — getSessionUser (locks recruiter to login)
+ *  S95  TOP3 FIX             — fixTop3PositionsV288 (batch + cache clear)
+ *  S96  DASHBOARD CACHE      — clearDashboardCachePublic
+ *  S97  CANDIDATE EMAIL      — sendCandidateEmailV288 (direct send)
+ *  S98  BACKEND FRESHNESS    — getCvFreshness_v288_ (weekday-based labels)
+ *
+ *  FIXES DELIVERED
+ *  ─────────────────────────────────────────────────────────────────
+ *  ✅ Recruiter identity locked to login session (no switching)
+ *  ✅ Top 3 Positions batch compute + cache clear
+ *  ✅ Candidate email — direct Gmail compose via backend
+ *  ✅ Freshness labels updated to weekday-based system
+ *  ✅ Dashboard cache management (force-fresh after bulk ops)
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+var PATCH_V288 = {
+  version: '288',
+  build:   '18-May-2026',
+  tz:      'Asia/Kolkata'
+};
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S94 · SESSION IDENTITY ENGINE
+// Resolves which recruiter is logged in from their session token.
+// Dashboard calls this on DOMContentLoaded to lock the user role.
+// No switching allowed after identity is resolved from token.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S94.F01 — Return the recruiter identity bound to a valid session token.
+ * Called by the dashboard on load via google.script.run.
+ * Returns: { ok, role, name, email } or safe default on failure.
+ */
+function getSessionUser(token) {
+  try {
+    if (token) {
+      // Fast path: check script cache (populated at login time)
+      var cached = CacheService.getScriptCache().get('KAI_TOK_' + token);
+      if (cached) {
+        var data = JSON.parse(cached);
+        // role is the recruiter ID (e.g. 'hr5'), stored at login
+        var role = String(data.role  || '').toLowerCase().trim() || 'hr5';
+        return {
+          ok:    true,
+          role:  role,
+          name:  String(data.name  || 'Recruiter'),
+          email: String(data.email || (role + '@alyousufent.com'))
+        };
+      }
+
+      // Fallback: verify against KAI_Users sheet directly
+      var ss    = getMasterSS_();
+      var sheet = ss.getSheetByName('KAI_Users');
+      if (sheet && sheet.getLastRow() >= 2) {
+        var rows = sheet.getRange(2, 1, sheet.getLastRow()-1, 8).getValues();
+        for (var i = 0; i < rows.length; i++) {
+          var storedToken = String(rows[i][5] || '').trim();
+          if (storedToken === token) {
+            var expiry = new Date(String(rows[i][6] || ''));
+            if (expiry > new Date()) {
+              var roleVal = String(rows[i][1] || 'hr5').toLowerCase().trim();
+              return {
+                ok:    true,
+                role:  roleVal,
+                name:  String(rows[i][3] || 'Recruiter'),
+                email: String(rows[i][0] || (roleVal + '@alyousufent.com'))
+              };
+            }
+            // Token found but expired
+            return { ok: false, role: 'hr5', name: 'Recruiter', email: 'hr5@alyousufent.com', reason: 'expired' };
+          }
+        }
+      }
+    }
+    // No valid token — safe default (read-only viewer mode)
+    return { ok: false, role: 'hr5', name: 'Recruiter', email: 'hr5@alyousufent.com', reason: 'no_token' };
+  } catch(e) {
+    Logger.log('S94: getSessionUser error: ' + e.message);
+    return { ok: false, role: 'hr5', name: 'Recruiter', email: 'hr5@alyousufent.com', reason: 'error' };
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S95 · TOP 3 POSITIONS FIX
+// Batch-computes Top 3 Positions for all existing candidates that
+// don't have column 42 populated, then clears the dashboard cache.
+// Run once from menu after deployment.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S95.F01 — One-shot fix: populate Top 3 Positions for ALL candidates.
+ *
+ * ROOT CAUSE OF "unknown error":
+ *   Reading 1041 rows × 42 cols = 43,722 cells in one getRange() call
+ *   exceeds GAS internal service limits and returns "unknown error".
+ *
+ * FIX: Read each required column individually (7 small reads).
+ *   7 × 1041 = 7,287 cells total — well within limits.
+ *
+ * Column map (hardcoded — no dependency on PATCH_V282 or CONFIG):
+ *   trade=9, education=7, experience=11, gulf=12, active=24
+ *   educationEnum=39, top3Positions=42
+ */
+function fixTop3PositionsV288() {
+  var t0 = Date.now();
+  Logger.log('S95: ══ TOP3 FIX START ══');
+
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('❌ Candidates sheet not found. Check CONFIG.sheetName.');
+    return;
+  }
+  var lr = sheet.getLastRow() - 1;
+  if (lr < 1) {
+    SpreadsheetApp.getUi().alert('❌ No data rows found in the sheet.');
+    return;
+  }
+  Logger.log('S95: Processing ' + lr + ' rows');
+
+  // ── Column constants ──
+  var COL_EDU_RAW = 7;
+  var COL_TRADE   = 9;
+  var COL_EXP     = 11;
+  var COL_GULF    = 12;
+  var COL_ACTIVE  = 24;
+  var COL_EDU_EN  = 39;
+  var COL_TOP3    = 42;
+
+  // Ensure col 42 header exists (no formatting — just text)
+  if (sheet.getLastColumn() < COL_TOP3) {
+    sheet.getRange(1, COL_TOP3).setValue('Top 3 Positions');
+  }
+
+  // ── Read each column separately — SMALL reads to avoid service limits ──
+  var colTrade  = sheet.getRange(2, COL_TRADE,   lr, 1).getValues();
+  var colEduRaw = sheet.getRange(2, COL_EDU_RAW, lr, 1).getValues();
+  var colExp    = sheet.getRange(2, COL_EXP,     lr, 1).getValues();
+  var colGulf   = sheet.getRange(2, COL_GULF,    lr, 1).getValues();
+  var colActive = sheet.getRange(2, COL_ACTIVE,  lr, 1).getValues();
+  var colEduEn  = (sheet.getLastColumn() >= COL_EDU_EN)
+                  ? sheet.getRange(2, COL_EDU_EN, lr, 1).getValues()
+                  : null;
+  var colTop3   = (sheet.getLastColumn() >= COL_TOP3)
+                  ? sheet.getRange(2, COL_TOP3,   lr, 1).getValues()
+                  : null;
+
+  var out     = [];
+  var filled  = 0;
+  var skipped = 0;
+  var noTrade = 0;
+
+  for (var i = 0; i < lr; i++) {
+    // Skip archived rows
+    var active = String((colActive[i] && colActive[i][0]) || '').toUpperCase().trim();
+    if (active === 'ARCHIVED' || active === 'SUPERSEDED') {
+      out.push(['']);
+      skipped++;
+      continue;
+    }
+
+    // Skip if col 42 already has a value
+    var existing = String((colTop3 && colTop3[i] && colTop3[i][0]) || '').trim();
+    if (existing.length > 3) {
+      out.push([existing]);
+      skipped++;
+      continue;
+    }
+
+    var trade   = String((colTrade[i]  && colTrade[i][0])  || '').trim();
+    var eduRaw  = String((colEduRaw[i] && colEduRaw[i][0]) || '').trim();
+    var exp     = parseFloat((colExp[i]  && colExp[i][0])  || 0) || 0;
+    var gulf    = String((colGulf[i]   && colGulf[i][0])   || '').trim();
+    var eduEnum = String((colEduEn && colEduEn[i] && colEduEn[i][0]) || '').trim();
+
+    // Classify education if enum missing
+    if (!eduEnum && eduRaw && typeof classifyEducation_ === 'function') {
+      eduEnum = classifyEducation_(eduRaw);
+    }
+
+    var top3 = [];
+    if (typeof computeTop3Positions_ === 'function') {
+      top3 = computeTop3Positions_({ trade:trade, educationEnum:eduEnum, experience:exp, gulfExp:gulf });
+    }
+    if (!trade) noTrade++;
+
+    out.push([top3.join(' | ')]);
+    filled++;
+  }
+
+  // ── Single batch write ──
+  if (out.length > 0) {
+    sheet.getRange(2, COL_TOP3, out.length, 1).setValues(out);
+    SpreadsheetApp.flush();
+  }
+
+  clearDashboardCacheV288_();
+  var elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  Logger.log('S95: ══ DONE — filled:' + filled + ' skipped:' + skipped + ' noTrade:' + noTrade + ' (' + elapsed + 's)');
+
+  SpreadsheetApp.getUi().alert(
+    '✅ Top 3 Positions — Complete!\n\n' +
+    '📋 Filled : ' + filled  + ' candidates\n' +
+    '⏭️ Skipped: ' + skipped + ' (had values or archived)\n' +
+    (noTrade > 0 ? '⚠️ No trade: ' + noTrade + ' rows (will show trade name)\n' : '') +
+    '🗑️ Cache  : cleared\n' +
+    '⏱️ Time   : ' + elapsed + 's\n\n' +
+    'Refresh the dashboard now.'
+  );
+}
+
+/**
+ * S95.F02 — Force-refresh Top 3 for a SINGLE candidate row.
+ * Used after editing a candidate's trade/education.
+ */
+function refreshTop3ForRow(rowIndex) {
+  if (!rowIndex || rowIndex < 2) return { ok: false, msg: 'Invalid row' };
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ic    = CONFIG.inputColumns;
+    var ec2   = (typeof PATCH_V282 !== 'undefined') ? PATCH_V282.extCol2 :
+                { educationEnum:39, techReview:40, reviewedBy:41, top3Positions:42 };
+    var maxC  = Math.max(42, ec2.top3Positions, ic.experience||8);
+    var row   = sheet.getRange(rowIndex, 1, 1, maxC).getValues()[0];
+    var trade = String(row[ic.trade-1]||'');
+    var edu   = (row.length >= ec2.educationEnum) ? String(row[ec2.educationEnum-1]||'') : '';
+    var exp   = parseFloat(row[ic.experience-1])||0;
+    var gulf  = String(row[(ic.gulf||9)-1]||'');
+    if (typeof computeTop3Positions_ === 'function') {
+      var top3 = computeTop3Positions_({ trade:trade, educationEnum:edu, experience:exp, gulfExp:gulf });
+      sheet.getRange(rowIndex, ec2.top3Positions).setValue(top3.join(' | '));
+      SpreadsheetApp.flush();
+    }
+    clearDashboardCacheV288_();
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S96 · DASHBOARD CACHE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S96.F01 — Clear all KAI dashboard caches.
+ * Call after any bulk data change (new CVs, state changes, Top3 refresh).
+ */
+function clearDashboardCacheV288_() {
+  var cache = CacheService.getScriptCache();
+  ['kai_dashboard_v2', 'kai_dash_cache', 'kai_requirements',
+   'kai_req_cache', 'kai_metrics_cache'].forEach(function(k) {
+    try { cache.remove(k); } catch(e) {}
+  });
+  Logger.log('S96: Dashboard cache cleared');
+}
+
+/** Public menu wrapper */
+function clearDashboardCachePublic() {
+  clearDashboardCacheV288_();
+  try {
+    SpreadsheetApp.getUi().alert('✅ Dashboard cache cleared.\nRefresh the dashboard URL to load fresh data.');
+  } catch(e) {}
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S97 · CANDIDATE EMAIL — DIRECT SEND
+// Sends an email to a candidate from KAI on behalf of the recruiter.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S97.F01 — Send email to candidate.
+ * Sends via GmailApp (as script owner / ai@alyousufent.com).
+ * Recruiter identity shown in the email "name" field.
+ *
+ * Returns: { ok, msg }
+ */
+function sendCandidateEmailV288(rowIndex, subject, body, recruiterRole) {
+  try {
+    if (!rowIndex || rowIndex < 2) return { ok:false, msg:'Invalid row' };
+    if (!subject || !body)         return { ok:false, msg:'Subject and body required' };
+
+    // Load candidate email
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ic    = CONFIG.inputColumns;
+    var maxC  = Math.max(ic.email, ic.name, ic.positionApplied||12);
+    var row   = sheet.getRange(rowIndex, 1, 1, maxC).getValues()[0];
+    var toEmail  = String(row[ic.email-1]||'').trim().toLowerCase();
+    var candName = String(row[ic.name-1]||'').trim();
+    var pos      = String(row[(ic.positionApplied||12)-1]||'').trim();
+
+    if (!toEmail || !toEmail.includes('@')) return { ok:false, msg:'No valid email for this candidate' };
+
+    // Block internal emails
+    if (typeof isInternalDomain_ === 'function' && isInternalDomain_(toEmail)) {
+      return { ok:false, msg:'Cannot send to internal address: ' + toEmail };
+    }
+
+    // Determine sender display name
+    var senderMap = {
+      'hr5':  'HR5 — Al Yousuf Enterprises LLP',
+      'hr7':  'HR7 — Al Yousuf Enterprises LLP',
+      'hr8':  'HR8 — Al Yousuf Enterprises LLP',
+      'hr12': 'HR12 — Al Yousuf Enterprises LLP'
+    };
+    var senderName = senderMap[String(recruiterRole||'').toLowerCase()] ||
+                     'Al Yousuf Enterprises LLP — Recruitment Team';
+
+    // Check email quota
+    if (typeof consumeEmailQuota287_ === 'function' && !consumeEmailQuota287_(1)) {
+      return { ok:false, msg:'Email quota exhausted for today. Will reset tomorrow.' };
+    }
+
+    // Send
+    GmailApp.sendEmail(toEmail, subject, body, {
+      name:    senderName,
+      replyTo: 'ai@alyousufent.com'
+    });
+
+    // Log to candidate timeline
+    try {
+      var ec       = CONFIG_V2.extCol;
+      var tlCol    = ec.timeline || 38;
+      if (sheet.getLastColumn() >= tlCol) {
+        var tlRng  = sheet.getRange(rowIndex, tlCol);
+        var tl     = (typeof safeParseJson_ === 'function') ?
+                     safeParseJson_(tlRng.getValue(), []) : [];
+        tl.push({
+          ts:     Utilities.formatDate(new Date(), PATCH_V288.tz, 'yyyy-MM-dd HH:mm'),
+          action: 'RECRUITER_EMAIL_SENT',
+          by:     recruiterRole || 'KAI',
+          note:   'Email sent to ' + toEmail + ' · Subject: ' + subject.slice(0,60)
+        });
+        tlRng.setValue(JSON.stringify(tl.slice(-20)));
+      }
+    } catch(te) {}
+
+    Logger.log('S97: Email sent → ' + toEmail + ' by ' + (recruiterRole||'KAI') +
+      ' · Subject: ' + subject.slice(0,60));
+    return { ok:true, msg:'Sent to ' + toEmail, to: toEmail };
+
+  } catch(e) {
+    Logger.log('S97: sendCandidateEmailV288 error: ' + e.message);
+    return { ok:false, msg: e.message };
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S98 · BACKEND FRESHNESS — WEEKDAY-BASED LABELS
+// Replaces getCvFreshness_ (patch_v283) with the new weekday system.
+// Labels MUST match clientFreshness_() in the dashboard HTML exactly.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S98.F01 — Compute freshness label using the weekday-based system.
+ * Current week → weekday name (Monday, Tuesday, etc.)
+ * Older        → 15 Days / 30 Days / 45 Days / 60 Days /
+ *                3 Month / 4 Month / 5 Month / 6 Month / Legacy
+ *
+ * Overrides getCvFreshness_ from patch_v283 (same function name is
+ * intentional — this version takes precedence in GAS load order).
+ * NOTE: This is a standalone helper — does NOT override getCvFreshness_
+ * directly. The V283 version remains for backward compat.
+ * Call getCvFreshnessV288_(date) for the new labels.
+ */
+function getCvFreshnessV288_(applicationDate) {
+  if (!applicationDate) return '';
+  var d;
+  if (applicationDate instanceof Date) {
+    d = applicationDate;
+  } else {
+    d = new Date(String(applicationDate).slice(0,10));
+  }
+  if (isNaN(d.getTime())) return '';
+
+  var tz       = PATCH_V288.tz;
+  var todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  var today    = new Date(todayStr);
+  var appDay   = new Date(Utilities.formatDate(d, tz, 'yyyy-MM-dd'));
+  if (appDay > today) return '';
+
+  var diffDays = Math.round((today - appDay) / 86400000);
+
+  // Find Monday of current week
+  var dow          = today.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+  var daysToMonday = (dow === 0) ? 6 : dow - 1;
+  var weekStart    = new Date(today);
+  weekStart.setDate(today.getDate() - daysToMonday);
+
+  // Current week → weekday name
+  if (appDay >= weekStart && appDay <= today) {
+    var DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    return DAYS[d.getDay()];
+  }
+
+  // Older buckets — must match clientFreshness_() in Dashboard HTML exactly
+  if (diffDays <= 15)  return '15 Days';
+  if (diffDays <= 30)  return '30 Days';
+  if (diffDays <= 45)  return '45 Days';
+  if (diffDays <= 60)  return '60 Days';
+  if (diffDays <= 90)  return '3 Month';
+  if (diffDays <= 120) return '4 Month';
+  if (diffDays <= 150) return '5 Month';
+  if (diffDays <= 180) return '6 Month';
+  return 'Legacy';
+}
+
+/**
+ * S98.F02 — Freshness score for AI matching (V288 version).
+ * Weekday labels still map to score ranges for match engine.
+ */
+function getFreshnessScoreV288_(applicationDate) {
+  var label = getCvFreshnessV288_(applicationDate);
+  var scores = {
+    'Monday':30,'Tuesday':30,'Wednesday':30,'Thursday':30,
+    'Friday':30,'Saturday':28,'Sunday':28,
+    '15 Days':22,'30 Days':18,'45 Days':14,'60 Days':11,
+    '3 Month':8,'4 Month':6,'5 Month':4,'6 Month':2,'Legacy':1
+  };
+  return scores[label] !== undefined ? scores[label] : 1;
+}
+
+/**
+ * S98.F03 — Freshness urgency for notification engine (V288).
+ * HOT  = current week (any weekday)
+ * WARM = 15 / 30 Days
+ * COLD = older
+ */
+function getFreshnessUrgencyV288_(applicationDate) {
+  var label = getCvFreshnessV288_(applicationDate);
+  var weekdays = {'Monday':1,'Tuesday':1,'Wednesday':1,'Thursday':1,
+                  'Friday':1,'Saturday':1,'Sunday':1};
+  if (weekdays[label])          return 'HOT';
+  if (label === '15 Days')      return 'HOT';
+  if (label === '30 Days')      return 'WARM';
+  if (label === '45 Days')      return 'WARM';
+  if (label === '60 Days')      return 'COOL';
+  return 'COLD';
+}

@@ -1,0 +1,129 @@
+/**
+ * ========================================================================
+ *  AYE RECRUITMENT — DASHBOARD
+ *  Live KPI dashboard with Chart.js. Opens via custom menu.
+ * ========================================================================
+ */
+
+/**
+ * Custom menu — installed automatically when sheet opens.
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('AYE Recruitment')
+    .addItem('📊 Open Dashboard', 'openDashboard')
+    .addItem('▶️ Run Processor Now', 'runOnce')
+    .addItem('⏸ Pause Processor', 'pauseAYE')
+    .addSeparator()
+    .addItem('🔍 Run Diagnostics', 'runDiagnostics')
+    .addItem('🧠 Detect New Trades (Taxonomy)', 'runTaxonomyScan')
+    .addItem('📈 Daily Bias Snapshot', 'runValidationSnapshot')
+    .addToUi();
+}
+
+/**
+ * Open dashboard as modal.
+ */
+function openDashboard() {
+  const html = HtmlService.createHtmlOutputFromFile('Dashboard')
+    .setWidth(1200)
+    .setHeight(750)
+    .setTitle('AYE Recruitment Dashboard');
+  SpreadsheetApp.getUi().showModalDialog(html, 'AYE Recruitment Dashboard');
+}
+
+/**
+ * Server-side data fetch — called from dashboard HTML via google.script.run.
+ */
+function getDashboardData() {
+  const sheet = getCandidatesSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return {
+      totals: { all: 0, shortlisted: 0, review: 0, rejected: 0, today: 0, week: 0 },
+      tierBreakdown: { A: 0, B: 0, C: 0 },
+      tradeBreakdown: {},
+      nationalityBreakdown: {},
+      gccExperience: {},
+      dailyVolume: [],
+      recentCandidates: []
+    };
+  }
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 40).getValues();
+  const today = new Date();
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const result = {
+    totals: { all: data.length, shortlisted: 0, review: 0, rejected: 0, today: 0, week: 0 },
+    tierBreakdown: { A: 0, B: 0, C: 0 },
+    tradeBreakdown: {},
+    nationalityBreakdown: {},
+    gccExperience: { withGulf: 0, withoutGulf: 0 },
+    dailyVolume: {},
+    recentCandidates: []
+  };
+
+  for (const row of data) {
+    const tier = String(row[CONFIG.COL.TIER - 1] || '').toUpperCase();
+    const status = String(row[CONFIG.COL.STATUS - 1] || '').toUpperCase();
+    const trade = String(row[CONFIG.COL.TRADE - 1] || 'Unknown').trim();
+    const nat = String(row[CONFIG.COL.NATIONALITY - 1] || 'Unknown').trim();
+    const gcc = String(row[CONFIG.COL.GCC_COUNTRIES - 1] || '').trim();
+    const procDate = row[CONFIG.COL.ORIGINAL_PROCESSED - 1];
+
+    if (tier === 'A') result.tierBreakdown.A++;
+    else if (tier === 'B') result.tierBreakdown.B++;
+    else result.tierBreakdown.C++;
+
+    if (status === 'SHORTLISTED') result.totals.shortlisted++;
+    else if (status === 'WARM' || status === 'PENDING') result.totals.review++;
+    else if (status === 'REJECTED') result.totals.rejected++;
+
+    result.tradeBreakdown[trade] = (result.tradeBreakdown[trade] || 0) + 1;
+    result.nationalityBreakdown[nat] = (result.nationalityBreakdown[nat] || 0) + 1;
+
+    if (gcc && gcc.length > 2) result.gccExperience.withGulf++;
+    else result.gccExperience.withoutGulf++;
+
+    if (procDate instanceof Date) {
+      const dateKey = Utilities.formatDate(procDate, 'GMT+5:30', 'yyyy-MM-dd');
+      result.dailyVolume[dateKey] = (result.dailyVolume[dateKey] || 0) + 1;
+
+      if (procDate.toDateString() === today.toDateString()) result.totals.today++;
+      if (procDate >= weekAgo) result.totals.week++;
+    }
+  }
+
+  // Convert dailyVolume to sorted array (last 14 days)
+  const dailyArr = Object.keys(result.dailyVolume).sort().slice(-14).map(d => ({
+    date: d,
+    count: result.dailyVolume[d]
+  }));
+  result.dailyVolume = dailyArr;
+
+  // Top 10 trades
+  result.tradeBreakdown = topNObject_(result.tradeBreakdown, 10);
+  result.nationalityBreakdown = topNObject_(result.nationalityBreakdown, 8);
+
+  // Recent 10 candidates
+  const recentRows = data.slice(-10).reverse();
+  result.recentCandidates = recentRows.map(r => ({
+    name: r[CONFIG.COL.FULL_NAME - 1],
+    trade: r[CONFIG.COL.TRADE - 1],
+    score: r[CONFIG.COL.TOTAL_SCORE - 1],
+    tier: r[CONFIG.COL.TIER - 1],
+    status: r[CONFIG.COL.STATUS - 1],
+    mobile: r[CONFIG.COL.MOBILE - 1],
+    cvLink: r[CONFIG.COL.CV_LINK - 1]
+  }));
+
+  return result;
+}
+
+function topNObject_(obj, n) {
+  const sorted = Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
+  const result = {};
+  for (const [k, v] of sorted) result[k] = v;
+  return result;
+}

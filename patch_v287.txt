@@ -1,0 +1,1170 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * KAI OS — PATCH v287 · CV QUOTA ENGINE + AUTO-REPLY SYSTEM
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  Build   : 17-May-2026
+ *  Company : Al Yousuf Enterprises LLP
+ *
+ *  SECTIONS
+ *  ─────────────────────────────────────────────────────────────────
+ *  S88  QUOTA MANAGER         — parser quota 300/day + carry-forward
+ *                               email  quota 200/day + carry-forward
+ *  S89  AUTO-REPLY ENGINE     — detect missing info, build & send
+ *                               confirmation email right after parse
+ *  S90  INTEGRATION HOOKS     — safe entry points called post-parse
+ *  S91  SETUP & DIAGNOSTICS   — setupV287, testAutoReplyV287
+ *
+ *  QUOTA RULES
+ *  ─────────────────────────────────────────────────────────────────
+ *  Parser  : 300 CVs/day base · unused balance carries to next day
+ *             Max carry cap = 500 (base + 200 max carry-forward)
+ *
+ *  Email   : 200 replies/day (100 free Google quota + 100 buffer)
+ *             Max carry cap = 300 (base + 100 max carry-forward)
+ *             Google free Gmail: 100 sends/day via GmailApp
+ *             Google Workspace : 1500 sends/day
+ *             Hard cap enforced at 200 to prevent quota burn
+ *
+ *  AUTO-REPLY TRIGGER
+ *  ─────────────────────────────────────────────────────────────────
+ *  → After every CV parse, if candidate email exists AND
+ *    there are missing critical fields → send confirmation email
+ *    requesting specific missing information immediately.
+ *  → 7-day cooldown per candidate (stored in Script Properties)
+ *  → One auto-reply per candidate per 7 days (prevents spam)
+ *
+ *  ARCHITECTURE NOTES
+ *  ─────────────────────────────────────────────────────────────────
+ *  • Additive patch — no existing functions modified
+ *  • All quota state stored in ScriptProperties (survives execution)
+ *  • Auto-reply uses branded Al Yousuf template (external-safe)
+ *  • postParseAutoReply287_ is safe to call from anywhere
+ *  • runAutoReplyBatchV287() runs as a time-trigger for catch-up
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+var PATCH_V287 = {
+  version: '287',
+  parserQuotaBase:  300,   // CVs/day
+  parserQuotaMax:   500,   // absolute max (base + carry-forward cap)
+  emailQuotaBase:   200,   // emails/day (hard cap — Google free = 100, workspace = 1500)
+  emailQuotaMax:    300,   // absolute max with carry-forward
+  cooldownDays:     7,     // days between auto-replies to same candidate
+  tz:               'Asia/Kolkata',
+  // ScriptProperties keys
+  keys: {
+    parserDate:     'v287_parser_date',
+    parserUsed:     'v287_parser_used',
+    parserBalance:  'v287_parser_balance',
+    emailDate:      'v287_email_date',
+    emailUsed:      'v287_email_used',
+    emailBalance:   'v287_email_balance',
+    autoReplySent:  'v287_auto_reply_sent'   // JSON: {emailHash: 'yyyy-MM-dd'}
+  }
+};
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S88 · QUOTA MANAGER
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S88.F01 — Reset quotas if a new day has started, apply carry-forward.
+ * Called at the start of every quota-consuming operation.
+ */
+function resetQuotaIfNewDay287_() {
+  var props   = PropertiesService.getScriptProperties();
+  var tz      = PATCH_V287.tz;
+  var today   = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+
+  // ── PARSER QUOTA ──
+  var pDate = props.getProperty(PATCH_V287.keys.parserDate) || '';
+  if (pDate !== today) {
+    var pUsed    = parseInt(props.getProperty(PATCH_V287.keys.parserUsed) || '0');
+    var pBase    = PATCH_V287.parserQuotaBase;
+    var pMax     = PATCH_V287.parserQuotaMax;
+    var yesterday_unused = Math.max(0, pBase - pUsed);          // what wasn't used yesterday
+    var carry    = Math.min(yesterday_unused, pMax - pBase);     // cap carry-forward
+    var newBal   = pBase + carry;
+    props.setProperty(PATCH_V287.keys.parserDate,    today);
+    props.setProperty(PATCH_V287.keys.parserUsed,    '0');
+    props.setProperty(PATCH_V287.keys.parserBalance, String(newBal));
+    Logger.log('S88: Parser quota reset. New balance: ' + newBal +
+      ' (base=' + pBase + ' + carry=' + carry + ')');
+  }
+
+  // ── EMAIL QUOTA ──
+  var eDate = props.getProperty(PATCH_V287.keys.emailDate) || '';
+  if (eDate !== today) {
+    var eUsed    = parseInt(props.getProperty(PATCH_V287.keys.emailUsed) || '0');
+    var eBase    = PATCH_V287.emailQuotaBase;
+    var eMax     = PATCH_V287.emailQuotaMax;
+    var e_unused = Math.max(0, eBase - eUsed);
+    var eCarry   = Math.min(e_unused, eMax - eBase);
+    var eBal     = eBase + eCarry;
+    props.setProperty(PATCH_V287.keys.emailDate,    today);
+    props.setProperty(PATCH_V287.keys.emailUsed,    '0');
+    props.setProperty(PATCH_V287.keys.emailBalance, String(eBal));
+    Logger.log('S88: Email quota reset. New balance: ' + eBal +
+      ' (base=' + eBase + ' + carry=' + eCarry + ')');
+  }
+}
+
+/**
+ * S88.F02 — Get current quota state for both systems.
+ * Returns: { parser: {balance, used, base, date}, email: {balance, used, base, date} }
+ */
+function getQuotaStateV287() {
+  resetQuotaIfNewDay287_();
+  var props = PropertiesService.getScriptProperties();
+  var today = Utilities.formatDate(new Date(), PATCH_V287.tz, 'yyyy-MM-dd');
+  return {
+    parser: {
+      date:    props.getProperty(PATCH_V287.keys.parserDate)    || today,
+      used:    parseInt(props.getProperty(PATCH_V287.keys.parserUsed)    || '0'),
+      balance: parseInt(props.getProperty(PATCH_V287.keys.parserBalance) || String(PATCH_V287.parserQuotaBase)),
+      base:    PATCH_V287.parserQuotaBase
+    },
+    email: {
+      date:    props.getProperty(PATCH_V287.keys.emailDate)     || today,
+      used:    parseInt(props.getProperty(PATCH_V287.keys.emailUsed)     || '0'),
+      balance: parseInt(props.getProperty(PATCH_V287.keys.emailBalance)  || String(PATCH_V287.emailQuotaBase)),
+      base:    PATCH_V287.emailQuotaBase
+    }
+  };
+}
+
+/**
+ * S88.F03 — Consume N parser slots.
+ * Returns true if quota available, false if exhausted.
+ */
+function consumeParserQuota287_(n) {
+  n = n || 1;
+  resetQuotaIfNewDay287_();
+  var props = PropertiesService.getScriptProperties();
+  var bal   = parseInt(props.getProperty(PATCH_V287.keys.parserBalance) || String(PATCH_V287.parserQuotaBase));
+  if (bal < n) {
+    Logger.log('S88: Parser quota exhausted. Balance=' + bal + ' Requested=' + n);
+    return false;
+  }
+  var used = parseInt(props.getProperty(PATCH_V287.keys.parserUsed) || '0');
+  props.setProperty(PATCH_V287.keys.parserBalance, String(bal - n));
+  props.setProperty(PATCH_V287.keys.parserUsed,    String(used + n));
+  return true;
+}
+
+/**
+ * S88.F04 — Consume N email slots.
+ * Returns true if quota available, false if exhausted.
+ */
+function consumeEmailQuota287_(n) {
+  n = n || 1;
+  resetQuotaIfNewDay287_();
+  var props = PropertiesService.getScriptProperties();
+  var bal   = parseInt(props.getProperty(PATCH_V287.keys.emailBalance) || String(PATCH_V287.emailQuotaBase));
+  if (bal < n) {
+    Logger.log('S88: Email quota exhausted. Balance=' + bal + ' Requested=' + n);
+    return false;
+  }
+  var used = parseInt(props.getProperty(PATCH_V287.keys.emailUsed) || '0');
+  props.setProperty(PATCH_V287.keys.emailBalance, String(bal - n));
+  props.setProperty(PATCH_V287.keys.emailUsed,    String(used + n));
+  return true;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S89 · AUTO-REPLY ENGINE — Missing Info Confirmation
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S89.F01 — Missing field definitions for auto-reply email.
+ * Maps missing field keys to: label (for email) + question (what to ask)
+ */
+var AUTO_REPLY_FIELDS_V287_ = {
+  dob:           { label: 'Date of Birth',                    q: 'Your date of birth (DD/MM/YYYY)' },
+  mobile:        { label: 'Mobile / WhatsApp Number',         q: 'Your active mobile/WhatsApp number with country code' },
+  currentLocation:{ label: 'Current Location (City & Country)', q: 'Your current city and country of residence' },
+  empStatus:     { label: 'Employment Status',                q: 'Currently employed / unemployed / notice period (with days)' },
+  passportExpiry:{ label: 'Passport Expiry Date',             q: 'Passport expiry date (MM/YYYY) and passport number (optional)' },
+  ecrStatus:     { label: 'ECR / ECNR Passport Status',       q: 'Is your passport ECR or ECNR? (Check last page)' },
+  noticePeriod:  { label: 'Notice Period',                    q: 'How many days notice period required before joining?' },
+  gulfExp:       { label: 'Gulf / GCC Experience',            q: 'Do you have prior GCC/Gulf experience? Which countries?' },
+  education:     { label: 'Educational Qualification',        q: 'Your highest qualification (degree/diploma/ITI/10th/12th)' },
+  trade:         { label: 'Trade / Job Role',                 q: 'Your exact trade or job title you are applying for' }
+};
+
+/**
+ * S89.F02 — Check if candidate was recently auto-replied to (cooldown check).
+ * Uses ScriptProperties to store {hash: lastSentDate} map.
+ * hash = simple identifier from email+rowIndex.
+ */
+function wasAutoRepliedRecently287_(email, rowIndex) {
+  if (!email) return false;
+  var props = PropertiesService.getScriptProperties();
+  var raw   = props.getProperty(PATCH_V287.keys.autoReplySent) || '{}';
+  var sent;
+  try { sent = JSON.parse(raw); } catch(e) { sent = {}; }
+  var key   = 'r' + rowIndex;   // keyed by row for accuracy
+  var last  = sent[key];
+  if (!last) return false;
+  var lastDt = new Date(last);
+  var now    = new Date();
+  var daysDiff = Math.floor((now - lastDt) / 86400000);
+  return daysDiff < PATCH_V287.cooldownDays;
+}
+
+/**
+ * S89.F03 — Record that an auto-reply was sent to this candidate.
+ */
+function markAutoReplySent287_(rowIndex) {
+  var props = PropertiesService.getScriptProperties();
+  var raw   = props.getProperty(PATCH_V287.keys.autoReplySent) || '{}';
+  var sent;
+  try { sent = JSON.parse(raw); } catch(e) { sent = {}; }
+  // Prune entries older than 30 days to prevent props from growing unbounded
+  var cutoff = new Date(Date.now() - 30*86400000);
+  Object.keys(sent).forEach(function(k) {
+    if (new Date(sent[k]) < cutoff) delete sent[k];
+  });
+  sent['r' + rowIndex] = Utilities.formatDate(new Date(), PATCH_V287.tz, 'yyyy-MM-dd');
+  try { props.setProperty(PATCH_V287.keys.autoReplySent, JSON.stringify(sent)); } catch(pe) {}
+}
+
+/**
+ * S89.F04 — Build the auto-reply email for missing information.
+ * Returns { subject, plain, html } — Al Yousuf branded, candidate-facing.
+ */
+function buildAutoReplyEmail287_(candidateName, positionApplied, missingKeys) {
+  var name    = (candidateName || 'Candidate').split(' ')[0];  // first name only
+  var pos     = positionApplied || 'the position you applied for';
+  var refNo   = 'AYE-' + new Date().getFullYear() + '-' + Math.floor(Math.random()*90000+10000);
+
+  var fields  = (missingKeys || []).map(function(k, i) {
+    var def = AUTO_REPLY_FIELDS_V287_[k];
+    return def ? { num: i+1, label: def.label, q: def.q } : null;
+  }).filter(Boolean);
+
+  if (fields.length === 0) return null;
+
+  // ── PLAIN TEXT VERSION ──
+  var numberedPlain = fields.map(function(f) {
+    return f.num + '. ' + f.label + '\n   → ' + f.q;
+  }).join('\n\n');
+
+  var plain =
+    'Dear ' + name + ',\n\n' +
+    'Thank you for applying for the position of ' + pos + '.\n\n' +
+    'We have reviewed your application and would like to proceed. ' +
+    'However, we need the following details to complete your profile:\n\n' +
+    numberedPlain + '\n\n' +
+    'Please reply to this email with the above information at the earliest.\n' +
+    'Quick responses help us process your application faster.\n\n' +
+    'Reference: ' + refNo + '\n\n' +
+    'Warm regards,\n' +
+    'Al Yousuf Enterprises LLP\n' +
+    'Recruitment Team\n' +
+    'recruitment@alyousufent.com';
+
+  // ── HTML VERSION ──
+  var liHtml = fields.map(function(f) {
+    return '<li style="margin:10px 0">' +
+      '<strong style="color:#16324f">' + f.label + '</strong><br>' +
+      '<span style="color:#6b7280;font-size:13px">' + f.q + '</span>' +
+      '</li>';
+  }).join('');
+
+  var html =
+    '<div style="font-family:Arial,sans-serif;max-width:580px;margin:0 auto;' +
+    'border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">' +
+
+    // Header
+    '<div style="background:#16324f;padding:18px 24px">' +
+    '<p style="color:#f59e0b;margin:0;font-size:11px;font-weight:700;letter-spacing:1px;' +
+    'text-transform:uppercase">Al Yousuf Enterprises LLP</p>' +
+    '<p style="color:rgba(255,255,255,.7);margin:3px 0 0;font-size:11px">Recruitment Team</p>' +
+    '</div>' +
+
+    // Body
+    '<div style="padding:24px 24px 20px">' +
+    '<p style="color:#374151;font-size:15px;margin:0 0 16px">' +
+    'Dear <strong>' + name + '</strong>,</p>' +
+    '<p style="color:#374151;font-size:13.5px;line-height:1.6;margin:0 0 16px">' +
+    'Thank you for applying for <strong>' + pos + '</strong>. ' +
+    'We have received your profile and are keen to proceed.<br><br>' +
+    'To complete your application and shortlist you faster, ' +
+    'we require the following information:</p>' +
+
+    '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;' +
+    'padding:16px 20px;margin-bottom:20px">' +
+    '<ol style="margin:0;padding-left:18px;color:#374151;font-size:13.5px">' +
+    liHtml +
+    '</ol></div>' +
+
+    '<p style="color:#374151;font-size:13px;line-height:1.6;margin:0 0 12px">' +
+    '<strong>How to reply:</strong> Simply reply to this email with the answers ' +
+    'in the same numbered format. Example:<br>' +
+    '<code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:12px">' +
+    '1. DD/MM/YYYY &nbsp; 2. Mumbai, India &nbsp; 3. Unemployed</code></p>' +
+
+    '<p style="color:#6b7280;font-size:12px;margin:0">⚡ Quick responses help us ' +
+    'process your application faster and give you priority consideration.</p>' +
+    '</div>' +
+
+    // Footer
+    '<div style="background:#f9fafb;padding:14px 24px;border-top:1px solid #e5e7eb">' +
+    '<p style="color:#6b7280;margin:0;font-size:12px">Ref: <strong>' + refNo + '</strong></p>' +
+    '<p style="color:#6b7280;margin:4px 0 0;font-size:12px">' +
+    'Al Yousuf Enterprises LLP · Recruitment Team · recruitment@alyousufent.com</p>' +
+    '</div></div>';
+
+  return {
+    subject: 'Action Required: Complete Your Application — ' + pos,
+    plain:   plain,
+    html:    html,
+    refNo:   refNo
+  };
+}
+
+/**
+ * S89.F05 — Main auto-reply executor for a single candidate row.
+ * Checks: email exists → not on cooldown → quota available → builds email → sends.
+ * Returns: { sent:bool, reason:string }
+ */
+function processCandidateAutoReply287_(rowIndex) {
+  if (!rowIndex || rowIndex < 2) return { sent:false, reason:'Invalid row' };
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ic    = CONFIG.inputColumns;
+    var ec    = CONFIG_V2.extCol;
+    var maxC  = Math.min(Math.max(CONFIG.headers.length, ec.missingFields, 42), sheet.getLastColumn());
+    var row   = sheet.getRange(rowIndex, 1, 1, maxC).getValues()[0];
+
+    var email    = String(row[ic.email-1]||'').trim().toLowerCase();
+    var name     = String(row[ic.name-1]||'').trim();
+    var pos      = String(row[(ic.positionApplied||12)-1]||'').trim();
+    var missRaw  = safeParseJson_(row[ec.missingFields-1], []);
+    var state    = String(row[ec.state-1]||'').toUpperCase().trim();
+
+    // Guard: must have email
+    if (!email || !email.includes('@')) return { sent:false, reason:'No valid email' };
+
+    // Guard: skip if already on cooldown
+    if (wasAutoRepliedRecently287_(email, rowIndex))
+      return { sent:false, reason:'On cooldown (sent within ' + PATCH_V287.cooldownDays + ' days)' };
+
+    // Guard: must have missing fields
+    if (!missRaw || missRaw.length === 0) return { sent:false, reason:'No missing fields' };
+
+    // Guard: don't send to deployed/rejected candidates
+    if (state === 'DEPLOYED' || state === 'REJECTED' || state === 'CLIENT_SELECTED')
+      return { sent:false, reason:'Candidate state: ' + state };
+
+    // Guard: check email quota
+    if (!consumeEmailQuota287_(1))
+      return { sent:false, reason:'Email quota exhausted for today' };
+
+    // Build the email
+    var emailData = buildAutoReplyEmail287_(name, pos, missRaw);
+    if (!emailData) {
+      consumeEmailQuota287_(-1); // refund slot — nothing to send
+      return { sent:false, reason:'No actionable missing fields' };
+    }
+
+    // Send
+    GmailApp.sendEmail(email, emailData.subject, emailData.plain, {
+      htmlBody:  emailData.html,
+      name:      'Al Yousuf Enterprises LLP — Recruitment Team',
+      replyTo:   'recruitment@alyousufent.com'
+    });
+
+    // Log to timeline
+    try {
+      var tlRng = sheet.getRange(rowIndex, ec.timeline);
+      var tl    = safeParseJson_(tlRng.getValue(), []);
+      tl.push({
+        ts:     Utilities.formatDate(new Date(), PATCH_V287.tz, 'yyyy-MM-dd HH:mm'),
+        action: 'AUTO_REPLY_SENT',
+        by:     'KAI-AUTO',
+        note:   'Missing info request sent to ' + email + ' · Ref: ' + emailData.refNo
+      });
+      tlRng.setValue(JSON.stringify(tl.slice(-20)));
+    } catch(te) { Logger.log('S89: Timeline log failed: ' + te.message); }
+
+    // Mark cooldown
+    markAutoReplySent287_(rowIndex);
+
+    Logger.log('S89: Auto-reply sent → Row ' + rowIndex + ' → ' + email +
+      ' (' + missRaw.length + ' fields) Ref: ' + emailData.refNo);
+    return { sent:true, reason:'Sent', email:email, ref:emailData.refNo };
+
+  } catch(err) {
+    Logger.log('S89: processCandidateAutoReply287_ error at row ' + rowIndex + ': ' + err.message);
+    return { sent:false, reason:'Error: ' + err.message };
+  }
+}
+
+/**
+ * S89.F06 — Batch auto-reply runner.
+ * Scans ALL candidates with missing fields who haven't been emailed in 7 days.
+ * Respects daily email quota. Designed to run every 30 mins via time trigger.
+ */
+function runAutoReplyBatchV287() {
+  Logger.log('S89: ══ Auto-Reply Batch START ══');
+  var quota  = getQuotaStateV287();
+  var emailBal = quota.email.balance;
+  if (emailBal <= 0) {
+    Logger.log('S89: Email quota exhausted — skipping batch');
+    return { sent:0, skipped:0, reason:'Email quota exhausted' };
+  }
+  var sheet  = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  var ic     = CONFIG.inputColumns;
+  var ec     = CONFIG_V2.extCol;
+  var lr     = sheet.getLastRow();
+  if (lr < 2) return { sent:0, skipped:0 };
+
+  var maxC   = Math.min(Math.max(CONFIG.headers.length, ec.missingFields, 42), sheet.getLastColumn());
+  var data   = sheet.getRange(2, 1, lr-1, maxC).getValues();
+
+  var sent = 0, skipped = 0, errors = 0;
+  var batchLimit = Math.min(emailBal, 50);  // max 50 per batch run to stay within exec time
+
+  for (var i = 0; i < data.length && sent < batchLimit; i++) {
+    var row     = data[i];
+    var av      = String(row[ic.active-1]||'').toUpperCase().trim();
+    if (av === 'SUPERSEDED' || av === 'ARCHIVED') { skipped++; continue; }
+    var email   = String(row[ic.email-1]||'').trim();
+    var missRaw = safeParseJson_(row[ec.missingFields-1], []);
+    var state   = String(row[ec.state-1]||'').toUpperCase().trim();
+
+    if (!email || !email.includes('@') || missRaw.length === 0) { skipped++; continue; }
+    if (state === 'DEPLOYED' || state === 'REJECTED' || state === 'CLIENT_SELECTED') { skipped++; continue; }
+
+    var rowIndex = i + 2;
+    var res = processCandidateAutoReply287_(rowIndex);
+    if (res.sent) {
+      sent++;
+      Utilities.sleep(800);  // ~0.8s between sends to avoid Gmail rate limit
+    } else {
+      if (res.reason && res.reason.indexOf('quota') >= 0) break;  // hard stop on quota
+      skipped++;
+    }
+  }
+  Logger.log('S89: ══ Auto-Reply Batch END — Sent=' + sent + ' Skipped=' + skipped + ' ══');
+  return { sent:sent, skipped:skipped, errors:errors };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S90 · INTEGRATION HOOKS
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S90.F01 — Post-parse hook. Call this immediately after a CV is parsed
+ * and saved to the sheet. Checks parser quota, then triggers auto-reply.
+ * Safe to call — fails gracefully if quota is exhausted.
+ *
+ * Usage from V286 or email processor:
+ *   postParseAutoReply287_(rowIndex);
+ */
+function postParseAutoReply287_(rowIndex) {
+  // Check parser quota
+  if (!consumeParserQuota287_(1)) {
+    Logger.log('S90: Parser quota exhausted — CV parse blocked at row ' + rowIndex);
+    return { ok:false, reason:'Parser quota exhausted for today. Balance carries to tomorrow.' };
+  }
+  Logger.log('S90: Parser quota consumed for row ' + rowIndex);
+
+  // Immediately trigger auto-reply (real-time — right after parse)
+  var replyResult = processCandidateAutoReply287_(rowIndex);
+  Logger.log('S90: Auto-reply result for row ' + rowIndex + ': ' + JSON.stringify(replyResult));
+
+  return { ok:true, parsed:true, autoReply:replyResult };
+}
+
+/**
+ * S90.F02 — Public quota status dashboard endpoint.
+ * Called from GAS menu or dashboard to show current quota state.
+ */
+function getParserQuotaStatus() {
+  return getQuotaStateV287();
+}
+
+/**
+ * S90.F03 — Manually trigger auto-reply for a specific row.
+ * Called from menu or dashboard for manual override.
+ */
+function sendAutoReplyForRow287(rowIndex) {
+  if (!rowIndex) {
+    Logger.log('S90: sendAutoReplyForRow287 — no rowIndex provided');
+    return { ok:false, msg:'Row index required' };
+  }
+  var res = processCandidateAutoReply287_(rowIndex);
+  return { ok:res.sent, msg:res.reason, ref:res.ref || '' };
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S91 · SETUP & DIAGNOSTICS
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S91.F01 — One-time setup: initialize quota properties + create time trigger.
+ */
+function setupV287() {
+  Logger.log('S91: ══ SETUP V287 START ══');
+  var props = PropertiesService.getScriptProperties();
+  var tz    = PATCH_V287.tz;
+  var today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+
+  // Initialize parser quota if not set
+  if (!props.getProperty(PATCH_V287.keys.parserDate)) {
+    props.setProperty(PATCH_V287.keys.parserDate,    today);
+    props.setProperty(PATCH_V287.keys.parserUsed,    '0');
+    props.setProperty(PATCH_V287.keys.parserBalance, String(PATCH_V287.parserQuotaBase));
+    Logger.log('S91: Parser quota initialized: ' + PATCH_V287.parserQuotaBase + '/day');
+  }
+
+  // Initialize email quota if not set
+  if (!props.getProperty(PATCH_V287.keys.emailDate)) {
+    props.setProperty(PATCH_V287.keys.emailDate,    today);
+    props.setProperty(PATCH_V287.keys.emailUsed,    '0');
+    props.setProperty(PATCH_V287.keys.emailBalance, String(PATCH_V287.emailQuotaBase));
+    Logger.log('S91: Email quota initialized: ' + PATCH_V287.emailQuotaBase + '/day');
+  }
+
+  // Create time-based trigger for runAutoReplyBatchV287 — every 30 minutes
+  var existing = ScriptApp.getProjectTriggers();
+  var triggerExists = existing.some(function(t) {
+    return t.getHandlerFunction() === 'runAutoReplyBatchV287';
+  });
+  if (!triggerExists) {
+    ScriptApp.newTrigger('runAutoReplyBatchV287')
+      .timeBased()
+      .everyMinutes(30)
+      .create();
+    Logger.log('S91: Auto-reply time trigger created (every 30 min)');
+  } else {
+    Logger.log('S91: Auto-reply trigger already exists — skipped');
+  }
+
+  var quota = getQuotaStateV287();
+  Logger.log('S91: ══ SETUP V287 COMPLETE ══');
+  Logger.log('S91: Parser quota: ' + quota.parser.balance + ' remaining today');
+  Logger.log('S91: Email quota:  ' + quota.email.balance  + ' remaining today');
+
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✅ V287 Setup Complete\n\n' +
+      '📊 Parser Quota: ' + quota.parser.balance + ' CVs remaining today\n' +
+      '📧 Email Quota:  ' + quota.email.balance  + ' emails remaining today\n\n' +
+      '⏱ Auto-reply trigger: every 30 minutes\n' +
+      '📌 Carry-forward: unused quota rolls to next day automatically\n\n' +
+      'Run "V287: Test Auto-Reply" to verify the system.'
+    );
+  } catch(e) {}
+}
+
+/**
+ * S91.F02 — Full diagnostic test for V287.
+ * Tests quota state, missing field detection, email build (no actual send).
+ */
+function testAutoReplyV287() {
+  Logger.log('═══════════════════════════════');
+  Logger.log('V287 DIAGNOSTIC TEST');
+  Logger.log('═══════════════════════════════');
+
+  // 1. Quota state
+  resetQuotaIfNewDay287_();
+  var quota = getQuotaStateV287();
+  Logger.log('📊 Parser Quota: ' + quota.parser.balance + '/' + quota.parser.base +
+    ' remaining (used: ' + quota.parser.used + ')');
+  Logger.log('📧 Email Quota:  ' + quota.email.balance  + '/' + quota.email.base +
+    ' remaining (used: ' + quota.email.used + ')');
+
+  // 2. Carry-forward simulation
+  Logger.log('');
+  Logger.log('── Carry-Forward Logic ──');
+  var base = PATCH_V287.parserQuotaBase;
+  var maxCap = PATCH_V287.parserQuotaMax;
+  var testUsed = 150;
+  var unused = Math.max(0, base - testUsed);
+  var carry  = Math.min(unused, maxCap - base);
+  Logger.log('If yesterday used=' + testUsed + ': carry=' + carry +
+    ' → tomorrow balance=' + (base + carry));
+
+  // 3. Email builder test
+  Logger.log('');
+  Logger.log('── Email Build Test ──');
+  var testMissing = ['dob', 'currentLocation', 'passportExpiry'];
+  var emailData = buildAutoReplyEmail287_('JITHU GIGI', 'Pipe Fitter', testMissing);
+  if (emailData) {
+    Logger.log('✅ Email built OK');
+    Logger.log('   Subject: ' + emailData.subject);
+    Logger.log('   Ref: ' + emailData.refNo);
+    Logger.log('   Plain length: ' + emailData.plain.length + ' chars');
+    Logger.log('   Fields requested: ' + testMissing.length);
+  } else {
+    Logger.log('🔴 Email build FAILED');
+  }
+
+  // 4. Cooldown check test
+  Logger.log('');
+  Logger.log('── Cooldown Check ──');
+  var onCooldown = wasAutoRepliedRecently287_('test@example.com', 9999);
+  Logger.log('Row 9999 on cooldown: ' + onCooldown + ' (expected: false)');
+
+  // 5. Missing fields definition coverage
+  Logger.log('');
+  Logger.log('── Field Definitions ──');
+  var fieldKeys = Object.keys(AUTO_REPLY_FIELDS_V287_);
+  Logger.log('Defined fields: ' + fieldKeys.length);
+  fieldKeys.forEach(function(k) {
+    Logger.log('  ✓ ' + k + ' → ' + AUTO_REPLY_FIELDS_V287_[k].label);
+  });
+
+  Logger.log('');
+  Logger.log('═══════════════════════════════');
+  Logger.log('V287 TEST COMPLETE');
+  Logger.log('═══════════════════════════════');
+
+  try {
+    SpreadsheetApp.getUi().alert(
+      'V287 Diagnostic Complete\n\n' +
+      '📊 Parser: ' + quota.parser.balance + ' remaining\n' +
+      '📧 Email:  ' + quota.email.balance  + ' remaining\n' +
+      '✅ Email template built successfully\n' +
+      '📋 ' + fieldKeys.length + ' missing-field types defined\n\n' +
+      'Check Logs for full detail.'
+    );
+  } catch(e) {}
+}
+
+/**
+ * S91.F03 — Reset quota for emergency (run from menu to reset counters).
+ */
+function resetQuotaV287() {
+  var props = PropertiesService.getScriptProperties();
+  var today = Utilities.formatDate(new Date(), PATCH_V287.tz, 'yyyy-MM-dd');
+  props.setProperty(PATCH_V287.keys.parserDate,    today);
+  props.setProperty(PATCH_V287.keys.parserUsed,    '0');
+  props.setProperty(PATCH_V287.keys.parserBalance, String(PATCH_V287.parserQuotaBase));
+  props.setProperty(PATCH_V287.keys.emailDate,     today);
+  props.setProperty(PATCH_V287.keys.emailUsed,     '0');
+  props.setProperty(PATCH_V287.keys.emailBalance,  String(PATCH_V287.emailQuotaBase));
+  Logger.log('S91: Quota manually reset → Parser:' + PATCH_V287.parserQuotaBase +
+    ' Email:' + PATCH_V287.emailQuotaBase);
+  try {
+    SpreadsheetApp.getUi().alert('✅ Quotas reset.\nParser: ' +
+      PATCH_V287.parserQuotaBase + '/day\nEmail: ' + PATCH_V287.emailQuotaBase + '/day');
+  } catch(e) {}
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S92 · RECRUITER DAILY DIGEST — Performance Email Engine
+// ═══════════════════════════════════════════════════════════════════
+//
+//  SENDS: 1:30 PM IST  — Afternoon Check-In (mid-day push)
+//         7:00 PM IST  — Evening Close Report (acknowledge day's work)
+//
+//  TO:    recruiter's own email (e.g. hr5@alyousufent.com)
+//  CC:    ceo5@alyousufent.com, bd5@alyousufent.com,
+//         ayeadmin5@alyousufent.com
+//
+//  PURPOSE:
+//    ✅ Acknowledge the recruiter's daily effort
+//    ✅ Show leadership (CEO/BD/Admin) their team's output
+//    ✅ Create healthy competitive awareness in the office
+//    ✅ Motivate with tier-based messaging (Bronze → Champion)
+//    ✅ Quota visibility — parser and email usage
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S92.CFG — Recruiter roster and CC recipients.
+ * Add/remove recruiters and update emails here.
+ */
+var DIGEST_CONFIG_V287_ = {
+  tz: 'Asia/Kolkata',
+
+  // CC recipients for ALL recruiter digests (leadership visibility)
+  ccList: [
+    'ceo5@alyousufent.com',
+    'bd5@alyousufent.com',
+    'ayeadmin5@alyousufent.com'
+  ],
+
+  // Recruiter roster — add new recruiters here as they join
+  recruiters: [
+    { id: 'hr5',  email: 'hr5@alyousufent.com',  displayName: 'Recruiter HR5' },
+    { id: 'hr7',  email: 'hr7@alyousufent.com',  displayName: 'Recruiter HR7' },
+    { id: 'hr8',  email: 'hr8@alyousufent.com',  displayName: 'Recruiter HR8' }
+  ],
+
+  // Performance tier thresholds (based on total actions today)
+  tiers: [
+    { min: 0,  max: 2,  label: 'Getting Started', badge: '🥉', color: '#cd7f32',
+      pm_msg: 'Every journey starts with one step. Make those calls count!',
+      ev_msg: 'A slow start is still a start. Tomorrow — aim higher.' },
+    { min: 3,  max: 5,  label: 'Building Pace',   badge: '🥈', color: '#9ca3af',
+      pm_msg: 'Good start! You\'re in motion — keep pushing into the afternoon.',
+      ev_msg: 'Solid effort today. The team noticed. Build on this tomorrow.' },
+    { min: 6,  max: 9,  label: 'Strong Day',      badge: '🥇', color: '#f59e0b',
+      pm_msg: 'Excellent pace! You\'re ahead of target. Finish the day strong.',
+      ev_msg: 'Great day! Leadership saw your output. You set the bar today.' },
+    { min: 10, max: 999, label: 'Champion',       badge: '🏆', color: '#10b981',
+      pm_msg: 'You\'re on fire! Champion-level output — you\'re setting the standard.',
+      ev_msg: 'Outstanding day! 🏆 You led the team. This is what excellence looks like.' }
+  ]
+};
+
+/**
+ * S92.F01 — Compute today's performance stats for a specific recruiter.
+ * Scans the master sheet for candidates owned by this recruiter.
+ * Returns stats object with today's counts, top trades, quota usage.
+ */
+function getRecruiterDailyStats287_(recruiterId) {
+  var tz    = DIGEST_CONFIG_V287_.tz;
+  var today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  var ic    = CONFIG.inputColumns;
+  var ec    = CONFIG_V2.extCol;
+  var lr    = sheet.getLastRow();
+  if (lr < 2) return { total:0, today:0, shortlisted:0, needsReview:0, needsCall:0,
+    rejected:0, deployed:0, trades:{}, actions:0 };
+
+  var maxC = Math.min(Math.max(CONFIG.headers.length, ec.timeline, 44), sheet.getLastColumn());
+  var data = sheet.getRange(2, 1, lr-1, maxC).getValues();
+
+  var stats = {
+    total: 0, today: 0, shortlisted: 0, needsReview: 0, needsCall: 0,
+    rejected: 0, deployed: 0, clientSent: 0, underReview: 0,
+    actions: 0,   // meaningful actions today (state moves)
+    trades: {},   // trade → count
+    allTotal: 0   // total CVs in system (for context)
+  };
+
+  data.forEach(function(row) {
+    var av = String(row[ic.active-1]||'').toUpperCase().trim();
+    if (av === 'SUPERSEDED' || av === 'ARCHIVED') return;
+    var name = String(row[ic.name-1]||'').trim();
+    var em   = String(row[ic.email-1]||'').trim();
+    if (!name && !em) return;
+
+    stats.allTotal++;
+
+    // Only count this recruiter's owned candidates
+    var owner = maxC >= 43 ? String(row[42]||'').trim() : '';
+    if (owner !== recruiterId) return;
+
+    stats.total++;
+    var trade   = String(row[ic.trade-1]||'').trim();
+    var verdict = String(row[ic.verdict-1]||'').toUpperCase().trim();
+    var state   = String(row[ec.state-1]||'').toUpperCase().trim();
+
+    // Count by state/verdict
+    if (verdict === 'SHORTLISTED' || state === 'SHORTLISTED') stats.shortlisted++;
+    if (verdict === 'NEEDS_REVIEW'|| state === 'NEEDS_REVIEW')  stats.needsReview++;
+    if (verdict === 'NEEDS_CALL'  || state === 'NEEDS_CALL')    stats.needsCall++;
+    if (state === 'REJECTED')        stats.rejected++;
+    if (state === 'DEPLOYED')        stats.deployed++;
+    if (state === 'CLIENT_SENT')     stats.clientSent++;
+    if (state === 'UNDER_REVIEW')    stats.underReview++;
+
+    // Count today's CVs
+    var appDt = row[ic.applicationDate-1];
+    if (appDt instanceof Date) {
+      var dtStr = Utilities.formatDate(appDt, tz, 'yyyy-MM-dd');
+      if (dtStr === today) stats.today++;
+    }
+
+    // Trade frequency
+    if (trade) { stats.trades[trade] = (stats.trades[trade]||0) + 1; }
+  });
+
+  // Actions = shortlisted + clientSent + underReview (meaningful moves)
+  stats.actions = stats.shortlisted + stats.clientSent + stats.underReview;
+
+  return stats;
+}
+
+/**
+ * S92.F02 — Determine the recruiter's performance tier for today.
+ */
+function getPerformanceTier287_(actions) {
+  var tiers = DIGEST_CONFIG_V287_.tiers;
+  for (var i = tiers.length - 1; i >= 0; i--) {
+    if (actions >= tiers[i].min) return tiers[i];
+  }
+  return tiers[0];
+}
+
+/**
+ * S92.F03 — Build the HTML digest email for one recruiter.
+ * isEvening: true = 7 PM close report | false = 1:30 PM check-in
+ */
+function buildDigestEmail287_(recruiter, stats, isEvening) {
+  var tz       = DIGEST_CONFIG_V287_.tz;
+  var today    = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy');
+  var timeStr  = isEvening ? '7:00 PM — Close of Day Report' : '1:30 PM — Afternoon Check-In';
+  var tier     = getPerformanceTier287_(stats.actions);
+  var quota    = getQuotaStateV287();
+  var name     = recruiter.displayName || recruiter.id;
+  var initials = recruiter.id.slice(0,2).toUpperCase();
+
+  // Top 3 trades
+  var tradeEntries = Object.keys(stats.trades).map(function(t) {
+    return { trade: t, count: stats.trades[t] };
+  }).sort(function(a,b){ return b.count - a.count; }).slice(0,3);
+  var topTradesStr = tradeEntries.length ?
+    tradeEntries.map(function(e){ return e.trade + ' (' + e.count + ')'; }).join(' · ') : '—';
+
+  // Progress bar % for quota
+  var parserPct = Math.round((quota.parser.used / quota.parser.base) * 100);
+  var emailPct  = Math.round((quota.email.used  / quota.email.base)  * 100);
+
+  // Motivational message
+  var motivMsg = isEvening ? tier.ev_msg : tier.pm_msg;
+
+  // Action target progress (target = 8 meaningful actions per day)
+  var actionTarget = 8;
+  var actionPct    = Math.min(100, Math.round((stats.actions / actionTarget) * 100));
+
+  // KPI cards HTML
+  function kpiCard(icon, label, value, bg, col) {
+    return '<td style="width:19%;text-align:center;padding:0 4px">' +
+      '<div style="background:' + bg + ';border-radius:10px;padding:14px 8px;min-height:80px;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+      '<div style="font-size:22px;margin-bottom:4px">' + icon + '</div>' +
+      '<div style="font-size:26px;font-weight:800;color:' + col + ';line-height:1">' + value + '</div>' +
+      '<div style="font-size:11px;color:#6b7280;margin-top:4px;font-weight:600">' + label + '</div>' +
+      '</div></td>';
+  }
+
+  function barRow(label, used, max, pct, color) {
+    return '<tr><td style="font-size:12px;color:#374151;padding:5px 0;width:120px">' + label + '</td>' +
+      '<td style="padding:5px 0">' +
+      '<div style="background:#e5e7eb;border-radius:6px;height:8px;overflow:hidden">' +
+      '<div style="background:' + color + ';width:' + Math.min(100,pct) + '%;height:100%;border-radius:6px"></div>' +
+      '</div></td>' +
+      '<td style="font-size:11.5px;color:#6b7280;padding:5px 0 5px 10px;white-space:nowrap">' +
+      used + '/' + max + '</td></tr>';
+  }
+
+  var html =
+    '<div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;' +
+    'border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1)">' +
+
+    // ── HEADER ──────────────────────────────────────────────────
+    '<div style="background:linear-gradient(135deg,#16324f,#0d2137);padding:22px 24px;' +
+    'display:flex;align-items:center;gap:16px">' +
+    '<div style="width:52px;height:52px;border-radius:50%;background:' + tier.color + ';' +
+    'display:flex;align-items:center;justify-content:center;font-size:20px;' +
+    'font-weight:900;color:#fff;flex-shrink:0">' + initials + '</div>' +
+    '<div style="flex:1">' +
+    '<div style="font-size:11px;color:rgba(255,255,255,.55);letter-spacing:1px;' +
+    'text-transform:uppercase;font-weight:700">Al Yousuf Enterprises LLP</div>' +
+    '<div style="font-size:18px;font-weight:800;color:#fff;margin:3px 0">' +
+    'Daily Performance Report ' + tier.badge + '</div>' +
+    '<div style="font-size:12px;color:rgba(255,255,255,.6)">' + today + ' · ' + timeStr + '</div>' +
+    '</div>' +
+    '<div style="text-align:right">' +
+    '<div style="background:' + tier.color + ';color:#fff;padding:4px 10px;border-radius:20px;' +
+    'font-size:11px;font-weight:800;letter-spacing:.5px">' + tier.label.toUpperCase() + '</div>' +
+    '<div style="color:rgba(255,255,255,.5);font-size:11px;margin-top:4px">' + name + '</div>' +
+    '</div>' +
+    '</div>' +
+
+    // ── MOTIVATIONAL BANNER ──────────────────────────────────────
+    '<div style="background:' + (tier.color === '#10b981' ? '#ecfdf5' :
+      tier.color === '#f59e0b' ? '#fffbeb' :
+      tier.color === '#9ca3af' ? '#f9fafb' : '#fef9ec') +
+    ';padding:14px 24px;border-bottom:1px solid #e5e7eb;' +
+    'display:flex;align-items:center;gap:12px">' +
+    '<span style="font-size:22px">' + (isEvening ? '🌆' : '⚡') + '</span>' +
+    '<div>' +
+    '<div style="font-size:13.5px;font-weight:700;color:#1f2937">' + motivMsg + '</div>' +
+    '<div style="font-size:11.5px;color:#6b7280;margin-top:2px">' +
+    (isEvening ? 'Your day is recorded. Leadership is watching your growth.' :
+      'You have ' + (8 - stats.actions > 0 ? (8 - stats.actions) + ' more actions to hit today\'s target' :
+      'already hit the daily target — now exceed it!') ) +
+    '</div></div>' +
+    '</div>' +
+
+    // ── KPI CARDS ────────────────────────────────────────────────
+    '<div style="padding:20px 20px 10px">' +
+    '<div style="font-size:10.5px;font-weight:700;color:#9ca3af;letter-spacing:1px;' +
+    'text-transform:uppercase;margin-bottom:12px">Your Portfolio Today</div>' +
+    '<table style="width:100%;border-collapse:separate;border-spacing:4px 0"><tr>' +
+    kpiCard('📁', 'Total CVs',   stats.total,       '#f0f4f8', '#16324f') +
+    kpiCard('⭐', 'Shortlisted', stats.shortlisted,  '#dcfce7', '#059669') +
+    kpiCard('👁️', 'Needs Review', stats.needsReview,  '#fef9c3', '#d97706') +
+    kpiCard('📞', 'Needs Call',  stats.needsCall,    '#fee2e2', '#dc2626') +
+    kpiCard('✈️', 'Deployed',    stats.deployed,     '#ede9fe', '#7c3aed') +
+    '</tr></table>' +
+    '</div>' +
+
+    // ── ACTION TARGET PROGRESS ───────────────────────────────────
+    '<div style="padding:4px 20px 16px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+    '<span style="font-size:11.5px;font-weight:700;color:#374151">📊 Daily Action Target Progress</span>' +
+    '<span style="font-size:11px;color:#6b7280">' + stats.actions + ' / ' + actionTarget + ' actions</span>' +
+    '</div>' +
+    '<div style="background:#e5e7eb;border-radius:8px;height:10px;overflow:hidden">' +
+    '<div style="background:' + (actionPct >= 100 ? '#10b981' : actionPct >= 60 ? '#f59e0b' : '#3b82f6') +
+    ';width:' + actionPct + '%;height:100%;border-radius:8px;' +
+    'transition:width .4s;position:relative">' +
+    (actionPct >= 100 ? '<span style="position:absolute;right:6px;top:-1px;font-size:10px">✓</span>' : '') +
+    '</div></div>' +
+    '<div style="font-size:10.5px;color:#9ca3af;margin-top:4px">' +
+    'Shortlisted + Client Sent + Under Review count as actions' +
+    '</div></div>' +
+
+    // ── TOP TRADES ───────────────────────────────────────────────
+    '<div style="padding:0 20px 16px">' +
+    '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px">' +
+    '<div style="font-size:10.5px;font-weight:700;color:#9ca3af;letter-spacing:1px;' +
+    'text-transform:uppercase;margin-bottom:8px">🔧 Top Trades in Your Portfolio</div>' +
+    '<div style="font-size:13px;color:#374151;font-weight:600">' +
+    (tradeEntries.length ?
+      tradeEntries.map(function(e, i) {
+        var icons = ['🥇','🥈','🥉'];
+        return '<span style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;' +
+          'padding:4px 10px;margin-right:6px;margin-bottom:4px;display:inline-block;font-size:12px">' +
+          icons[i] + ' ' + e.trade + ' <strong>' + e.count + '</strong></span>';
+      }).join('') :
+      '<span style="color:#9ca3af">No candidates assigned yet — start claiming profiles!</span>') +
+    '</div></div></div>' +
+
+    // ── SYSTEM QUOTA ─────────────────────────────────────────────
+    '<div style="padding:0 20px 20px">' +
+    '<div style="font-size:10.5px;font-weight:700;color:#9ca3af;letter-spacing:1px;' +
+    'text-transform:uppercase;margin-bottom:10px">⚙️ System Quota Usage Today</div>' +
+    '<table style="width:100%;border-collapse:collapse">' +
+    barRow('📄 CV Parser', quota.parser.used, quota.parser.balance + quota.parser.used,
+      parserPct, parserPct > 80 ? '#ef4444' : '#3b82f6') +
+    barRow('📧 Auto-Reply', quota.email.used, quota.email.balance + quota.email.used,
+      emailPct, emailPct > 80 ? '#f59e0b' : '#10b981') +
+    '</table>' +
+    '<div style="font-size:10.5px;color:#9ca3af;margin-top:6px">' +
+    'Unused quota carries forward to tomorrow automatically.' +
+    '</div></div>' +
+
+    // ── FOOTER ───────────────────────────────────────────────────
+    '<div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 24px;' +
+    'display:flex;align-items:center;justify-content:space-between">' +
+    '<div>' +
+    '<div style="font-size:11px;color:#6b7280">Al Yousuf Enterprises LLP · Recruitment OS</div>' +
+    '<div style="font-size:10.5px;color:#9ca3af;margin-top:2px">' +
+    'KAI Auto-Generated · Do not reply to this email</div>' +
+    '</div>' +
+    '<div style="font-size:10.5px;color:#9ca3af;text-align:right">' +
+    'Auto-sent: ' + Utilities.formatDate(new Date(), DIGEST_CONFIG_V287_.tz, 'HH:mm') + ' IST' +
+    '</div>' +
+    '</div>' +
+
+    '</div>';  // end wrapper
+
+  return html;
+}
+
+/**
+ * S92.F04 — Build the plain-text version of the digest (fallback).
+ */
+function buildDigestPlain287_(recruiter, stats, isEvening) {
+  var tz      = DIGEST_CONFIG_V287_.tz;
+  var today   = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy');
+  var period  = isEvening ? 'Evening Close Report' : 'Afternoon Check-In';
+  var tier    = getPerformanceTier287_(stats.actions);
+  var quota   = getQuotaStateV287();
+
+  var topTrades = Object.keys(stats.trades)
+    .map(function(t){ return { t:t, c:stats.trades[t] }; })
+    .sort(function(a,b){ return b.c - a.c; }).slice(0,3)
+    .map(function(e){ return e.t + ' (' + e.c + ')'; }).join(', ') || '—';
+
+  return [
+    'Al Yousuf Enterprises LLP — Daily Performance Report',
+    today + ' | ' + period,
+    '─────────────────────────────────────',
+    '',
+    'Recruiter: ' + (recruiter.displayName || recruiter.id),
+    'Performance Tier: ' + tier.badge + ' ' + tier.label,
+    '',
+    '── Your Portfolio Today ──────────────',
+    'Total CVs Assigned : ' + stats.total,
+    'Shortlisted        : ' + stats.shortlisted,
+    'Needs Review       : ' + stats.needsReview,
+    'Needs Call         : ' + stats.needsCall,
+    'Client Sent        : ' + stats.clientSent,
+    'Deployed           : ' + stats.deployed,
+    '',
+    '── Top Trades ───────────────────────',
+    topTrades,
+    '',
+    '── Quota Usage ──────────────────────',
+    'CV Parser: ' + quota.parser.used + ' used / ' + quota.parser.balance + ' remaining',
+    'Emails:    ' + quota.email.used  + ' used / ' + quota.email.balance  + ' remaining',
+    '',
+    '── Message ──────────────────────────',
+    (isEvening ? tier.ev_msg : tier.pm_msg),
+    '',
+    '─────────────────────────────────────',
+    'Al Yousuf Enterprises LLP · Recruitment Team',
+    'Auto-generated by KAI OS · Do not reply'
+  ].join('\n');
+}
+
+/**
+ * S92.F05 — Send the daily digest to one recruiter.
+ * TO: recruiter's email | CC: leadership list
+ */
+function sendDigestToRecruiter287_(recruiter, isEvening) {
+  try {
+    var stats   = getRecruiterDailyStats287_(recruiter.id);
+    var html    = buildDigestEmail287_(recruiter, stats, isEvening);
+    var plain   = buildDigestPlain287_(recruiter, stats, isEvening);
+    var tz      = DIGEST_CONFIG_V287_.tz;
+    var today   = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy');
+    var period  = isEvening ? 'Evening Close' : 'Afternoon Check-In';
+    var tier    = getPerformanceTier287_(stats.actions);
+    var subject = tier.badge + ' ' + (recruiter.displayName || recruiter.id) +
+      ' — Daily Report · ' + period + ' · ' + today;
+
+    GmailApp.sendEmail(
+      recruiter.email,
+      subject,
+      plain,
+      {
+        htmlBody:  html,
+        cc:        DIGEST_CONFIG_V287_.ccList.join(','),
+        name:      'Al Yousuf Enterprises LLP — KAI OS',
+        replyTo:   'ayeadmin5@alyousufent.com'
+      }
+    );
+    Logger.log('S92: Digest sent → ' + recruiter.email +
+      ' (' + period + ') Tier: ' + tier.label + ' Actions: ' + stats.actions);
+    return { ok:true, recruiter:recruiter.id, tier:tier.label };
+  } catch(err) {
+    Logger.log('S92: sendDigest error for ' + recruiter.id + ': ' + err.message);
+    return { ok:false, recruiter:recruiter.id, error:err.message };
+  }
+}
+
+/**
+ * S92.F06 — Send digests to ALL active recruiters.
+ * Called by time triggers at 1:30 PM and 7:00 PM IST.
+ * GAS triggers fire within an hour window — we check the actual hour.
+ */
+function sendAllDailyDigests287() {
+  var now      = new Date();
+  var hourIST  = parseInt(Utilities.formatDate(now, DIGEST_CONFIG_V287_.tz, 'HH'));
+  var isEvening = hourIST >= 18;  // 6 PM+ → evening report; before → afternoon check-in
+
+  Logger.log('S92: ══ DAILY DIGEST RUN · ' +
+    (isEvening ? 'EVENING (7 PM)' : 'AFTERNOON (1:30 PM)') + ' ══');
+
+  var results = [];
+  DIGEST_CONFIG_V287_.recruiters.forEach(function(rec) {
+    // Check email quota before sending each digest
+    if (!consumeEmailQuota287_(1)) {
+      Logger.log('S92: Email quota exhausted — stopping digest batch');
+      results.push({ ok:false, recruiter:rec.id, reason:'Quota exhausted' });
+      return;
+    }
+    var res = sendDigestToRecruiter287_(rec, isEvening);
+    results.push(res);
+    Utilities.sleep(1500);  // 1.5s between sends — Gmail rate safety
+  });
+
+  var sent    = results.filter(function(r){ return r.ok; }).length;
+  var failed  = results.length - sent;
+  Logger.log('S92: ══ DIGEST COMPLETE — Sent:' + sent + ' Failed:' + failed + ' ══');
+  return { sent:sent, failed:failed, results:results };
+}
+
+/**
+ * S92.F07 — Send test digest to a specific recruiter immediately (manual trigger).
+ * Use from GAS menu for testing layout and data before going live.
+ */
+function sendTestDigest287() {
+  Logger.log('S92: ── TEST DIGEST ──');
+  // Default: send test as HR5 at current time
+  var rec = DIGEST_CONFIG_V287_.recruiters[0];
+  var now = new Date();
+  var hr  = parseInt(Utilities.formatDate(now, DIGEST_CONFIG_V287_.tz, 'HH'));
+  var res = sendDigestToRecruiter287_(rec, hr >= 18);
+  Logger.log('S92: Test result: ' + JSON.stringify(res));
+  try {
+    SpreadsheetApp.getUi().alert(
+      res.ok ?
+      '✅ Test digest sent to ' + rec.email + '\nTier: ' + res.tier :
+      '❌ Failed: ' + res.error
+    );
+  } catch(e) {}
+  return res;
+}
+
+/**
+ * S92.F08 — Create the two daily time-based triggers.
+ * 1:30 PM IST → GAS trigger at hour 13 (fires between 13:00-14:00 IST)
+ * 7:00 PM IST → GAS trigger at hour 19 (fires between 19:00-20:00 IST)
+ * Both call sendAllDailyDigests287() — time-of-day check inside determines PM/Evening label.
+ */
+function setupDigestTriggers287_() {
+  var existing = ScriptApp.getProjectTriggers();
+  var fnName   = 'sendAllDailyDigests287';
+
+  // Remove existing digest triggers to avoid duplicates
+  existing.forEach(function(t) {
+    if (t.getHandlerFunction() === fnName) ScriptApp.deleteTrigger(t);
+  });
+
+  // 1:30 PM IST — trigger at hour 13 in script timezone
+  ScriptApp.newTrigger(fnName)
+    .timeBased()
+    .atHour(13)
+    .everyDays(1)
+    .inTimezone('Asia/Kolkata')
+    .create();
+
+  // 7:00 PM IST — trigger at hour 19 in script timezone
+  ScriptApp.newTrigger(fnName)
+    .timeBased()
+    .atHour(19)
+    .everyDays(1)
+    .inTimezone('Asia/Kolkata')
+    .create();
+
+  Logger.log('S92: Digest triggers created — 1:30 PM IST and 7 PM IST daily');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S92.SETUP — Add digest triggers to main setup
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S92.F09 — Standalone setup for the digest system.
+ * Run once from the GAS menu → KAI OS → V287: Setup Daily Digest
+ */
+function setupDailyDigestV287() {
+  Logger.log('S92: ══ DIGEST SETUP START ══');
+  setupDigestTriggers287_();
+  var quota = getQuotaStateV287();
+  Logger.log('S92: Digest schedule → 1:30 PM + 7:00 PM IST daily');
+  Logger.log('S92: Recipients → ' + DIGEST_CONFIG_V287_.recruiters.length + ' recruiters');
+  Logger.log('S92: CC list → ' + DIGEST_CONFIG_V287_.ccList.join(', '));
+  Logger.log('S92: ══ DIGEST SETUP COMPLETE ══');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✅ Daily Digest Setup Complete!\n\n' +
+      '📅 Schedule: 1:30 PM + 7:00 PM IST daily\n' +
+      '👥 Recruiters: ' + DIGEST_CONFIG_V287_.recruiters.map(function(r){return r.id;}).join(', ') + '\n' +
+      '📋 CC: ' + DIGEST_CONFIG_V287_.ccList.join(', ') + '\n\n' +
+      'Run "V287: Send Test Digest Now" to preview the email.\n' +
+      'Emails are sent automatically twice daily — no action needed.'
+    );
+  } catch(e) {}
+}

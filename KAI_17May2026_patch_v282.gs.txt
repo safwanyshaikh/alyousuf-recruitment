@@ -1,0 +1,803 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — GCC RECRUITMENT OPERATING SYSTEM  v2.82
+ *  File    : KAI_17May2026_patch_v282.gs
+ *  Build   : 17-May-2026
+ *  Purpose : FINAL PATCH — Tomorrow Live Recruiter Dashboard
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  PATCH CONTENTS
+ *  ─────────────────────────────────────────────────────────────────
+ *  S48  NATIONALITY NORMALIZATION ENGINE
+ *  S49  LOCATION DISPLAY LOGIC (India→State, Abroad→City+Country)
+ *  S50  EDUCATION ENUM CLASSIFIER
+ *  S51  EXTENDED COLUMNS v2 (cols 39-42)
+ *  S52  TECHNICAL REVIEW ENGINE
+ *  S53  TOP 3 POSITIONS ENGINE
+ *  S54  MISSING INFO EMAIL/WHATSAPP DRAFT ENGINE (10 action types)
+ *  S55  STATUS OWNERSHIP (Reviewed By tracker)
+ *  S56  INTERNAL EMAIL PROTECTION (domain blocklist)
+ *  S57  getDashboardDataV2 SUPERSEDE (v282 — additive, full replace)
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  INSTALL:
+ *  1. Add this as a new file in GAS (Files → +, name it patch_v282)
+ *  2. Run setupV282() once from GAS editor
+ *  3. Run refreshMobilityAndDeployability() to populate state/mobility
+ *  4. Deploy → New version → Share new URL
+ *
+ *  AFFECTED SYSTEMS:
+ *  - getDashboardDataV2 — superseded (now includes v282 fields)
+ *  - Candidates sheet   — 4 new columns (39-42)
+ *  - Dashboard HTML     — uses new fields (displayLocation, eduEnum, techReview, top3)
+ *
+ *  ROLLBACK:
+ *  - Delete this file from GAS project
+ *  - Previous getDashboardDataV2 in V2.gs will resume automatically
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ── PATCH CONFIG ──────────────────────────────────────────────────────────
+var PATCH_V282 = {
+
+  // ── Nationality normalisation → canonical form ──────────────────
+  nationalityNormMap: {
+    'indian':'Indian',        'india':'Indian',           'ind':'Indian',
+    'indian citizen':'Indian','indian national':'Indian',
+    'citizen of india':'Indian','indian passport':'Indian',
+    'india (indian)':'Indian','indian (india)':'Indian',
+    'nationality: indian':'Indian','nationality:indian':'Indian',
+    'natl: indian':'Indian', 'indian,':'Indian'
+  },
+
+  // ── Education enum (strict 7-value) ─────────────────────────────
+  educationEnum: ['Below SSC','10th Pass','12th Pass','ITI','Diploma','Degree','Master'],
+
+  // ── Technical Review enum (5-value) ─────────────────────────────
+  techReviewEnum: ['Strong Match','Moderate Match','Weak Match','Unrelated','Helper Risk'],
+
+  // ── Internal domains — NEVER send AI outbound (missing-info, follow-up, digest) to these ──
+  // Covers ai@, jobs@, hr5@, hr7@, hr8@, bd@, ayeadmin@ via domain match.
+  internalDomains: [
+    'alyousufent.com', 'alyousufjobs.com', 'alyousuf.com',
+    'karigar.ai',      'karigarai.com'
+  ],
+
+  // ── Trusted external forwarders (Gmail/personal addresses allowed to forward CVs/JDs) ──
+  // Treated as INTERNAL for outbound blocking — KAI will NOT auto-reply asking for info.
+  trustedExternalSenders: [
+    'safwanyshaikh@gmail.com'
+  ],
+
+  // ── Specific internal staff addresses (defensive — domain match also catches these) ──
+  // Covered automatically by 'alyousufent.com' domain rule, listed here for clarity:
+  // ai@, jobs@, hr5@, hr7@, hr8@, hr12@, bd@, ayeadmin@, ceo@,
+  // marketing@, reception@, ac@ — all blocked from auto-reply.
+  // ─────────────────────────────────────────────────────────────────
+
+  // ── Extended columns v2 (added after cols 25-38) ─────────────────
+  extCol2: {
+    educationEnum: 39,
+    techReview:    40,
+    reviewedBy:    41,
+    top3Positions: 42
+  },
+
+  extHeaders2: [
+    'Education (Enum)', 'Technical Review', 'Reviewed By', 'Top 3 Positions'
+  ],
+
+  // ── Missing info — 10 action types ──────────────────────────────
+  missingActions: [
+    { key:'dob',          label:'📅 Date of Birth',                    short:'DOB' },
+    { key:'mobile',       label:'📱 Contact Number (Mobile/WhatsApp)', short:'Phone' },
+    { key:'currentLoc',   label:'📍 Current Location',                 short:'Location' },
+    { key:'empStatus',    label:'💼 Employment Status',                short:'Emp Status' },
+    { key:'passportExp',  label:'🛂 Passport Expiry Date',             short:'Passport' },
+    { key:'ecrStatus',    label:'📜 ECR / ECNR Status',               short:'ECR/ECNR' },
+    { key:'gulfExp',      label:'🌍 Gulf Experience Details',          short:'Gulf Exp' },
+    { key:'tradeCert',    label:'📋 Trade Certificate / Qualification',short:'Trade Cert' },
+    { key:'noticePeriod', label:'⏱️ Notice Period',                    short:'Notice' },
+    { key:'nationality',  label:'🆔 Nationality / Passport Copy',      short:'Nationality' }
+  ]
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// S48 · NATIONALITY NORMALIZATION ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+// S48.F01 — Normalize raw nationality string to canonical form
+// NOTE: This is the active version (patches V1's older version which is renamed).
+function normalizeNationality_(raw) {
+  if (!raw) return '';
+  var lower = String(raw).toLowerCase().trim();
+  // Direct map lookup
+  if (PATCH_V282.nationalityNormMap[lower]) return PATCH_V282.nationalityNormMap[lower];
+  // Pattern match for Indian variations
+  if (/\bindia\b|\bindian\b/.test(lower)) return 'Indian';
+  // Proper-case fallback for any other nationality
+  return String(raw).trim().split(' ').map(function(w) {
+    return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : '';
+  }).join(' ');
+}
+
+// S48.F02 — Batch normalize nationality column in Candidates sheet (run from menu)
+function batchNormalizeNationality() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var ic   = CONFIG.inputColumns;
+  var rows = sheet.getLastRow() - 1;
+  var data = sheet.getRange(2, ic.nationality, rows, 1).getValues();
+  var out  = data.map(function(r) { return [normalizeNationality_(r[0])]; });
+  sheet.getRange(2, ic.nationality, rows, 1).setValues(out);
+  SpreadsheetApp.flush();
+  Logger.log('S48: Nationality normalized for ' + rows + ' rows');
+  try { SpreadsheetApp.getUi().alert('✓ Nationality normalized for ' + rows + ' candidates.'); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S49 · LOCATION DISPLAY LOGIC
+// ═══════════════════════════════════════════════════════════════════
+
+// S49.F01 — Get display-ready location string
+//   India candidate → State name only       (e.g. "Kerala")
+//   Abroad candidate → City + Country short  (e.g. "Dubai, UAE")
+function getDisplayLocation_(currentLocation, nationality) {
+  if (!currentLocation) return '';
+  var loc  = String(currentLocation).trim();
+  var locL = loc.toLowerCase();
+  if (!locL) return '';
+
+  // Abroad detection — GCC city/country keywords
+  var gccKw = ['uae','dubai','abu dhabi','sharjah','ajman','fujairah','ras al khaimah',
+    'saudi','ksa','riyadh','jeddah','dammam','jubail','yanbu','khobar','mecca','medina',
+    'qatar','doha','bahrain','manama','oman','muscat','sohar','salalah',
+    'kuwait','kuwait city'];
+  var isAbroad = gccKw.some(function(c) { return locL.indexOf(c) >= 0; });
+  if (isAbroad) return formatAbroadLocation_(loc);
+
+  // India detection — major city / state keywords
+  var indiaKw = /india|mumbai|delhi|chennai|hyderabad|bangalore|bengaluru|kerala|kochi|pune|ahmedabad|kolkata|jaipur|lucknow|chandigarh|amritsar|visakhapatnam|bhubaneswar|patna|bhopal|indore|coimbatore|madurai|trivandrum|thiruvananthapuram|kozhikode|calicut|thrissur|guwahati|surat|vadodara|rajkot|ranchi|dehradun|jammu/i;
+  var isIndia = indiaKw.test(locL) ||
+    (nationality && /indian/i.test(String(nationality)));
+  if (isIndia) return extractIndiaState_(loc);
+
+  return loc.length > 22 ? loc.slice(0, 22) + '…' : loc;
+}
+
+// S49.F02 — Extract India state from location string
+function extractIndiaState_(loc) {
+  var locL = loc.toLowerCase();
+  var cityState = {
+    'mumbai':'Maharashtra','pune':'Maharashtra','nagpur':'Maharashtra','thane':'Maharashtra','nashik':'Maharashtra',
+    'delhi':'Delhi','new delhi':'Delhi','noida':'Uttar Pradesh','gurgaon':'Haryana','gurugram':'Haryana','faridabad':'Haryana',
+    'bangalore':'Karnataka','bengaluru':'Karnataka','mysore':'Karnataka','mysuru':'Karnataka','hubli':'Karnataka',
+    'hyderabad':'Telangana','secunderabad':'Telangana','warangal':'Telangana',
+    'chennai':'Tamil Nadu','coimbatore':'Tamil Nadu','madurai':'Tamil Nadu','salem':'Tamil Nadu','trichy':'Tamil Nadu',
+    'kolkata':'West Bengal','howrah':'West Bengal','durgapur':'West Bengal',
+    'ahmedabad':'Gujarat','surat':'Gujarat','vadodara':'Gujarat','rajkot':'Gujarat','gandhinagar':'Gujarat',
+    'jaipur':'Rajasthan','jodhpur':'Rajasthan','udaipur':'Rajasthan','kota':'Rajasthan','ajmer':'Rajasthan',
+    'lucknow':'Uttar Pradesh','kanpur':'Uttar Pradesh','agra':'Uttar Pradesh','varanasi':'Uttar Pradesh','allahabad':'Uttar Pradesh',
+    'patna':'Bihar','gaya':'Bihar','muzaffarpur':'Bihar','bhagalpur':'Bihar',
+    'bhopal':'Madhya Pradesh','indore':'Madhya Pradesh','gwalior':'Madhya Pradesh','jabalpur':'Madhya Pradesh',
+    'chandigarh':'Chandigarh','amritsar':'Punjab','ludhiana':'Punjab','jalandhar':'Punjab','patiala':'Punjab',
+    'kochi':'Kerala','thiruvananthapuram':'Kerala','trivandrum':'Kerala','kozhikode':'Kerala',
+    'calicut':'Kerala','thrissur':'Kerala','malappuram':'Kerala','kannur':'Kerala',
+    'palakkad':'Kerala','alappuzha':'Kerala','kollam':'Kerala','ernakulum':'Kerala',
+    'visakhapatnam':'Andhra Pradesh','vijayawada':'Andhra Pradesh','guntur':'Andhra Pradesh','nellore':'Andhra Pradesh',
+    'bhubaneswar':'Odisha','cuttack':'Odisha','rourkela':'Odisha',
+    'dehradun':'Uttarakhand','haridwar':'Uttarakhand','rishikesh':'Uttarakhand',
+    'ranchi':'Jharkhand','jamshedpur':'Jharkhand','dhanbad':'Jharkhand',
+    'guwahati':'Assam','dibrugarh':'Assam','silchar':'Assam'
+  };
+  for (var city in cityState) {
+    if (locL.indexOf(city) >= 0) return cityState[city];
+  }
+  var states = [
+    'andhra pradesh','arunachal pradesh','assam','bihar','chhattisgarh',
+    'goa','gujarat','haryana','himachal pradesh','jharkhand','karnataka','kerala',
+    'madhya pradesh','maharashtra','manipur','meghalaya','mizoram','nagaland',
+    'odisha','punjab','rajasthan','sikkim','tamil nadu','telangana','tripura',
+    'uttar pradesh','uttarakhand','west bengal','delhi','chandigarh'
+  ];
+  for (var i = 0; i < states.length; i++) {
+    if (locL.indexOf(states[i]) >= 0) {
+      return states[i].split(' ').map(function(w) {
+        return w.charAt(0).toUpperCase() + w.slice(1);
+      }).join(' ');
+    }
+  }
+  return loc.length > 18 ? loc.slice(0, 18) : loc;
+}
+
+// S49.F03 — Format abroad location as "City, Country"
+function formatAbroadLocation_(loc) {
+  var locL = loc.toLowerCase();
+  var map = {
+    'dubai':'Dubai, UAE',      'abu dhabi':'Abu Dhabi, UAE', 'sharjah':'Sharjah, UAE',
+    'ajman':'Ajman, UAE',      'fujairah':'Fujairah, UAE',   'ras al khaimah':'RAK, UAE',
+    'riyadh':'Riyadh, KSA',   'jeddah':'Jeddah, KSA',       'dammam':'Dammam, KSA',
+    'jubail':'Jubail, KSA',   'yanbu':'Yanbu, KSA',          'khobar':'Al Khobar, KSA',
+    'mecca':'Mecca, KSA',     'medina':'Medina, KSA',
+    'doha':'Doha, Qatar',     'lusail':'Lusail, Qatar',
+    'muscat':'Muscat, Oman',  'sohar':'Sohar, Oman',         'salalah':'Salalah, Oman',
+    'manama':'Manama, Bahrain',
+    'kuwait city':'Kuwait City, Kuwait', 'kuwait':'Kuwait City, Kuwait'
+  };
+  for (var city in map) {
+    if (locL.indexOf(city) >= 0) return map[city];
+  }
+  if (/\buae\b/.test(locL))     return 'UAE';
+  if (/\bsaudi\b|\bksa\b/.test(locL)) return 'Saudi Arabia';
+  if (/\bqatar\b/.test(locL))  return 'Qatar';
+  if (/\boman\b/.test(locL))   return 'Oman';
+  if (/\bbahrain\b/.test(locL)) return 'Bahrain';
+  if (/\bkuwait\b/.test(locL)) return 'Kuwait';
+  return loc.length > 20 ? loc.slice(0, 20) : loc;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S50 · EDUCATION ENUM CLASSIFIER
+// ═══════════════════════════════════════════════════════════════════
+
+// S50.F01 — Classify raw education text → strict 7-value enum
+function classifyEducation_(raw) {
+  if (!raw) return '';
+  var s = String(raw).toLowerCase().trim();
+  if (/master|mba|mtech|m\.tech|msc|m\.sc|mca|\bm\.e\b|post.?grad|pg |p\.g/.test(s))     return 'Master';
+  if (/\bb\.?e\b|\bb\.?tech\b|btech|b\.?sc|bsc|bca|b\.?com|b\.?a\b|degree|graduate|engineering|graduation/.test(s)) return 'Degree';
+  if (/diploma|poly|polytechnic|\bdme\b|d\.m\.e/.test(s))                                 return 'Diploma';
+  if (/\biti\b|trade cert|ncvt|scvt|craft cert|wireman cert|fitter cert/.test(s))          return 'ITI';
+  if (/12th|hsc|higher secondary|plus.?two|\+2|intermediate|\bpuc\b/.test(s))             return '12th Pass';
+  if (/10th|ssc|matriculation|matric|10 pass|x pass|xth/.test(s))                         return '10th Pass';
+  if (/8th|7th|primary|below ssc|no formal|illiterate|uneducated/.test(s))                return 'Below SSC';
+  return '';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S51 · EXTENDED COLUMNS v2 (cols 39-42)
+// ═══════════════════════════════════════════════════════════════════
+
+// S51.F01 — Ensure extended v2 columns 39-42 exist in Candidates sheet
+function ensureExtendedColumnsV2_(sheet) {
+  if (!sheet) return;
+  var ec2 = PATCH_V282.extCol2;
+  if (sheet.getLastColumn() >= ec2.top3Positions) return;
+  PATCH_V282.extHeaders2.forEach(function(hdr, i) {
+    var col = ec2.educationEnum + i;
+    if (sheet.getLastColumn() < col) {
+      sheet.getRange(1, col).setValue(hdr);
+    }
+  });
+  try {
+    sheet.getRange(1, ec2.educationEnum, 1, 4)
+      .setBackground('#1a3a5c').setFontColor('#fbbf24')
+      .setFontWeight('bold').setHorizontalAlignment('center');
+  } catch(e) {}
+  Logger.log('S51: Extended columns v2 added (cols 39-42)');
+}
+
+// S51.F02 — Setup callable from menu
+function setupExtendedColumnsV2() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  ensureExtendedColumnsV2_(sheet);
+  try { SpreadsheetApp.getUi().alert('✓ Extended columns v2 (cols 39-42) added.'); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S52 · TECHNICAL REVIEW ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+// S52.F01 — Save technical review verdict for a candidate row
+function updateTechnicalReview(rowIndex, value, reviewerEmail) {
+  if (!rowIndex || rowIndex < 2) return {ok:false, msg:'Invalid row'};
+  if (PATCH_V282.techReviewEnum.indexOf(value) < 0) return {ok:false, msg:'Invalid value: '+value};
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ec2   = PATCH_V282.extCol2;
+    ensureExtendedColumnsV2_(sheet);
+    var reviewer = reviewerEmail || getRecruiterIdentity();
+    sheet.getRange(rowIndex, ec2.techReview).setValue(value);
+    sheet.getRange(rowIndex, ec2.reviewedBy).setValue(
+      reviewer + ' | ' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm')
+    );
+    appendTimeline_(rowIndex, 'TECH_REVIEW', 'Technical Review set: ' + value, reviewer);
+    return {ok:true, reviewer:reviewer};
+  } catch(e) { return {ok:false, msg:e.message}; }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S53 · TOP 3 POSITIONS ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+// S53.F01 — Compute top 3 suitable positions from KAI trade taxonomy
+function computeTop3Positions_(candidate) {
+  var trade   = String(candidate.trade    || '').toLowerCase();
+  var eduEnum = String(candidate.educationEnum || '').toLowerCase();
+  var exp     = parseFloat(candidate.experience) || 0;
+  var gulf    = String(candidate.gulfExp  || '').toLowerCase();
+
+  var posMap = [
+    { fam:['welder','welding','6g','weld'],
+      deg:'Welding Engineer/Inspector', dip:'Senior Welder (TIG/MIG)', def:'Welder (Structural/Pipe)' },
+    { fam:['electrician','electrical','lv','mv','hv','e&i'],
+      deg:'Electrical Engineer', dip:'Senior Electrician (LV/MV)', def:'Electrician (Industrial)' },
+    { fam:['fitter','mechanical','millwright','pipe fitter','piping'],
+      deg:'Mechanical Engineer', dip:'Senior Pipe Fitter', def:'Mechanical Fitter' },
+    { fam:['instrumentation','ict','plc','dcs','scada','control'],
+      deg:'Instrumentation Engineer', dip:'Instrument Technician (Sr.)', def:'Instrument Technician' },
+    { fam:['civil','mason','carpenter','rebar','shuttering','formwork'],
+      deg:'Civil Engineer', dip:'Civil Foreman', def:'Civil Skilled Worker' },
+    { fam:['hvac','ac technician','refrigeration','air conditioning','chiller'],
+      deg:'HVAC Engineer', dip:'HVAC Technician (Sr.)', def:'HVAC Technician' },
+    { fam:['inspector','qa','qc','quality','ndt'],
+      deg:'QA/QC Engineer', dip:'QC Inspector (Sr.)', def:'QC Inspector' },
+    { fam:['safety','hse','nebosh','fire fighter','ehs'],
+      deg:'HSE Engineer/Manager', dip:'HSE Officer (Sr.)', def:'Safety Officer' },
+    { fam:['petroleum','refinery','process','plant operator','petrochemical'],
+      deg:'Process Engineer', dip:'Plant Operator (Sr.)', def:'Process/Plant Operator' },
+    { fam:['driver','heavy driver','forklift','crane operator'],
+      deg:'Fleet/Transport Supervisor', dip:'Equipment Operator (Sr.)', def:'Heavy Driver/Operator' },
+    { fam:['painter','coating','blaster','abrasive'],
+      deg:'Coating Inspector', dip:'Senior Painter/Blaster', def:'Industrial Painter' },
+    { fam:['scaffolder','scaffolding','rigger','rigging'],
+      deg:'Rigging Supervisor', dip:'Senior Scaffolder', def:'Scaffolder/Rigger' },
+    { fam:['helper','labour','labor','general worker','unskilled'],
+      deg:'Site Supervisor', dip:'Gang Leader / Foreman', def:'Helper / General Worker' }
+  ];
+
+  var matched = null;
+  for (var i = 0; i < posMap.length; i++) {
+    if (posMap[i].fam.some(function(k) { return trade.indexOf(k) >= 0; })) {
+      matched = posMap[i]; break;
+    }
+  }
+  if (!matched) {
+    if (exp >= 8) return [trade+' (Senior)', trade+' Supervisor', trade+' Lead'];
+    if (exp >= 3) return [trade+' (Experienced)', 'Senior '+trade, trade+' Foreman'];
+    return [trade || 'Trade Unknown', 'Junior '+trade, 'Trainee '+trade];
+  }
+
+  // Primary position by education
+  var primary;
+  if (eduEnum === 'degree' || eduEnum === 'master') primary = matched.deg;
+  else if (eduEnum === 'diploma')                   primary = matched.dip;
+  else                                              primary = matched.def;
+
+  // Gulf-experience bonus → promote one tier
+  if (gulf && gulf.length > 5 && primary === matched.def) primary = matched.dip;
+
+  // Secondary + tertiary by experience level
+  var secondary = (exp >= 8) ? matched.deg : (exp >= 3 ? matched.dip : matched.def);
+  var tertiary  = (exp >= 5) ? matched.dip : matched.def;
+
+  var pos = [primary];
+  if (secondary && secondary !== primary)             pos.push(secondary);
+  if (tertiary  && tertiary  !== secondary &&
+      tertiary  !== primary)                          pos.push(tertiary);
+  return pos.slice(0, 3);
+}
+
+// S53.F02 — Batch compute and save Top 3 Positions
+function batchComputeTop3Positions() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  ensureExtendedColumnsV2_(sheet);
+  var ic   = CONFIG.inputColumns;
+  var ec2  = PATCH_V282.extCol2;
+  var rows = sheet.getLastRow() - 1;
+  var cols = Math.max(42, ec2.top3Positions);
+  var data = sheet.getRange(2, 1, rows, cols).getValues();
+  var out  = [];
+  data.forEach(function(row) {
+    var rawEdu  = String(row[ic.education-1]||'');
+    var eduEnum = String(row[ec2.educationEnum-1]||'') || classifyEducation_(rawEdu);
+    var cand = {
+      trade:        String(row[ic.trade-1]||''),
+      educationEnum:eduEnum,
+      experience:   parseFloat(row[ic.experience-1])||0,
+      gulfExp:      String(row[(ic.gulf || 9)-1]||'')
+    };
+    out.push([computeTop3Positions_(cand).join(' | ')]);
+  });
+  sheet.getRange(2, ec2.top3Positions, rows, 1).setValues(out);
+  SpreadsheetApp.flush();
+  Logger.log('S53: Top 3 positions computed for ' + rows + ' rows');
+  try { SpreadsheetApp.getUi().alert('✓ Top 3 Positions saved for ' + rows + ' candidates.'); } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S54 · MISSING INFO EMAIL / WHATSAPP DRAFT ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+// S54.F01 — Build formal email draft for missing info
+function generateMissingInfoEmail_(rowIndex, actionKeys) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ic    = CONFIG.inputColumns;
+    var cols  = Math.max(24, ic.positionApplied || 12);
+    var row   = sheet.getRange(rowIndex, 1, 1, cols).getValues()[0];
+    var name  = String(row[ic.name-1]||'').split(' ')[0] || 'Candidate';
+    var pos   = String(row[(ic.positionApplied||12)-1]||'') || 'the position you applied for';
+    var lines = (actionKeys || []).map(function(k) {
+      var act = PATCH_V282.missingActions.filter(function(a){ return a.key===k; })[0];
+      return act ? '• ' + act.label : '• ' + k;
+    });
+    return {
+      ok:      true,
+      type:    'email',
+      subject: 'Action Required: Additional Information for ' + pos,
+      body:
+        'Dear ' + name + ',\n\n' +
+        'Thank you for your interest in the position of ' + pos + '.\n\n' +
+        'To proceed with your application, we require the following information:\n\n' +
+        lines.join('\n') + '\n\n' +
+        'Kindly share the above at your earliest convenience.\n\n' +
+        'Warm regards,\n' +
+        'Al Yousuf Enterprises LLP\n' +
+        'Recruitment Team | ai@alyousufent.com'
+    };
+  } catch(e) { return {ok:false, msg:e.message}; }
+}
+
+// S54.F02 — Build WhatsApp message draft
+function generateMissingInfoWhatsApp_(rowIndex, actionKeys) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ic    = CONFIG.inputColumns;
+    var cols  = Math.max(24, ic.positionApplied || 12);
+    var row   = sheet.getRange(rowIndex, 1, 1, cols).getValues()[0];
+    var name  = String(row[ic.name-1]||'').split(' ')[0] || 'Sir';
+    var pos   = String(row[(ic.positionApplied||12)-1]||'') || 'your applied role';
+    var phone = String(row[ic.mobile-1]||'').replace(/^'/,'').replace(/\D/g,'');
+    var shorts = (actionKeys || []).map(function(k) {
+      var act = PATCH_V282.missingActions.filter(function(a){ return a.key===k; })[0];
+      return act ? act.short : k;
+    });
+    var msg =
+      'Hi ' + name + ' 👋\n\n' +
+      'This is regarding your application for *' + pos + '*.\n\n' +
+      'Kindly share the following ASAP:\n' +
+      shorts.map(function(s){ return '✅ ' + s; }).join('\n') + '\n\n' +
+      'Reply to this message or WhatsApp us. Thank you! 🙏\n' +
+      '— Al Yousuf Enterprises LLP\nRecruitment Team';
+    var link = phone ?
+      'https://wa.me/91' + phone.slice(-10) + '?text=' + encodeURIComponent(msg) : '';
+    return { ok:true, type:'whatsapp', message:msg, phone:phone, link:link };
+  } catch(e) { return {ok:false, msg:e.message}; }
+}
+
+// S54.F03 — DEPRECATED. Active version is generateMissingInfoDraft in patch_v283.gs (uses Al Yousuf branding).
+// ⚠️ DO NOT remove the rename — duplicate function names break GAS compilation.
+function generateMissingInfoDraft_v282_DEPRECATED_(rowIndex, actionKeys, draftType) {
+  if (draftType === 'whatsapp') return generateMissingInfoWhatsApp_(rowIndex, actionKeys);
+  return generateMissingInfoEmail_(rowIndex, actionKeys);
+}
+
+// S54.F04 — Get action definitions list (called from dashboard to populate dropdown)
+function getMissingActionDefs() {
+  return PATCH_V282.missingActions;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S55 · STATUS OWNERSHIP (Reviewed By tracker)
+// ═══════════════════════════════════════════════════════════════════
+
+// S55.F01 — Get recruiter identity (GAS session email)
+function getRecruiterIdentity() {
+  try {
+    var email = Session.getEffectiveUser().getEmail();
+    return email || 'recruiter@system';
+  } catch(e) { return 'recruiter@system'; }
+}
+
+// S55.F02 — Update state + record reviewer identity
+function updateCandidateStateWithOwner(rowIndex, newState, techReview) {
+  var recruiter = getRecruiterIdentity();
+  // Call existing state machine from V2.gs
+  var result = updateCandidateState(rowIndex, newState, recruiter);
+  if (!result.ok) return result;
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var ec2   = PATCH_V282.extCol2;
+    ensureExtendedColumnsV2_(sheet);
+    var stamp = recruiter + ' | ' +
+      Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm');
+    sheet.getRange(rowIndex, ec2.reviewedBy).setValue(stamp);
+    if (techReview && PATCH_V282.techReviewEnum.indexOf(techReview) >= 0) {
+      sheet.getRange(rowIndex, ec2.techReview).setValue(techReview);
+    }
+  } catch(e) { Logger.log('S55: reviewedBy write error: '+e.message); }
+  return {ok:true, reviewer:recruiter};
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S56 · INTERNAL EMAIL PROTECTION
+// ═══════════════════════════════════════════════════════════════════
+
+// S56.F01 — Check if address is an internal / blocked domain OR a trusted external forwarder
+function isInternalEmail_(emailAddress) {
+  if (!emailAddress) return false;
+  var lower = String(emailAddress).toLowerCase().trim();
+  // Direct match against trusted external forwarders (e.g. safwanyshaikh@gmail.com)
+  if ((PATCH_V282.trustedExternalSenders||[]).indexOf(lower) >= 0) return true;
+  // Domain match against internal company domains
+  return PATCH_V282.internalDomains.some(function(d) {
+    return lower.indexOf('@' + d) >= 0;
+  });
+}
+
+// S56.F02 — Safe send: blocks outbound AI email to internal staff addresses
+function safeSendEmail_(to, subject, body, options) {
+  if (isInternalEmail_(to)) {
+    Logger.log('S56: ⛔ BLOCKED AI outbound to internal address: ' + to);
+    appendLog_({ status:'EMAIL_BLOCKED', notes:'Internal domain blocked: '+to });
+    return false;
+  }
+  try {
+    GmailApp.sendEmail(to, subject, body, options || {});
+    return true;
+  } catch(e) {
+    Logger.log('S56: safeSendEmail_ error: ' + e.message);
+    return false;
+  }
+}
+
+// S56.F03 — isInternalDomain_ (override — used in S32 to verify JD forwarding senders)
+//  This safely overrides the V1 isInternalDomain_ for domain checks only.
+//  If a function with this name exists in Code.gs, GAS uses the LAST defined version.
+//  Keep this definition here so it picks up the correct internal domain list.
+function isInternalDomain_(senderEmail) {
+  if (!senderEmail) return false;
+  var lower = String(senderEmail).toLowerCase().trim();
+  // Trusted external forwarders are treated as internal for outbound-block + JD/CV intake trust
+  if ((PATCH_V282.trustedExternalSenders||[]).indexOf(lower) >= 0) return true;
+  return PATCH_V282.internalDomains.some(function(d) {
+    return lower.indexOf('@' + d) >= 0;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S57 · getDashboardDataV2 SUPERSEDE  (v282 — full replace)
+// ═══════════════════════════════════════════════════════════════════
+// This function REPLACES the getDashboardDataV2 in KAI_16May2026_V2.gs.
+// DEPRECATED — GAS does NOT allow duplicate function names (compile error).
+// Active version lives in KAI_16May2026_V2.gs (S39.F01).
+// ⚠️ DO NOT rename this back. Renamed to break the duplicate.
+
+function getDashboardDataV2_v282_DEPRECATED_() {
+  try {
+    // Cache: valid only if patchVersion matches
+    var cache  = CacheService.getScriptCache();
+    var cached = cache.get('kai_dashboard_v2');
+    if (cached) {
+      try {
+        var p = JSON.parse(cached);
+        if (p && p.patchVersion === '282' && p.records && p.records.length > 0 &&
+            p.records[0].kaiNo) return p;
+      } catch(ce) {}
+    }
+
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet) return {metrics:{}, records:[], version:'OS-v282'};
+    var lr = sheet.getLastRow();
+    if (lr < 2) return {metrics:{total:0}, records:[], version:'OS-v282'};
+
+    var ic  = CONFIG.inputColumns;
+    var ec  = CONFIG_V2.extCol;
+    var ec2 = PATCH_V282.extCol2;
+
+    // Ensure both extended column sets exist
+    if (sheet.getLastColumn() < ec.kaiNo)           ensureExtendedColumns_(sheet);
+    if (sheet.getLastColumn() < ec2.top3Positions)  ensureExtendedColumnsV2_(sheet);
+
+    var cols = Math.max(CONFIG.headers.length, ec2.top3Positions);
+    var data = sheet.getRange(2, 1, lr-1, cols).getValues();
+    var tz   = 'Asia/Kolkata';
+    var now  = new Date();
+    var today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+
+    var metrics = {
+      total:0, shortlisted:0, clientSent:0, deployed:0,
+      needsReview:0, needsCall:0, incompleteContact:0, unknownTrade:0,
+      todayCount:0, deployReady:0, saudiTransfer:0, uaeVisit:0,
+      fresherPool:0, hold:0
+    };
+
+    var kaiNosToWrite = {};
+    var records = [], trades = {}, nationalities = {};
+
+    data.forEach(function(row, idx) {
+      var av = String(row[ic.active-1]||'').toUpperCase().trim();
+      if (av === 'SUPERSEDED' || av === 'ARCHIVED') return;
+      var name  = String(row[ic.name-1]||'').trim();
+      var email = String(row[ic.email-1]||'').trim();
+      if (!name && !email) return;
+
+      metrics.total++;
+
+      var rawNat = String(row[ic.nationality-1]||'');
+      var nat    = normalizeNationality_(rawNat);
+      var verdict= String(row[ic.verdict-1]||'').toUpperCase().trim();
+      var state  = String(row[ec.state-1]||'').trim();
+      var mob    = String(row[ec.mobility-1]||'').trim();
+      var ds     = parseInt(row[ec.deployScore-1])||0;
+      var missRaw= safeParseJson_(row[ec.missingFields-1], []);
+
+      // Metric accumulation
+      if (verdict === 'SHORTLISTED')              metrics.shortlisted++;
+      if (state   === 'CLIENT_SENT')              metrics.clientSent++;
+      if (state   === 'DEPLOYED')                 metrics.deployed++;
+      if (verdict === 'NEEDS_REVIEW')             metrics.needsReview++;
+      if (verdict === 'NEEDS_CALL')               metrics.needsCall++;
+      if (state   === 'INCOMPLETE_CONTACT')       metrics.incompleteContact++;
+      if (state   === 'UNKNOWN_TRADE')            metrics.unknownTrade++;
+      if (state   === 'READY_TO_DEPLOY'||ds>=80)  metrics.deployReady++;
+      if (state   === 'FRESHER_POOL')             metrics.fresherPool++;
+      if (state   === 'HOLD')                     metrics.hold++;
+      if (mob     === 'SAUDI_TRANSFER')           metrics.saudiTransfer++;
+      if (mob     === 'UAE_VISIT')                metrics.uaeVisit++;
+      var appDt = row[ic.applicationDate-1];
+      if (appDt instanceof Date &&
+          Utilities.formatDate(appDt,tz,'yyyy-MM-dd') === today) metrics.todayCount++;
+
+      var t = String(row[ic.trade-1]||'');
+      if (t)   trades[t]         = true;
+      if (nat) nationalities[nat] = true;
+
+      // KAI No (permanent — only generate if missing)
+      var kaiNo = String(row[ec.kaiNo-1]||'').trim();
+      if (!kaiNo) {
+        kaiNo = generateKaiNo_();
+        kaiNosToWrite[idx+2] = kaiNo;
+      }
+
+      // Location display (India→State, Abroad→City+Country)
+      var rawLoc  = String(row[ec.currentLocation-1]||'');
+      var dispLoc = getDisplayLocation_(rawLoc, nat);
+
+      // Education enum (use saved value, or classify raw on-the-fly)
+      var rawEdu  = String(row[ic.education-1]||'');
+      var eduEnum = String(row[ec2.educationEnum-1]||'') || classifyEducation_(rawEdu);
+
+      // Top 3 positions (use saved value, or compute on-the-fly)
+      var top3Raw = String(row[ec2.top3Positions-1]||'');
+      if (!top3Raw) {
+        var tmpCand = {
+          trade: t, educationEnum: eduEnum,
+          experience: parseFloat(row[ic.experience-1])||0,
+          gulfExp: String(row[(ic.gulf||9)-1]||'')
+        };
+        top3Raw = computeTop3Positions_(tmpCand).join(' | ');
+      }
+      var top3 = top3Raw.split(' | ').filter(Boolean).slice(0, 3);
+
+      // Technical Review + Reviewed By
+      var techReview = String(row[ec2.techReview-1]||'');
+      var reviewedBy = String(row[ec2.reviewedBy-1]||'');
+
+      // Next action intelligence
+      var cand = buildCandidateObj_(row, idx+2);
+      cand.mobilityStatus = mob;
+      var na = getNextAction_(cand);
+
+      // V283 fields — passport, freshness, deploy ready, KAI assessment snippet
+      var ppExpiry = row[ec.passportExpiry-1];
+      var passportStatus = (typeof getPassportStatus_ === 'function') ?
+        getPassportStatus_(ppExpiry) : 'Pending';
+      var passportMonths = (typeof getPassportMonthsLeft_ === 'function') ?
+        getPassportMonthsLeft_(ppExpiry) : null;
+      var freshness = (typeof getCvFreshness_ === 'function') ?
+        getCvFreshness_(appDt) : '';
+      var drResult = (typeof computeDeployReadyV2_ === 'function') ?
+        computeDeployReadyV2_(cand, nat, missRaw) : {status:'PENDING REVIEW', type:''};
+      var kaiSnippet = String(row[(ic.kaiAssessment||21)-1]||'').slice(0, 250);
+
+      records.push({
+        rowIndex:          idx+2,
+        kaiNo:             kaiNo,
+        name:              name,
+        nationality:       nat,
+        nationalityRaw:    rawNat,
+        age:               parseInt(row[ic.age-1])||0,
+        currentLocation:   rawLoc,
+        displayLocation:   dispLoc,
+        education:         rawEdu,
+        educationEnum:     eduEnum,
+        positionApplied:   String(row[ic.positionApplied-1]||''),
+        trade:             t,
+        techReview:        techReview,
+        top3Positions:     top3,
+        mobile:            String(row[ic.mobile-1]||'').replace(/^'/,''),
+        cvLink:            String(row[ic.cvLink-1]||''),
+        state:             state,
+        mobilityStatus:    mob,
+        deployScore:       ds,
+        deployReady:       drResult.status,
+        deployReadyType:   drResult.type,
+        verdict:           verdict,
+        flags:             String(row[ic.flags-1]||''),
+        score:             parseInt(row[ic.score-1])||0,
+        missingCount:      missRaw.length,
+        reviewedBy:        reviewedBy,
+        passportStatus:    passportStatus,
+        passportMonths:    passportMonths,
+        freshness:         freshness,
+        kaiAssessmentSnippet: kaiSnippet,
+        nextActionIcon:    na.icon,
+        nextActionLabel:   na.label,
+        nextActionUrgency: na.urgency,
+        applicationDate:   appDt instanceof Date ?
+          Utilities.formatDate(appDt, tz, 'yyyy-MM-dd') : ''
+      });
+    });
+
+    // Batch write any newly generated KAI Nos (permanent)
+    var newKaiKeys = Object.keys(kaiNosToWrite);
+    if (newKaiKeys.length > 0) {
+      newKaiKeys.forEach(function(rowIdx) {
+        try { sheet.getRange(parseInt(rowIdx), ec.kaiNo).setValue(kaiNosToWrite[rowIdx]); } catch(e) {}
+      });
+      try { SpreadsheetApp.flush(); } catch(e) {}
+      Logger.log('S57: Generated ' + newKaiKeys.length + ' KAI Nos');
+    }
+
+    records.sort(function(a,b) {
+      return String(b.applicationDate).localeCompare(String(a.applicationDate));
+    });
+
+    var result = {
+      metrics:      metrics,
+      records:      records,
+      trades:       Object.keys(trades).sort(),
+      nationalities:Object.keys(nationalities).sort(),
+      quota:        getQuotaState_(),
+      openReqs:     getOpenRequirements(),
+      version:      CONFIG.version + '-OS-v282',
+      patchVersion: '282'
+    };
+    try { cache.put('kai_dashboard_v2', JSON.stringify(result), 120); } catch(e) {}
+    return result;
+
+  } catch(e) {
+    Logger.log('S57: getDashboardDataV2 error: ' + e.message);
+    return {metrics:{total:0}, records:[], error:e.message, version:'OS-v282-err'};
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// S57.F02 — DEPRECATED. Active version lives in KAI_16May2026_V2.gs (S39.F03).
+// ⚠️ DO NOT remove the rename — duplicate function names break GAS compilation.
+// ─────────────────────────────────────────────────────────────────
+function clearDashboardCacheV2_v282_DEPRECATED_() {
+  try { CacheService.getScriptCache().remove('kai_dashboard_v2'); } catch(e) {}
+}
+
+// ─────────────────────────────────────────────────────────────────
+// S57.F03 — Full V282 setup (run once after adding this file)
+// ─────────────────────────────────────────────────────────────────
+function setupV282() {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) {
+    try { SpreadsheetApp.getUi().alert('❌ Error: Candidates sheet not found. Check CONFIG.sheetName.'); } catch(e) {}
+    return;
+  }
+  ensureExtendedColumns_(sheet);     // Cols 25-38 (V2)
+  ensureExtendedColumnsV2_(sheet);   // Cols 39-42 (V282)
+  clearDashboardCacheV2();
+  Logger.log('S57: setupV282 complete');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✅ V282 Setup Complete!\n\n' +
+      '📋 New columns added:\n' +
+      '  Col 39 → Education (Enum)\n' +
+      '  Col 40 → Technical Review\n' +
+      '  Col 41 → Reviewed By\n' +
+      '  Col 42 → Top 3 Positions\n\n' +
+      '▶ Next steps:\n' +
+      '  1. Run refreshMobilityAndDeployability()\n' +
+      '  2. Run batchComputeTop3Positions()\n' +
+      '  3. Deploy → New version → Open dashboard'
+    );
+  } catch(e) {}
+}

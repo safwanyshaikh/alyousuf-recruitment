@@ -1,0 +1,1029 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI_17May2026_patch_v286.gs
+ *  EMAIL INTELLIGENCE ENGINE — Gulf Recruitment OS
+ *  Build : 17-May-2026  |  Al Yousuf Enterprises LLP
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S76  EMAIL CLASSIFIER      — CV / JD / Reply / Spam / Internal
+ *  S77  REPLY PROCESSOR       — maps replies → candidate updates
+ *  S78  INTERNAL EMAIL GUARD  — blocks AI to company/client domains
+ *  S79  CV INTAKE PIPELINE v2 — duplicate detection, source tracking
+ *  S80  GMAIL LABEL MANAGER   — auto-label incoming emails by type
+ *  S81  SETUP & MENU          — setupV286, triggers
+ *
+ *  ARCHITECTURE
+ *  ─────────────────────────────────────────────────────────────────
+ *  • Entry point: processIncomingEmails286() — called by time trigger
+ *  • Classifier returns EMAIL_TYPE enum before any action is taken
+ *  • Internal Guard runs BEFORE any auto-reply is sent
+ *  • All writes go through existing V2 saveCandidate_ / updateCandidate_
+ *  • No duplicate detection bypasses existing KAI No system
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S76 · EMAIL CLASSIFIER
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * EMAIL_TYPE enum
+ */
+var EMAIL_TYPE_ = {
+  CV_APPLICATION:   'CV_APPLICATION',
+  JD_REQUIREMENT:   'JD_REQUIREMENT',
+  REPLY_TO_PENDING: 'REPLY_TO_PENDING',
+  INTERNAL:         'INTERNAL',
+  CLIENT_EMAIL:     'CLIENT_EMAIL',
+  SUB_AGENCY:       'SUB_AGENCY',
+  MARKETING_SPAM:   'MARKETING_SPAM',
+  SYSTEM_BOUNCE:    'SYSTEM_BOUNCE',
+  UNKNOWN:          'UNKNOWN'
+};
+
+/**
+ * Known protected domains — AI must NEVER auto-reply to these
+ */
+var PROTECTED_DOMAINS_ = [
+  'alyousufent.com',
+  'alyousuf.com',
+  'aramco.com',
+  'saudiaramco.com',
+  'sabic.com',
+  'neom.com',
+  'aramco.com.sa',
+  'adnoc.ae',
+  'petrofac.com',
+  'worleyparsons.com',
+  'technimont.com',
+  'kentz.com',
+  'naffco.com'
+];
+
+/**
+ * Sub-agency / aggregator spam patterns
+ */
+var SPAM_PATTERNS_ = [
+  /naukri\.com/i,
+  /monster\.com/i,
+  /indeed\.com/i,
+  /linkedin\.com/i,
+  /bayt\.com/i,
+  /gulftalent\.com/i,
+  /noreply@/i,
+  /no-reply@/i,
+  /donotreply@/i,
+  /notifications?@/i,
+  /alerts?@/i,
+  /newsletter@/i,
+  /unsubscribe/i,
+  /mailer-daemon/i,
+  /postmaster@/i,
+  /bounce[d]?@/i
+];
+
+/**
+ * JD / Requirement signal patterns
+ */
+var JD_SIGNALS_ = [
+  /urgently\s+required/i,
+  /manpower\s+requirement/i,
+  /manpower\s+requisition/i,
+  /requirement\s+for\s+\d+/i,
+  /\d+\s+nos?\s+(required|needed|urgently)/i,
+  /we\s+(?:are\s+)?(?:looking|seeking)\s+for/i,
+  /job\s+description/i,
+  /position[s]?\s+available/i,
+  /vacancy|vacancies/i,
+  /hiring\s+for/i,
+  /trade\s*:/i,
+  /qty\s*:/i,
+  /quantity\s*:/i,
+  /deployment\s+to\s+(?:saudi|uae|qatar|kuwait|oman|bahrain)/i,
+  /iqama\s+transfer\s+accepted/i,
+  /salary\s*:\s*(?:sar|aed|omr|qar)/i
+];
+
+/**
+ * CV application signal patterns
+ */
+var CV_SIGNALS_ = [
+  /please\s+find\s+(?:my|attached|enclosed)/i,
+  /i\s+(?:am\s+)?(?:applying|interested|submitting)/i,
+  /kindly\s+(?:consider|review|find)/i,
+  /attached\s+(?:is\s+)?(?:my|the)\s+(?:cv|resume)/i,
+  /cv\s+(?:for\s+)?(?:your\s+)?(?:consideration|review|reference)/i,
+  /seeking\s+(?:a\s+)?(?:suitable\s+)?(?:position|job|opportunity|role)/i,
+  /years?\s+of\s+experience/i,
+  /currently\s+(?:working|employed|based)/i,
+  /my\s+(?:total\s+)?experience/i,
+  /gulf\s+experience/i,
+  /available\s+(?:for\s+)?(?:immediate|joining)/i
+];
+
+/**
+ * Reply-to-pending signal patterns
+ * (candidate responding to our missing info request)
+ */
+var REPLY_SIGNALS_ = [
+  /(?:please\s+find|here\s+is|attaching|enclosed)\s+(?:my\s+)?(?:passport|visa|iqama|certificate|document)/i,
+  /as\s+(?:requested|per\s+your\s+request|you\s+asked)/i,
+  /(?:date\s+of\s+birth|dob)\s*[:\-]/i,
+  /my\s+(?:passport\s+(?:number|expiry|copy)|iqama|visa)\s*[:\-]/i,
+  /current(?:ly)?\s+(?:in|at|based\s+in)\s+/i,
+  /(?:notice\s+period|available\s+from)\s*[:\-]/i,
+  /(?:ecr|ecnr)\s*[:\-]/i,
+  /i\s+am\s+(?:currently\s+)?(?:in|at)\s+/i
+];
+
+/**
+ * S76.F01 — Main email classifier.
+ * Returns {type: EMAIL_TYPE_, confidence: 0-1, signals:[]}
+ *
+ * @param {string} from    - sender email address
+ * @param {string} subject - email subject
+ * @param {string} body    - plain text body
+ * @param {boolean} hasAttachment - has file attachment
+ * @param {string[]} attachmentNames - list of attachment filenames
+ */
+function classifyEmail_(from, subject, body, hasAttachment, attachmentNames) {
+  var result = { type: EMAIL_TYPE_.UNKNOWN, confidence: 0, signals: [] };
+  attachmentNames = attachmentNames || [];
+
+  var fromLower    = (from || '').toLowerCase();
+  var subjectLower = (subject || '').toLowerCase();
+  var bodyLower    = (body || '').toLowerCase().slice(0, 3000);
+  var fullText     = subjectLower + ' ' + bodyLower;
+
+  // ── RULE 1: System bounce / mailer-daemon ────────────────────────
+  if (/mailer-daemon|postmaster|delivery.*fail|undeliverable/i.test(from + subject)) {
+    return { type: EMAIL_TYPE_.SYSTEM_BOUNCE, confidence: 0.99, signals: ['mailer-daemon'] };
+  }
+
+  // ── RULE 2: Spam / automated senders ─────────────────────────────
+  for (var si = 0; si < SPAM_PATTERNS_.length; si++) {
+    if (SPAM_PATTERNS_[si].test(fromLower)) {
+      return { type: EMAIL_TYPE_.MARKETING_SPAM, confidence: 0.95,
+               signals: ['spam-pattern:' + SPAM_PATTERNS_[si].source.slice(0,30)] };
+    }
+  }
+
+  // ── RULE 3: Internal / protected domains ─────────────────────────
+  var senderDomain = fromLower.split('@')[1] || '';
+  for (var di = 0; di < PROTECTED_DOMAINS_.length; di++) {
+    if (senderDomain === PROTECTED_DOMAINS_[di] || senderDomain.endsWith('.' + PROTECTED_DOMAINS_[di])) {
+      result.signals.push('protected-domain:' + senderDomain);
+      // Sub-classify: is it a JD from client?
+      var jdScore = countSignals_(fullText, JD_SIGNALS_);
+      if (jdScore > 0) return { type: EMAIL_TYPE_.CLIENT_EMAIL, confidence: 0.9, signals: result.signals };
+      return { type: EMAIL_TYPE_.INTERNAL, confidence: 0.95, signals: result.signals };
+    }
+  }
+
+  // ── RULE 4: Check for CV attachments ─────────────────────────────
+  var hasCvAttachment = hasAttachment && attachmentNames.some(function(n) {
+    return /\.(pdf|doc|docx)$/i.test(n) &&
+           !/jd|job.desc|requirement|manpower/i.test(n);
+  });
+
+  var hasJdAttachment = hasAttachment && attachmentNames.some(function(n) {
+    return /jd|job.desc|requirement|manpower|vacancy|position/i.test(n) ||
+           (/\.(xlsx?|pdf)$/i.test(n) && /requirement|manpower|jd/i.test(n));
+  });
+
+  // ── RULE 5: Reply-to-pending (check subject for RE: + our thread) ─
+  var isReply = /^re:/i.test(subject) || /^fwd?:/i.test(subject);
+  if (isReply) {
+    var replyScore = countSignals_(fullText, REPLY_SIGNALS_);
+    var kaiNoMatch = (body || '').match(/AYE-KAI-\d{4}-\d{6}/i) ||
+                     (subject || '').match(/AYE-KAI-\d{4}-\d{6}/i);
+    if (kaiNoMatch || replyScore >= 2) {
+      return { type: EMAIL_TYPE_.REPLY_TO_PENDING, confidence: 0.85 + Math.min(replyScore*0.03, 0.1),
+               signals: ['is-reply', 'reply-signals:' + replyScore, kaiNoMatch ? 'kai-no-match' : ''] };
+    }
+  }
+
+  // ── RULE 6: JD / Requirement detection ──────────────────────────
+  var jdScore = countSignals_(fullText, JD_SIGNALS_);
+  if (hasJdAttachment) jdScore += 3;
+  if (jdScore >= 3) {
+    return { type: EMAIL_TYPE_.JD_REQUIREMENT, confidence: Math.min(0.5 + jdScore * 0.08, 0.96),
+             signals: ['jd-signals:' + jdScore, hasJdAttachment ? 'jd-attachment' : ''] };
+  }
+
+  // ── RULE 7: CV / Application detection ───────────────────────────
+  var cvScore = countSignals_(fullText, CV_SIGNALS_);
+  if (hasCvAttachment) cvScore += 4;
+  if (cvScore >= 2) {
+    return { type: EMAIL_TYPE_.CV_APPLICATION, confidence: Math.min(0.45 + cvScore * 0.1, 0.97),
+             signals: ['cv-signals:' + cvScore, hasCvAttachment ? 'cv-attachment' : ''] };
+  }
+
+  // ── RULE 8: Low-signal JD (just a few JD hints) ──────────────────
+  if (jdScore >= 1) {
+    return { type: EMAIL_TYPE_.JD_REQUIREMENT, confidence: 0.4 + jdScore * 0.05,
+             signals: ['jd-weak:' + jdScore] };
+  }
+
+  return { type: EMAIL_TYPE_.UNKNOWN, confidence: 0.3, signals: ['no-strong-signal'] };
+}
+
+/**
+ * Helper: count how many patterns match in text
+ */
+function countSignals_(text, patterns) {
+  var count = 0;
+  patterns.forEach(function(p) { if (p.test(text)) count++; });
+  return count;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S77 · REPLY PROCESSOR
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S77.F01 — Process a reply email and update the corresponding candidate.
+ *
+ * Resolution order for finding the candidate:
+ *   1. KAI No in subject/body (AYE-KAI-2026-000123)
+ *   2. Sender email matches candidate email
+ *   3. Sender phone in body matches candidate mobile
+ *   4. Sender name fuzzy match (last resort)
+ *
+ * Returns: {ok, kaiNo, updated:[], notFound:bool}
+ */
+function processReply_(message) {
+  var result = { ok: false, kaiNo: null, updated: [], notFound: false };
+
+  var from    = message.getFrom();
+  var subject = message.getSubject();
+  var body    = message.getPlainBody();
+  var allText = subject + ' ' + body;
+
+  // ── STEP 1: Find candidate ─────────────────────────────────────
+  var rowIndex = null;
+  var kaiNo    = null;
+
+  // Check for KAI No in text
+  var kaiMatch = allText.match(/AYE-KAI-(\d{4})-(\d{6})/i);
+  if (kaiMatch) {
+    kaiNo    = kaiMatch[0].toUpperCase();
+    rowIndex = findCandidateByKaiNo_(kaiNo);
+    result.signals = ['found-by-kaiNo'];
+  }
+
+  // Check sender email
+  if (!rowIndex) {
+    var senderEmail = extractEmail_(from);
+    if (senderEmail) {
+      rowIndex = findCandidateByEmail_(senderEmail);
+      if (rowIndex) result.signals = ['found-by-email'];
+    }
+  }
+
+  // Check phone in body
+  if (!rowIndex) {
+    var phoneMatch = body.match(/(?:\+?91|0)?[6-9]\d{9}/);
+    if (!phoneMatch) phoneMatch = body.match(/(?:\+?971|00971)[0-9]{8,9}/);
+    if (!phoneMatch) phoneMatch = body.match(/(?:\+?966|00966)[0-9]{8,9}/);
+    if (phoneMatch) {
+      var phone = phoneMatch[0].replace(/\D/g, '');
+      rowIndex = findCandidateByPhone_(phone);
+      if (rowIndex) result.signals = ['found-by-phone'];
+    }
+  }
+
+  if (!rowIndex) {
+    result.notFound = true;
+    Logger.log('S77: Reply not matched to any candidate. From: ' + from + ' Sub: ' + subject);
+    return result;
+  }
+
+  // ── STEP 2: Extract field updates from reply body ──────────────
+  var updates = extractFieldsFromReply_(body);
+  if (Object.keys(updates).length === 0) {
+    result.ok    = true;
+    result.kaiNo = kaiNo;
+    result.updated = [];
+    Logger.log('S77: Reply matched but no updatable fields found. Row:' + rowIndex);
+    return result;
+  }
+
+  // ── STEP 3: Apply updates to candidate sheet ───────────────────
+  try {
+    var applied = applyReplyUpdates_(rowIndex, updates);
+    result.ok      = true;
+    result.kaiNo   = kaiNo;
+    result.updated = applied;
+
+    // ── STEP 4: Add timeline event ──────────────────────────────
+    try {
+      addTimelineEvent_(rowIndex, 'Reply received — fields updated: ' + applied.join(', '),
+                        from, 'REPLY_UPDATE');
+    } catch(te) {}
+
+    // ── STEP 5: Update candidate state if was INCOMPLETE_CONTACT ─
+    try {
+      var ss    = getMasterSS_();
+      var sheet = ss.getSheetByName(CONFIG.sheetName);
+      var stateCol = 19;
+      var curState = String(sheet.getRange(rowIndex, stateCol).getValue() || '');
+      if (curState === 'INCOMPLETE_CONTACT' || curState === 'NEW') {
+        sheet.getRange(rowIndex, stateCol).setValue('PARSED');
+        SpreadsheetApp.flush();
+        result.updated.push('state→PARSED');
+      }
+    } catch(se) {}
+
+    Logger.log('S77: Reply processed. Row:' + rowIndex + ' Updated:' + applied.join(','));
+  } catch(applyErr) {
+    Logger.log('S77 apply error: ' + applyErr.message);
+  }
+
+  return result;
+}
+
+/**
+ * S77.F02 — Extract field values from reply body text.
+ * Returns object: {fieldName: value, ...}
+ */
+function extractFieldsFromReply_(body) {
+  var updates = {};
+  if (!body) return updates;
+
+  var b = body.replace(/\r/g, '\n');
+
+  // Date of Birth
+  var dobPatterns = [
+    /(?:date\s+of\s+birth|dob|d\.o\.b)\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+    /(?:born|birth)\s+(?:on\s+)?(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+    /(?:date\s+of\s+birth|dob)\s*[:\-]?\s*(\d{1,2}\s+\w+\s+\d{4})/i
+  ];
+  for (var di = 0; di < dobPatterns.length; di++) {
+    var dm = b.match(dobPatterns[di]);
+    if (dm) { updates.dob = dm[1].trim(); break; }
+  }
+
+  // Passport number and expiry
+  var ppNumMatch = b.match(/passport\s+(?:no\.?|number)\s*[:\-]?\s*([A-Z]\d{7}|\d{8})/i);
+  if (ppNumMatch) updates.passportNo = ppNumMatch[1].trim().toUpperCase();
+
+  var ppExpPatterns = [
+    /passport\s+expir[ey]\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+    /valid\s+(?:till|until|upto)\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+    /expir[ey]\s+(?:date|on)\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+    /validity\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i
+  ];
+  for (var pi = 0; pi < ppExpPatterns.length; pi++) {
+    var pm = b.match(ppExpPatterns[pi]);
+    if (pm) { updates.passportExpiry = pm[1].trim(); break; }
+  }
+
+  // Current location
+  var locPatterns = [
+    /(?:currently|presently|now)\s+(?:i\s+am\s+)?(?:in|at|based\s+in)\s+([A-Za-z\s,]{3,40}?)(?:\.|,|\n|$)/i,
+    /current\s+location\s*[:\-]\s*([^\n]{3,40})/i,
+    /(?:staying|residing|living)\s+(?:in|at)\s+([A-Za-z\s,]{3,40}?)(?:\.|,|\n|$)/i
+  ];
+  for (var li = 0; li < locPatterns.length; li++) {
+    var lm = b.match(locPatterns[li]);
+    if (lm && lm[1].trim().length > 2) { updates.currentLocation = lm[1].trim(); break; }
+  }
+
+  // Employment status
+  if (/(?:i\s+am\s+)?currently\s+(?:working|employed)\s+(?:at|in|with)/i.test(b)) {
+    updates.empStatus = 'Employed';
+  } else if (/(?:i\s+am\s+)?(?:not\s+working|unemployed|looking\s+for\s+(?:a\s+)?job|available\s+immediately)/i.test(b)) {
+    updates.empStatus = 'Available Immediately';
+  }
+
+  // Notice period
+  var npMatch = b.match(/notice\s+period\s*[:\-]?\s*(\d+)\s*(days?|weeks?|months?)/i) ||
+                b.match(/can\s+join\s+(?:in|within|after)\s*(\d+)\s*(days?|weeks?|months?)/i);
+  if (npMatch) {
+    var npDays = parseInt(npMatch[1]);
+    if (/weeks?/i.test(npMatch[2])) npDays *= 7;
+    if (/months?/i.test(npMatch[2])) npDays *= 30;
+    updates.noticeDays = npDays;
+  }
+
+  // ECR / ECNR
+  if (/\becnr\b/i.test(b)) updates.ecrStatus = 'ECNR';
+  else if (/\becr\b/i.test(b)) updates.ecrStatus = 'ECR';
+
+  // Mobile number (Indian / Gulf)
+  var mobilePatterns = [
+    /(?:mobile|phone|contact|whatsapp)\s*(?:no\.?|number|#)?\s*[:\-]?\s*(\+?(?:91|971|966|974|968|965|973)\s?[\d\s\-]{8,13})/i,
+    /(?:mobile|phone)\s*[:\-]\s*(\+?[0-9]{10,14})/i
+  ];
+  for (var mi = 0; mi < mobilePatterns.length; mi++) {
+    var mm = b.match(mobilePatterns[mi]);
+    if (mm) { updates.mobile = mm[1].replace(/\s/g, '').trim(); break; }
+  }
+
+  // Gulf experience (years)
+  var gulfExpMatch = b.match(/(?:gulf|gcc|middle\s+east)\s+experience\s*[:\-]?\s*(\d+)\s*(?:years?)/i) ||
+                     b.match(/(\d+)\s+years?\s+(?:in\s+)?(?:gulf|gcc|saudi|uae|qatar|oman)/i);
+  if (gulfExpMatch) updates.gulfExpYears = parseInt(gulfExpMatch[1]);
+
+  return updates;
+}
+
+/**
+ * S77.F03 — Apply extracted field updates to the candidate row in sheet.
+ * Returns array of field names that were actually updated.
+ */
+function applyReplyUpdates_(rowIndex, updates) {
+  var applied = [];
+  if (!rowIndex || Object.keys(updates).length === 0) return applied;
+
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(CONFIG.sheetName);
+  if (!sheet) return applied;
+
+  // Column mapping for V2 schema (1-indexed)
+  // Adjust these if your sheet columns differ
+  var COL = {
+    dob:             7,   // Date of Birth
+    mobile:          11,  // Mobile
+    currentLocation: 12,  // Current Location
+    empStatus:       13,  // Employment Status
+    noticeDays:      14,  // Notice Period (days)
+    ecrStatus:       15,  // ECR/ECNR
+    passportNo:      16,  // Passport No
+    passportExpiry:  17,  // Passport Expiry
+    gulfExpYears:    18   // Gulf Experience Years
+  };
+
+  Object.keys(updates).forEach(function(field) {
+    var col = COL[field];
+    if (!col) return;
+    var existing = String(sheet.getRange(rowIndex, col).getValue() || '').trim();
+    // Only update if cell is empty or marked as pending/unknown
+    if (!existing || existing === '—' || existing.toLowerCase() === 'pending' ||
+        existing.toLowerCase() === 'unknown' || existing === '') {
+      sheet.getRange(rowIndex, col).setValue(updates[field]);
+      applied.push(field);
+    }
+  });
+
+  if (applied.length > 0) SpreadsheetApp.flush();
+  return applied;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S78 · INTERNAL EMAIL GUARD
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S78.F01 — Check if an email should NEVER receive an AI auto-reply.
+ *
+ * Blocks:
+ *   - Our own company domains
+ *   - Known client domains
+ *   - System addresses
+ *   - Reply address from our own system
+ *
+ * Returns: {blocked: bool, reason: string}
+ */
+function checkInternalGuard_(fromEmail, toEmail) {
+  var from = (fromEmail || '').toLowerCase().trim();
+  var to   = (toEmail   || '').toLowerCase().trim();
+
+  // Never reply to self
+  var ownDomain = 'alyousufent.com';
+  if (from.endsWith('@' + ownDomain)) {
+    return { blocked: true, reason: 'own-domain:' + from };
+  }
+
+  // Never reply to protected domains
+  var fromDomain = from.split('@')[1] || '';
+  for (var i = 0; i < PROTECTED_DOMAINS_.length; i++) {
+    if (fromDomain === PROTECTED_DOMAINS_[i] ||
+        fromDomain.endsWith('.' + PROTECTED_DOMAINS_[i])) {
+      return { blocked: true, reason: 'protected-domain:' + fromDomain };
+    }
+  }
+
+  // Never reply to spam/system addresses
+  for (var si = 0; si < SPAM_PATTERNS_.length; si++) {
+    if (SPAM_PATTERNS_[si].test(from)) {
+      return { blocked: true, reason: 'spam-pattern' };
+    }
+  }
+
+  // Never reply to sub-agency bulk addresses
+  if (/bulk|mass|batch|broadcast|campaign/i.test(from)) {
+    return { blocked: true, reason: 'bulk-address' };
+  }
+
+  return { blocked: false, reason: '' };
+}
+
+/**
+ * S78.F02 — Check if JD email came from a client (route to intake queue, not auto-reply)
+ */
+function isClientJd_(fromEmail, body) {
+  var domain = (fromEmail || '').split('@')[1] || '';
+  return PROTECTED_DOMAINS_.some(function(d) {
+    return domain === d || domain.endsWith('.' + d);
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S79 · CV INTAKE PIPELINE v2
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S79.F01 — Duplicate detection before creating new candidate.
+ * Checks: email, mobile, passport number
+ * Returns: {isDuplicate, rowIndex, kaiNo, matchedOn}
+ */
+function detectDuplicate_(email, mobile, passportNo) {
+  var result = { isDuplicate: false, rowIndex: null, kaiNo: null, matchedOn: null };
+  if (!email && !mobile && !passportNo) return result;
+
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return result;
+
+  var lastRow = sheet.getLastRow() - 1;
+  var data    = sheet.getRange(2, 1, lastRow, 20).getValues();
+
+  var emailLow  = email    ? email.trim().toLowerCase()    : null;
+  var mobileCln = mobile   ? mobile.replace(/\D/g, '')     : null;
+  var ppNorm    = passportNo ? passportNo.trim().toUpperCase() : null;
+
+  for (var i = 0; i < data.length; i++) {
+    var row       = data[i];
+    var rowKaiNo  = String(row[0] || '').trim();  // col 1 = KAI No
+    var rowEmail  = String(row[10] || '').trim().toLowerCase(); // col 11 = email (approx)
+    var rowMobile = String(row[10] || '').replace(/\D/g, '');   // col 11 = mobile
+    var rowPP     = String(row[15] || '').trim().toUpperCase(); // col 16 = passport
+
+    if (emailLow  && rowEmail  && rowEmail  === emailLow)  {
+      return { isDuplicate: true, rowIndex: i + 2, kaiNo: rowKaiNo, matchedOn: 'email' };
+    }
+    if (mobileCln && rowMobile && rowMobile.endsWith(mobileCln.slice(-9))) {
+      return { isDuplicate: true, rowIndex: i + 2, kaiNo: rowKaiNo, matchedOn: 'mobile' };
+    }
+    if (ppNorm    && rowPP     && rowPP     === ppNorm)     {
+      return { isDuplicate: true, rowIndex: i + 2, kaiNo: rowKaiNo, matchedOn: 'passportNo' };
+    }
+  }
+  return result;
+}
+
+/**
+ * S79.F02 — Source tracker: tag how a CV arrived.
+ * Tags: DIRECT_EMAIL | FORWARDED | WHATSAPP_FORWARD | BULK_SUBMISSION | REPLY_TO_AD
+ */
+function detectCvSource_(message) {
+  var subject = (message.getSubject() || '').toLowerCase();
+  var from    = (message.getFrom()    || '').toLowerCase();
+  var body    = (message.getPlainBody() || '').toLowerCase().slice(0, 500);
+
+  if (/fwd?:/.test(subject) || /------\s*forwarded/i.test(body)) {
+    return 'FORWARDED';
+  }
+  if (/whatsapp|wapp/i.test(from + subject + body)) {
+    return 'WHATSAPP_FORWARD';
+  }
+  if (/bulk|batch|multiple|mass/i.test(subject)) {
+    return 'BULK_SUBMISSION';
+  }
+  if (/re:/i.test(subject)) {
+    return 'REPLY_TO_AD';
+  }
+  return 'DIRECT_EMAIL';
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S80 · GMAIL LABEL MANAGER
+// ═══════════════════════════════════════════════════════════════════
+
+var KAI_LABELS_ = {
+  CV_APPLICATION:   'KAI/CV Applications',
+  JD_REQUIREMENT:   'KAI/JD Requirements',
+  REPLY_TO_PENDING: 'KAI/Candidate Replies',
+  INTERNAL:         'KAI/Internal',
+  CLIENT_EMAIL:     'KAI/Client Emails',
+  MARKETING_SPAM:   'KAI/Filtered Spam',
+  UNKNOWN:          'KAI/Review Needed',
+  PROCESSED:        'KAI/Processed'
+};
+
+/**
+ * S80.F01 — Get or create a Gmail label.
+ */
+function getOrCreateLabel_(name) {
+  var label = GmailApp.getUserLabelByName(name);
+  if (!label) {
+    try { label = GmailApp.createLabel(name); }
+    catch(e) { Logger.log('Label create failed: ' + name + ' — ' + e.message); }
+  }
+  return label;
+}
+
+/**
+ * S80.F02 — Apply label to Gmail message.
+ */
+function applyLabel_(message, labelName) {
+  try {
+    var label = getOrCreateLabel_(labelName);
+    if (label) message.getThread().addLabel(label);
+  } catch(e) {
+    Logger.log('Label apply failed: ' + e.message);
+  }
+}
+
+/**
+ * S80.F03 — Setup all KAI labels in Gmail.
+ */
+function setupKaiLabels_() {
+  Object.values(KAI_LABELS_).forEach(function(name) {
+    getOrCreateLabel_(name);
+  });
+  Logger.log('S80: KAI Gmail labels created');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// S81 · MAIN PROCESSOR + SETUP
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S81.F01 — Main entry point: process unread inbox emails.
+ * Called by time-based trigger every 5–15 minutes.
+ *
+ * For each unread thread:
+ *   1. Classify email type
+ *   2. Route based on classification
+ *   3. Apply Gmail label
+ *   4. Mark as processed
+ */
+function processIncomingEmails286() {
+  var log = { cv: 0, jd: 0, reply: 0, internal: 0, spam: 0, unknown: 0, errors: 0 };
+
+  try {
+    var threads = GmailApp.search('to:ai@alyousufent.com is:unread -label:KAI/Processed', 0, 50);
+
+    if (threads.length === 0) {
+      Logger.log('S81: No unread emails to process');
+      return;
+    }
+
+    Logger.log('S81: Processing ' + threads.length + ' threads');
+
+    threads.forEach(function(thread) {
+      try {
+        var messages   = thread.getMessages();
+        var message    = messages[messages.length - 1]; // latest message
+        var from       = message.getFrom();
+        var subject    = message.getSubject();
+        var body       = message.getPlainBody();
+        var attachments= message.getAttachments();
+        var attNames   = attachments.map(function(a) { return a.getName(); });
+        var hasAtt     = attachments.length > 0;
+
+        // ── Guard: skip if internal ──────────────────────────────
+        var guard = checkInternalGuard_(from, '');
+        if (guard.blocked) {
+          applyLabel_(message, KAI_LABELS_.INTERNAL);
+          log.internal++;
+          Logger.log('S81 BLOCKED (internal): ' + from + ' — ' + guard.reason);
+          return; // don't process further
+        }
+
+        // ── Classify ──────────────────────────────────────────────
+        var cls = classifyEmail_(from, subject, body, hasAtt, attNames);
+        Logger.log('S81 classified: ' + cls.type + ' (' + Math.round(cls.confidence*100) + '%) — ' + from);
+
+        // ── Route ─────────────────────────────────────────────────
+        switch(cls.type) {
+
+          case EMAIL_TYPE_.CV_APPLICATION:
+            applyLabel_(message, KAI_LABELS_.CV_APPLICATION);
+            // Only auto-process high-confidence CVs
+            if (cls.confidence >= 0.7 && hasAtt) {
+              routeCvToIntake_(message, attNames, cls);
+            } else {
+              // Flag for manual review
+              applyLabel_(message, KAI_LABELS_.UNKNOWN);
+            }
+            log.cv++;
+            break;
+
+          case EMAIL_TYPE_.JD_REQUIREMENT:
+            applyLabel_(message, KAI_LABELS_.JD_REQUIREMENT);
+            // Route to JD intake queue (flag for recruiter review, don't auto-parse)
+            routeJdToQueue_(message, cls);
+            log.jd++;
+            break;
+
+          case EMAIL_TYPE_.REPLY_TO_PENDING:
+            applyLabel_(message, KAI_LABELS_.REPLY_TO_PENDING);
+            var replyResult = processReply_(message);
+            if (replyResult.ok && replyResult.updated.length > 0) {
+              applyLabel_(message, KAI_LABELS_.PROCESSED);
+              Logger.log('S81 reply processed: updated ' + replyResult.updated.join(','));
+            }
+            log.reply++;
+            break;
+
+          case EMAIL_TYPE_.CLIENT_EMAIL:
+            applyLabel_(message, KAI_LABELS_.CLIENT_EMAIL);
+            log.internal++;
+            break;
+
+          case EMAIL_TYPE_.MARKETING_SPAM:
+          case EMAIL_TYPE_.SYSTEM_BOUNCE:
+            applyLabel_(message, KAI_LABELS_.MARKETING_SPAM);
+            log.spam++;
+            break;
+
+          case EMAIL_TYPE_.UNKNOWN:
+          default:
+            applyLabel_(message, KAI_LABELS_.UNKNOWN);
+            log.unknown++;
+            break;
+        }
+
+        // Mark thread as processed
+        applyLabel_(message, KAI_LABELS_.PROCESSED);
+        thread.markRead();
+
+      } catch(threadErr) {
+        Logger.log('S81 thread error: ' + threadErr.message);
+        log.errors++;
+      }
+    });
+
+    Logger.log('S81 batch complete: CV=' + log.cv + ' JD=' + log.jd +
+               ' Reply=' + log.reply + ' Internal=' + log.internal +
+               ' Spam=' + log.spam + ' Unknown=' + log.unknown +
+               ' Errors=' + log.errors);
+
+  } catch(mainErr) {
+    Logger.log('S81 fatal error: ' + mainErr.message);
+  }
+}
+
+/**
+ * S81.F02 — Route a CV email to the existing import queue.
+ * Saves attachments to Drive temp folder, creates import job.
+ */
+function routeCvToIntake_(message, attNames, classification) {
+  var attachments = message.getAttachments();
+  var cvSource    = detectCvSource_(message);
+  var from        = message.getFrom();
+
+  attachments.forEach(function(att) {
+    var name = att.getName();
+    if (!/\.(pdf|doc|docx)$/i.test(name)) return; // skip non-CV files
+
+    try {
+      // Check for duplicates first — extract sender email from From header
+      var senderEmail = extractEmail_(from);
+      var dupCheck    = detectDuplicate_(senderEmail, null, null);
+      if (dupCheck.isDuplicate) {
+        Logger.log('S81 duplicate CV skipped: ' + senderEmail + ' matches ' + dupCheck.kaiNo);
+        return;
+      }
+
+      // Save to Drive intake folder for processing
+      var folderId = PropertiesService.getScriptProperties().getProperty('KAI_CV_FOLDER_ID');
+      if (!folderId) {
+        // Use root Drive if folder not configured
+        var blob = att.copyBlob();
+        var file = DriveApp.createFile(blob);
+        Logger.log('S81 CV saved to Drive: ' + file.getId() + ' — ' + name);
+        return;
+      }
+      var folder = DriveApp.getFolderById(folderId);
+      var blob   = att.copyBlob();
+      folder.createFile(blob);
+      Logger.log('S81 CV routed to intake: ' + name + ' source:' + cvSource);
+    } catch(e) {
+      Logger.log('S81 CV route error: ' + e.message);
+    }
+  });
+}
+
+/**
+ * S81.F03 — Route JD email to the JD intake queue for recruiter review.
+ * Does NOT auto-parse — flags it for recruiter to trigger extraction.
+ */
+function routeJdToQueue_(message, classification) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName('_JDQueue') ||
+                ensureSheet_(ss, '_JDQueue',
+                  ['Received', 'From', 'Subject', 'Classification', 'Confidence', 'Status', 'MessageId'],
+                  '#1e3a5f');
+
+    var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm');
+    sheet.appendRow([
+      today,
+      message.getFrom(),
+      message.getSubject(),
+      classification.type,
+      Math.round(classification.confidence * 100) + '%',
+      'PENDING_REVIEW',
+      message.getId()
+    ]);
+    SpreadsheetApp.flush();
+    Logger.log('S81 JD queued: ' + message.getSubject());
+  } catch(e) {
+    Logger.log('S81 JD queue error: ' + e.message);
+  }
+}
+
+/**
+ * S81.F04 — Helper: extract clean email address from "Name <email>" format.
+ */
+function extractEmail_(from) {
+  var m = (from || '').match(/<([^>]+)>/);
+  if (m) return m[1].trim().toLowerCase();
+  var plain = (from || '').trim().toLowerCase();
+  return plain.indexOf('@') >= 0 ? plain : null;
+}
+
+/**
+ * S81.F05 — Helper: find candidate row by KAI No.
+ */
+function findCandidateByKaiNo_(kaiNo) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim().toUpperCase() === kaiNo.toUpperCase()) return i + 2;
+    }
+  } catch(e) {}
+  return null;
+}
+
+/**
+ * S81.F06 — Helper: find candidate row by email.
+ */
+function findCandidateByEmail_(email) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    // Email column — adjust col index to match your schema
+    var emailCol = 10; // approximate — update to match actual column
+    var data  = sheet.getRange(2, emailCol, sheet.getLastRow() - 1, 1).getValues();
+    var el    = email.toLowerCase().trim();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase().trim() === el) return i + 2;
+    }
+  } catch(e) {}
+  return null;
+}
+
+/**
+ * S81.F07 — Helper: find candidate row by phone.
+ */
+function findCandidateByPhone_(phone) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(CONFIG.sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var mobileCol = 11; // adjust to match schema
+    var data  = sheet.getRange(2, mobileCol, sheet.getLastRow() - 1, 1).getValues();
+    var suffix = phone.slice(-9);
+    for (var i = 0; i < data.length; i++) {
+      var rowPhone = String(data[i][0]).replace(/\D/g, '');
+      if (rowPhone && rowPhone.endsWith(suffix)) return i + 2;
+    }
+  } catch(e) {}
+  return null;
+}
+
+/**
+ * S81.F08 — Add a timeline entry for a candidate.
+ */
+function addTimelineEvent_(rowIndex, event, actor, eventType) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName('_Timeline') ||
+                ensureSheet_(ss, '_Timeline',
+                  ['KAI Row', 'Timestamp', 'Event', 'Actor', 'Type'],
+                  '#1e3a5f');
+
+    var ts = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm:ss');
+    sheet.appendRow([rowIndex, ts, event, actor || '', eventType || 'EVENT']);
+    SpreadsheetApp.flush();
+  } catch(e) {
+    Logger.log('Timeline write error: ' + e.message);
+  }
+}
+
+/**
+ * S81.F09 — One-time setup for V286 Email Intelligence Engine.
+ */
+function setupV286() {
+  var log = [];
+
+  // 1. Create Gmail labels
+  try {
+    setupKaiLabels_();
+    log.push('✓ Gmail labels created (KAI/*)');
+  } catch(e) {
+    log.push('✗ Gmail labels: ' + e.message);
+  }
+
+  // 2. Create _JDQueue sheet
+  try {
+    var ss = getMasterSS_();
+    ensureSheet_(ss, '_JDQueue',
+      ['Received', 'From', 'Subject', 'Classification', 'Confidence', 'Status', 'MessageId'],
+      '#1e3a5f');
+    log.push('✓ _JDQueue sheet ready');
+  } catch(e2) {
+    log.push('✗ _JDQueue: ' + e2.message);
+  }
+
+  // 3. Create _Timeline sheet
+  try {
+    var ss2 = getMasterSS_();
+    ensureSheet_(ss2, '_Timeline',
+      ['KAI Row', 'Timestamp', 'Event', 'Actor', 'Type'],
+      '#1e3a5f');
+    log.push('✓ _Timeline sheet ready');
+  } catch(e3) {
+    log.push('✗ _Timeline: ' + e3.message);
+  }
+
+  // 4. Set up 10-minute trigger
+  try {
+    // Remove existing triggers for this function first
+    ScriptApp.getProjectTriggers().forEach(function(t) {
+      if (t.getHandlerFunction() === 'processIncomingEmails286') {
+        ScriptApp.deleteTrigger(t);
+      }
+    });
+    ScriptApp.newTrigger('processIncomingEmails286')
+      .timeBased()
+      .everyMinutes(10)
+      .create();
+    log.push('✓ 10-min trigger set for processIncomingEmails286');
+  } catch(e4) {
+    log.push('✗ Trigger: ' + e4.message);
+  }
+
+  // 5. Mark V286 active
+  PropertiesService.getScriptProperties().setProperty('KAI_V286_ACTIVE', 'true');
+  log.push('✓ V286 properties set');
+
+  Logger.log('S81 setupV286:\n' + log.join('\n'));
+
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✅ V286 Email Intelligence Engine Active!\n\n' +
+      log.join('\n') + '\n\n' +
+      'What this does:\n' +
+      '• Classifies every email: CV / JD / Reply / Spam / Internal\n' +
+      '• Blocks AI replies to client/company domains\n' +
+      '• Routes CVs to import queue automatically\n' +
+      '• Routes JDs to _JDQueue for recruiter review\n' +
+      '• Maps candidate replies to their profile\n' +
+      '• Auto-fills DOB, Passport, Location, Mobile from replies\n' +
+      '• Runs every 10 minutes via trigger\n\n' +
+      'Gmail labels created under KAI/*\n' +
+      'Confirm: ai@alyousufent.com receives all incoming CVs.'
+    );
+  } catch(e) {}
+}
+
+/**
+ * S81.F10 — Test the classifier on last 5 emails (safe, read-only).
+ * Run manually to verify classification before going live.
+ */
+function testEmailClassifier() {
+  var threads = GmailApp.search('to:ai@alyousufent.com', 0, 5);
+  var results = [];
+  threads.forEach(function(thread) {
+    var msg  = thread.getMessages()[0];
+    var from = msg.getFrom();
+    var sub  = msg.getSubject();
+    var body = msg.getPlainBody().slice(0, 1000);
+    var atts = msg.getAttachments().map(function(a){ return a.getName(); });
+    var cls  = classifyEmail_(from, sub, body, atts.length > 0, atts);
+    results.push(cls.type + ' (' + Math.round(cls.confidence*100) + '%) — ' + from.slice(0,40) + ' — ' + sub.slice(0,50));
+  });
+  Logger.log('TEST CLASSIFIER:\n' + results.join('\n'));
+  try {
+    SpreadsheetApp.getUi().alert('Classifier Test Results:\n\n' + results.join('\n'));
+  } catch(e) {}
+}

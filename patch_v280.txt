@@ -1,0 +1,1045 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — IMPORT & INTELLIGENT ALIGNMENT ENGINE
+ *  File    : KAI_16May2026_patch_v280.gs
+ *  Patch   : v280  |  Build : 16-May-2026
+ *  Owner   : ai@alyousufent.com
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S40  IMPORT CONFIG & SHEET SETUP   — schemas, aliases, constants
+ *  S41  IMPORT QUEUE MANAGER          — submit, status, public API
+ *  S42  CSV / EXCEL PARSER            — field mapping, validation
+ *  S43  JD IMPORT ENGINE              — Gemini extraction + match
+ *  S44  REVIEW QUEUE MANAGER          — admin approve/reject flow
+ *  S45  BACKGROUND PROCESSOR          — trigger-based queue runner
+ *  S46  IMPORT HISTORY & AUDIT        — full event log
+ *  S47  IMPORT SETUP & MENU           — one-time install + menu
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S40 · IMPORT CONFIG & SHEET SETUP
+// ═══════════════════════════════════════════════════════════════════
+
+var IMPORT_CFG = {
+
+  // ── Sheet names ────────────────────────────────────────────────
+  queueSheet:   '_ImportQueue',
+  reviewSheet:  '_ReviewQueue',
+  historySheet: '_ImportHistory',
+
+  // ── _ImportQueue headers ───────────────────────────────────────
+  queueHeaders: [
+    'Job ID','Filename','Type','Status','Submitted','Last Updated',
+    'Total Rows','Processed','Failed','Review Count','Source','Notes'
+  ],
+
+  // ── _ReviewQueue headers ───────────────────────────────────────
+  reviewHeaders: [
+    'Item ID','Job ID','Row Number','Name','Email','Mobile','Trade',
+    'Issues','Row Data JSON','Status','Admin Action','Action At'
+  ],
+
+  // ── _ImportHistory headers ─────────────────────────────────────
+  historyHeaders: [
+    'Event ID','Timestamp','Job ID','Action','Details','Actor'
+  ],
+
+  // ── Job types ─────────────────────────────────────────────────
+  TYPE: { CSV:'CSV', EXCEL:'EXCEL', JD_TEXT:'JD_TEXT', JD_FILE:'JD_FILE' },
+
+  // ── Statuses ──────────────────────────────────────────────────
+  STATUS: {
+    PENDING:'PENDING', PROCESSING:'PROCESSING',
+    COMPLETE:'COMPLETE', PARTIAL:'PARTIAL', FAILED:'FAILED'
+  },
+
+  // ── Smart field alias map (incoming header → KAI field key) ───
+  fieldAliases: {
+    name:            ['name','full name','candidate name','applicant name',
+                      'candidate','employee name','person name','contact name'],
+    email:           ['email','email address','e-mail','mail','email id',
+                      'e mail','email id','contact email'],
+    mobile:          ['mobile','phone','contact','mobile number','phone number',
+                      'contact number','cell','whatsapp','mob no','ph no',
+                      'mobile no','ph','contact no','tel','telephone'],
+    nationality:     ['nationality','country','nation','citizenship',
+                      'country of origin','passport country','origin'],
+    trade:           ['trade','skill','designation','position','job title',
+                      'occupation','role','profile','current designation',
+                      'current role','applied trade','profession'],
+    industry:        ['industry','sector','domain','field','vertical'],
+    experience:      ['experience','exp','total exp','years','years exp',
+                      'total experience','years of experience','work exp',
+                      'total work exp','exp years','experience years'],
+    gulfExp:         ['gulf','gulf experience','gcc experience','gcc exp',
+                      'middle east experience','gulf exp','overseas exp',
+                      'overseas experience','abroad experience','gulf work'],
+    education:       ['education','qualification','degree','highest qualification',
+                      'qual','highest qual','academic','educational qualification'],
+    dob:             ['dob','date of birth','birth date','birthdate','d.o.b',
+                      'date of birth','born','birth'],
+    age:             ['age','current age','age years','age in years'],
+    positionApplied: ['position applied','applied for','applying for','job applied',
+                      'role applied','position applying','job applying for'],
+    cvLink:          ['cv','resume','cv link','resume link','cv url','file link',
+                      'google drive link','drive link','attachment link','cv file'],
+    notes:           ['notes','remarks','comments','additional','observations',
+                      'other notes','special notes','additional info'],
+    applicationDate: ['date','application date','applied date','date applied',
+                      'submission date','received date','cv date'],
+    verdict:         ['verdict','status','decision','shortlist','shortlisted',
+                      'assessment result'],
+    recruiterAction: ['recruiter action','action','action taken','hr action'],
+    kaiAssessment:   ['assessment','ai notes','kai assessment','ai assessment',
+                      'system notes'],
+    scoreBreakdown:  ['score breakdown','breakdown','score details'],
+    flags:           ['flags','flag','tags','tag'],
+    score:           ['score','rating','rank','match score','ai score'],
+    recommendedRoles:['recommended roles','recommendations','suggested roles'],
+    stage:           ['stage','pipeline stage','current stage','process stage']
+  },
+
+  // ── Mandatory fields to flag if missing ───────────────────────
+  mandatoryFields: ['name'],
+
+  // ── Fields that trigger duplicate check ───────────────────────
+  dedupFields: ['email','mobile'],
+
+  // ── Max rows per import job ────────────────────────────────────
+  maxRowsPerJob: 2000,
+
+  // ── Max rows processed per trigger run ────────────────────────
+  maxRowsPerRun: 200
+};
+
+// S40.F01 — Ensure import sheets exist
+function ensureImportSheets_() {
+  var ss = getMasterSS_();
+  ensureSheet_(ss, IMPORT_CFG.queueSheet,   IMPORT_CFG.queueHeaders,   '#1a1a2e');
+  ensureSheet_(ss, IMPORT_CFG.reviewSheet,  IMPORT_CFG.reviewHeaders,  '#3d1a00');
+  ensureSheet_(ss, IMPORT_CFG.historySheet, IMPORT_CFG.historyHeaders, '#0a2a1a');
+}
+
+// S40.F02 — Generate unique import Job ID
+function generateJobId_() {
+  var props   = PropertiesService.getScriptProperties();
+  var counter = parseInt(props.getProperty('import_job_counter') || '0') + 1;
+  props.setProperty('import_job_counter', String(counter));
+  return 'IMP-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+         '-' + String(counter).padStart(4, '0');
+}
+
+// S40.F03 — Generate unique Review Item ID
+function generateItemId_() {
+  var props   = PropertiesService.getScriptProperties();
+  var counter = parseInt(props.getProperty('review_item_counter') || '0') + 1;
+  props.setProperty('review_item_counter', String(counter));
+  return 'REV-' + String(counter).padStart(6, '0');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S41 · IMPORT QUEUE MANAGER — public API
+// ═══════════════════════════════════════════════════════════════════
+
+// S41.F01 — Submit a CSV import job (called from dashboard)
+function submitCsvImport(csvText, filename) {
+  try {
+    ensureImportSheets_();
+    if (!csvText || csvText.length < 5) return { ok: false, msg: 'Empty CSV content' };
+    // Store CSV in Script Properties (chunked if needed)
+    var jobId = generateJobId_();
+    var key   = 'import_payload_' + jobId;
+    // Store payload in chunks (Script Properties: 9KB per value limit)
+    storePayloadChunked_(key, csvText);
+    // Write queue row
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(IMPORT_CFG.queueSheet);
+    var rows  = estimateRowCount_(csvText);
+    sheet.appendRow([
+      jobId, filename || 'upload.csv', IMPORT_CFG.TYPE.CSV, IMPORT_CFG.STATUS.PENDING,
+      new Date(), new Date(), rows, 0, 0, 0, 'dashboard-upload', ''
+    ]);
+    addToHistory_(jobId, 'JOB_SUBMITTED', 'CSV: ' + filename + ' (~' + rows + ' rows)', 'dashboard');
+    Logger.log('S41: CSV job submitted: ' + jobId + ' | ' + rows + ' rows');
+    return { ok: true, jobId: jobId, estimatedRows: rows };
+  } catch(e) {
+    Logger.log('S41: submitCsvImport error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S41.F02 — Submit an Excel file (base64) import job
+function submitExcelImport(base64Data, filename) {
+  try {
+    ensureImportSheets_();
+    if (!base64Data) return { ok: false, msg: 'No file data received' };
+    var jobId = generateJobId_();
+    // Save Excel to Drive, convert to Google Sheet for reading
+    var result = convertExcelToDriveData_(base64Data, filename, jobId);
+    if (!result.ok) return result;
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(IMPORT_CFG.queueSheet);
+    sheet.appendRow([
+      jobId, filename || 'upload.xlsx', IMPORT_CFG.TYPE.EXCEL, IMPORT_CFG.STATUS.PENDING,
+      new Date(), new Date(), result.rowCount || 0, 0, 0, 0, 'dashboard-upload',
+      'drive_file:' + (result.tempFileId || '')
+    ]);
+    addToHistory_(jobId, 'JOB_SUBMITTED', 'Excel: ' + filename + ' | ' + (result.rowCount || 0) + ' rows', 'dashboard');
+    return { ok: true, jobId: jobId, rowCount: result.rowCount };
+  } catch(e) {
+    Logger.log('S41: submitExcelImport error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S41.F03 — Submit JD text for Gemini extraction (instant processing)
+function submitJdText(text, title) {
+  try {
+    ensureImportSheets_();
+    if (!text || text.length < 20) return { ok: false, msg: 'JD text too short' };
+    var jobId = generateJobId_();
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(IMPORT_CFG.queueSheet);
+    sheet.appendRow([
+      jobId, title || 'Manual JD', IMPORT_CFG.TYPE.JD_TEXT, IMPORT_CFG.STATUS.PROCESSING,
+      new Date(), new Date(), 1, 0, 0, 0, 'manual-paste', ''
+    ]);
+    // Process immediately (JD text is fast with Gemini)
+    var result = processJdTextJob_(jobId, text, title);
+    updateQueueStatus_(jobId, {
+      status:    result.ok ? IMPORT_CFG.STATUS.COMPLETE : IMPORT_CFG.STATUS.FAILED,
+      processed: result.ok ? 1 : 0,
+      failed:    result.ok ? 0 : 1,
+      notes:     result.ok ? 'ReqID: ' + result.reqId + ' | ' + result.matchCount + ' matches' : result.msg
+    });
+    addToHistory_(jobId, result.ok ? 'JD_PROCESSED' : 'JD_FAILED',
+      result.ok ? result.reqId + ' | ' + result.matchCount + ' matches' : result.msg, 'dashboard');
+    return result.ok ? { ok: true, jobId: jobId, reqId: result.reqId,
+      matchCount: result.matchCount, matches: result.matches } :
+      { ok: false, jobId: jobId, msg: result.msg };
+  } catch(e) {
+    Logger.log('S41: submitJdText error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S41.F04 — Submit JD file (base64 of PDF/DOCX/TXT)
+function submitJdFile(base64Data, filename, mimeType) {
+  try {
+    ensureImportSheets_();
+    if (!base64Data) return { ok: false, msg: 'No file data' };
+    var jobId = generateJobId_();
+    // Extract text from file
+    var text = extractTextFromFile_(base64Data, filename, mimeType);
+    if (!text || text.length < 20) {
+      return { ok: false, msg: 'Could not extract text from file. Try pasting the JD text directly.' };
+    }
+    // Process JD text
+    var result = processJdTextJob_(jobId, text, filename);
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(IMPORT_CFG.queueSheet);
+    sheet.appendRow([
+      jobId, filename, IMPORT_CFG.TYPE.JD_FILE,
+      result.ok ? IMPORT_CFG.STATUS.COMPLETE : IMPORT_CFG.STATUS.FAILED,
+      new Date(), new Date(), 1, result.ok ? 1 : 0, result.ok ? 0 : 1, 0,
+      'file-upload', result.ok ? 'ReqID: ' + result.reqId : result.msg
+    ]);
+    addToHistory_(jobId, result.ok ? 'JD_FILE_PROCESSED' : 'JD_FILE_FAILED',
+      filename + ' | ' + (result.reqId || result.msg), 'dashboard');
+    return result.ok ? { ok: true, jobId: jobId, reqId: result.reqId,
+      matchCount: result.matchCount, matches: result.matches } :
+      { ok: false, jobId: jobId, msg: result.msg };
+  } catch(e) {
+    Logger.log('S41: submitJdFile error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S41.F05 — Get import queue for dashboard (last 50 jobs)
+function getImportQueue() {
+  try {
+    ensureImportSheets_();
+    var sheet = getMasterSS_().getSheetByName(IMPORT_CFG.queueSheet);
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    var lr   = sheet.getLastRow();
+    var data = sheet.getRange(2, 1, lr - 1, IMPORT_CFG.queueHeaders.length).getValues();
+    var jobs = data.map(function(r) {
+      return {
+        jobId:      String(r[0]||''), filename: String(r[1]||''),
+        type:       String(r[2]||''), status:   String(r[3]||''),
+        submitted:  r[4] instanceof Date ? r[4].toLocaleString() : String(r[4]||''),
+        updated:    r[5] instanceof Date ? r[5].toLocaleString() : String(r[5]||''),
+        totalRows:  parseInt(r[6])||0, processed: parseInt(r[7])||0,
+        failed:     parseInt(r[8])||0, reviewCount: parseInt(r[9])||0,
+        source:     String(r[10]||''), notes: String(r[11]||'')
+      };
+    }).reverse(); // newest first
+    return jobs.slice(0, 50);
+  } catch(e) { Logger.log('S41: getImportQueue error: ' + e.message); return []; }
+}
+
+// S41.F06 — Get import stats summary
+function getImportStats() {
+  try {
+    ensureImportSheets_();
+    var qs  = getMasterSS_().getSheetByName(IMPORT_CFG.queueSheet);
+    var rs  = getMasterSS_().getSheetByName(IMPORT_CFG.reviewSheet);
+    var qd  = qs && qs.getLastRow() > 1 ?
+      qs.getRange(2, 1, qs.getLastRow()-1, IMPORT_CFG.queueHeaders.length).getValues() : [];
+    var rd  = rs && rs.getLastRow() > 1 ?
+      rs.getRange(2, 1, rs.getLastRow()-1, IMPORT_CFG.reviewHeaders.length).getValues() : [];
+    var totalImported = 0, totalJobs = qd.length, pendingReview = 0;
+    qd.forEach(function(r) { totalImported += parseInt(r[7])||0; });
+    rd.forEach(function(r) { if (String(r[9]||'').toUpperCase()==='PENDING') pendingReview++; });
+    return { totalJobs: totalJobs, totalImported: totalImported, pendingReview: pendingReview };
+  } catch(e) { return { totalJobs:0, totalImported:0, pendingReview:0 }; }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S42 · CSV / EXCEL PARSER & FIELD MAPPER
+// ═══════════════════════════════════════════════════════════════════
+
+// S42.F01 — Parse CSV text into array of objects
+function parseCsv_(csvText) {
+  // Remove BOM if present
+  csvText = csvText.replace(/^﻿/, '');
+  var lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  var result = [];
+  if (lines.length < 2) return result;
+  var headers = parseCsvLine_(lines[0]);
+  for (var i = 1; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    var values = parseCsvLine_(line);
+    var row = {};
+    headers.forEach(function(h, j) {
+      row[h] = (values[j] !== undefined ? String(values[j]).trim() : '');
+    });
+    result.push(row);
+  }
+  return result;
+}
+
+// S42.F02 — Parse a single CSV line (handles quoted fields)
+function parseCsvLine_(line) {
+  var result = [], current = '', inQuotes = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current.trim()); current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+// S42.F03 — Detect field mapping from incoming headers
+function detectFieldMap_(rawHeaders) {
+  var map = {};           // kaiField → incomingHeaderIndex
+  var unmatched = [];     // headers that didn't match any KAI field
+  var aliases = IMPORT_CFG.fieldAliases;
+  rawHeaders.forEach(function(h, idx) {
+    var hn = h.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+    var matched = false;
+    for (var field in aliases) {
+      if (aliases[field].indexOf(hn) >= 0) {
+        if (!map[field]) map[field] = idx;  // first match wins
+        matched = true; break;
+      }
+    }
+    if (!matched) unmatched.push({ index: idx, header: h });
+  });
+  return { map: map, unmatched: unmatched, headers: rawHeaders };
+}
+
+// S42.F04 — Validate and align a single row to KAI schema
+function validateImportRow_(rowObj, fieldMap, rawHeaders) {
+  var ic     = CONFIG.inputColumns;
+  var ec     = CONFIG_V2.extCol;
+  var issues = [];
+  var data   = {};
+  var map    = fieldMap.map;
+
+  // Extract all mapped fields
+  for (var field in map) {
+    var header = rawHeaders[map[field]];
+    data[field] = String(rowObj[header] || '').trim();
+  }
+
+  // Mandatory check
+  if (!data.name) issues.push('Missing: Name');
+
+  // Email format check
+  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    issues.push('Invalid email: ' + data.email);
+    data.email = '';
+  }
+
+  // Phone normalisation
+  if (data.mobile) {
+    var ph = data.mobile.replace(/[\s\-\(\)\+]/g, '');
+    if (ph.length >= 7 && ph.length <= 15) data.mobile = ph;
+    else { issues.push('Invalid phone: ' + data.mobile); data.mobile = ''; }
+  }
+
+  // Age / DOB normalisation
+  if (data.dob) {
+    try {
+      var d = new Date(data.dob);
+      if (!isNaN(d)) {
+        var ageCal = Math.floor((new Date() - d) / (1000*60*60*24*365.25));
+        if (!data.age || isNaN(parseInt(data.age))) data.age = String(ageCal);
+        data.dob = Utilities.formatDate(d, 'Asia/Kolkata', 'yyyy-MM-dd');
+      }
+    } catch(e) {}
+  }
+
+  // Experience normalisation
+  if (data.experience) {
+    var expN = parseFloat(data.experience.replace(/[^0-9.]/g, ''));
+    data.experience = isNaN(expN) ? '' : String(expN);
+  }
+
+  // Build Candidates sheet row (24 + extended columns)
+  var sheetRow = new Array(Math.max(CONFIG.headers.length, ec.timeline)).fill('');
+  sheetRow[ic.stage-1]           = data.stage           || 'IMPORTED';
+  sheetRow[ic.applicationDate-1] = data.applicationDate ? new Date(data.applicationDate) : new Date();
+  sheetRow[ic.nationality-1]     = data.nationality      || '';
+  sheetRow[ic.name-1]            = data.name             || '';
+  sheetRow[ic.mobile-1]          = data.mobile           || '';
+  sheetRow[ic.email-1]           = data.email            || '';
+  sheetRow[ic.education-1]       = data.education        || '';
+  sheetRow[ic.positionApplied-1] = data.positionApplied  || '';
+  sheetRow[ic.trade-1]           = data.trade            || '';
+  sheetRow[ic.industry-1]        = data.industry         || '';
+  sheetRow[ic.experience-1]      = data.experience       || '';
+  sheetRow[ic.gulf-1]            = data.gulfExp          || '';
+  sheetRow[ic.dob-1]             = data.dob              || '';
+  sheetRow[ic.age-1]             = data.age ? parseInt(data.age) : '';
+  sheetRow[ic.verdict-1]         = data.verdict          || '';
+  sheetRow[ic.flags-1]           = data.flags            || '';
+  sheetRow[ic.score-1]           = data.score ? parseInt(data.score) : '';
+  sheetRow[ic.scoreBreakdown-1]  = data.scoreBreakdown   || '';
+  sheetRow[ic.recommendedRoles-1]= data.recommendedRoles || '';
+  sheetRow[ic.kaiAssessment-1]   = data.kaiAssessment    || '';
+  sheetRow[ic.recruiterAction-1] = data.recruiterAction  || '';
+  sheetRow[ic.cvLink-1]          = data.cvLink           || '';
+  sheetRow[ic.notes-1]           = data.notes            || '';
+  sheetRow[ic.active-1]          = '';  // blank = active
+
+  return { ok: issues.length === 0 || !data.name ? false : true,
+           issues: issues, sheetRow: sheetRow, data: data };
+}
+
+// S42.F05 — Check if candidate already exists (duplicate detection)
+function checkImportDuplicate_(email, mobile, name) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return { isDuplicate: false };
+  var ic   = CONFIG.inputColumns;
+  var data = sheet.getRange(2, ic.email, sheet.getLastRow()-1, 1).getValues();
+  var mobs = sheet.getRange(2, ic.mobile, sheet.getLastRow()-1, 1).getValues();
+  var names= sheet.getRange(2, ic.name,  sheet.getLastRow()-1, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    var ex = String(data[i][0]||'').toLowerCase().trim();
+    var mx = String(mobs[i][0]||'').replace(/\D/g,'').trim();
+    var nx = String(names[i][0]||'').toLowerCase().trim();
+    if (email && ex && ex === email.toLowerCase()) return { isDuplicate:true, rowIndex:i+2, matchOn:'email' };
+    if (mobile && mx && mx.length > 7 && mx === mobile.replace(/\D/g,'')) return { isDuplicate:true, rowIndex:i+2, matchOn:'mobile' };
+    if (!email && !mobile && name && nx && nx === name.toLowerCase() && nx.length > 3) return { isDuplicate:true, rowIndex:i+2, matchOn:'name' };
+  }
+  return { isDuplicate: false };
+}
+
+// S42.F06 — Append a validated candidate row to Candidates sheet
+function appendImportedCandidate_(sheetRow) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) return { ok: false, msg: 'Candidates sheet not found' };
+  // Use trimmed row (24 base cols minimum)
+  var row24 = sheetRow.slice(0, CONFIG.headers.length);
+  sheet.appendRow(row24);
+  return { ok: true, rowIndex: sheet.getLastRow() };
+}
+
+// S42.F07 — Update existing candidate record (merge changes)
+function mergeImportedCandidate_(rowIndex, sheetRow) {
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet) return { ok: false };
+  var ic      = CONFIG.inputColumns;
+  var current = sheet.getRange(rowIndex, 1, 1, CONFIG.headers.length).getValues()[0];
+  // Only overwrite if incoming has value AND current is blank
+  var mergeFields = [
+    ic.nationality, ic.trade, ic.industry, ic.experience, ic.gulf,
+    ic.dob, ic.age, ic.education, ic.positionApplied, ic.cvLink
+  ];
+  mergeFields.forEach(function(col) {
+    var newVal = sheetRow[col-1];
+    var curVal = String(current[col-1]||'').trim();
+    if (newVal && !curVal) sheet.getRange(rowIndex, col).setValue(newVal);
+  });
+  appendTimeline_(rowIndex, 'RECORD_MERGED', 'Import merge from uploaded data', 'import-engine');
+  return { ok: true };
+}
+
+// S42.F08 — Estimate row count from CSV text (fast scan)
+function estimateRowCount_(csvText) {
+  var count = 0;
+  for (var i = 0; i < csvText.length; i++) {
+    if (csvText[i] === '\n') count++;
+  }
+  return Math.max(0, count - 1); // subtract header row
+}
+
+// S42.F09 — Convert Excel base64 to readable data via Drive
+function convertExcelToDriveData_(base64Data, filename, jobId) {
+  try {
+    var bytes    = Utilities.base64Decode(base64Data);
+    var blob     = Utilities.newBlob(bytes,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      filename || 'import.xlsx');
+    var driveFile = DriveApp.createFile(blob);
+    var tempFileId = driveFile.getId();
+    // Convert to Google Sheets using Drive API (requires Drive API advanced service)
+    try {
+      var resource  = { title: filename + '_kai_import', mimeType: MimeType.GOOGLE_SHEETS };
+      var converted = Drive.Files.copy(resource, tempFileId);
+      var ss        = SpreadsheetApp.openById(converted.id);
+      var sheet     = ss.getSheets()[0];
+      var values    = sheet.getDataRange().getValues();
+      // Convert to CSV text and store
+      var csvRows   = values.map(function(row) {
+        return row.map(function(c) {
+          var s = String(c||'').replace(/"/g,'""');
+          return s.indexOf(',') >= 0 || s.indexOf('"') >= 0 ? '"'+s+'"' : s;
+        }).join(',');
+      }).join('\n');
+      storePayloadChunked_('import_payload_' + jobId, csvRows);
+      // Cleanup temp files
+      DriveApp.getFileById(converted.id).setTrashed(true);
+      DriveApp.getFileById(tempFileId).setTrashed(true);
+      return { ok: true, rowCount: Math.max(0, values.length - 1), tempFileId: null };
+    } catch(driveApiErr) {
+      // Drive API not enabled — store file ID for manual process
+      Logger.log('S42: Drive API not available: ' + driveApiErr.message);
+      return {
+        ok: false,
+        tempFileId: tempFileId,
+        msg: 'Drive API not enabled. File saved to Drive (' + driveFile.getUrl() +
+             '). Please enable Drive API in GAS Advanced Services, or convert to CSV and re-upload.'
+      };
+    }
+  } catch(e) {
+    Logger.log('S42: convertExcelToDriveData_ error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S42.F10 — Chunked payload storage (Script Properties 9KB limit per key)
+function storePayloadChunked_(key, data) {
+  var props     = PropertiesService.getScriptProperties();
+  var chunkSize = 8000;
+  var chunks    = Math.ceil(data.length / chunkSize);
+  props.setProperty(key + '_chunks', String(chunks));
+  for (var i = 0; i < chunks; i++) {
+    props.setProperty(key + '_' + i, data.slice(i*chunkSize, (i+1)*chunkSize));
+  }
+}
+
+// S42.F11 — Read chunked payload
+function readPayloadChunked_(key) {
+  var props  = PropertiesService.getScriptProperties();
+  var chunks = parseInt(props.getProperty(key + '_chunks') || '0');
+  if (!chunks) return null;
+  var parts = [];
+  for (var i = 0; i < chunks; i++) {
+    parts.push(props.getProperty(key + '_' + i) || '');
+  }
+  return parts.join('');
+}
+
+// S42.F12 — Delete chunked payload
+function deletePayloadChunked_(key) {
+  var props  = PropertiesService.getScriptProperties();
+  var chunks = parseInt(props.getProperty(key + '_chunks') || '0');
+  props.deleteProperty(key + '_chunks');
+  for (var i = 0; i < chunks; i++) {
+    props.deleteProperty(key + '_' + i);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S43 · JD IMPORT ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+// S43.F01 — Process JD text job (extracts via Gemini, saves, matches)
+function processJdTextJob_(jobId, text, title) {
+  try {
+    // Use existing extractJdWithGemini_ from V2
+    var jdData = extractJdWithGemini_(text, title || 'Manual JD');
+    if (!jdData || !jdData.trade) {
+      return { ok: false, msg: 'Gemini could not extract a valid JD (trade/position not found)' };
+    }
+    var reqId        = generateReqId_();
+    jdData.reqId     = reqId;
+    jdData.receivedDate = new Date();
+    jdData.sourcedBy = 'dashboard-import-' + jobId;
+    jdData.status    = 'OPEN';
+    jdData.rawJd     = text.slice(0, 2000);
+    jdData.shortlistCount = 0;
+    jdData.selectedCount  = 0;
+    saveRequirement_(jdData);
+    // Run candidate matching
+    var matches = matchCandidatesToRequirement_(jdData, 20);
+    Logger.log('S43: JD processed: ' + reqId + ' | ' + jdData.trade + ' | ' + matches.length + ' matches');
+    // Return top 10 matches for dashboard display
+    var topMatches = matches.slice(0, 10).map(function(m) {
+      return {
+        rowIndex: m.rowIndex, kaiNo: m.kaiNo, name: m.name,
+        trade: m.trade, nationality: m.nationality,
+        currentLocation: m.currentLocation, experience: m.experience,
+        mobilityStatus: m.mobilityStatus, matchScore: m.matchScore,
+        matchReasons: (m.matchReasons || []).slice(0, 2)
+      };
+    });
+    return { ok: true, reqId: reqId, jdData: jdData, matchCount: matches.length, matches: topMatches };
+  } catch(e) {
+    Logger.log('S43: processJdTextJob_ error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S43.F02 — Extract text from uploaded file (PDF/DOCX/TXT as base64)
+function extractTextFromFile_(base64Data, filename, mimeType) {
+  try {
+    var fn = String(filename || '').toLowerCase();
+    // Plain text files — decode directly
+    if (fn.endsWith('.txt') || mimeType === 'text/plain') {
+      return Utilities.newBlob(Utilities.base64Decode(base64Data)).getDataAsString();
+    }
+    // PDF or DOCX — upload to Drive, convert to Google Doc, extract text
+    var bytes    = Utilities.base64Decode(base64Data);
+    var mimeMap  = {
+      '.pdf':  'application/pdf',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.doc':  'application/msword'
+    };
+    var fileMime = mimeType || mimeMap[fn.slice(fn.lastIndexOf('.'))] || 'application/octet-stream';
+    var blob     = Utilities.newBlob(bytes, fileMime, filename);
+    var driveFile = DriveApp.createFile(blob);
+    // Convert to Google Docs format for text extraction
+    var docResource  = { title: filename + '_text_extract', mimeType: MimeType.GOOGLE_DOCS };
+    var convertedDoc = Drive.Files.copy(docResource, driveFile.getId());
+    var doc          = DocumentApp.openById(convertedDoc.id);
+    var text         = doc.getBody().getText();
+    // Cleanup
+    DriveApp.getFileById(convertedDoc.id).setTrashed(true);
+    DriveApp.getFileById(driveFile.getId()).setTrashed(true);
+    return text;
+  } catch(e) {
+    Logger.log('S43: extractTextFromFile_ error: ' + e.message);
+    // Try to decode as plain text as fallback
+    try { return Utilities.newBlob(Utilities.base64Decode(base64Data)).getDataAsString(); } catch(e2) {}
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S44 · REVIEW QUEUE MANAGER
+// ═══════════════════════════════════════════════════════════════════
+
+// S44.F01 — Add row to review queue
+function addToReviewQueue_(jobId, rowNum, rowData, issues) {
+  try {
+    ensureImportSheets_();
+    var sheet  = getMasterSS_().getSheetByName(IMPORT_CFG.reviewSheet);
+    var itemId = generateItemId_();
+    sheet.appendRow([
+      itemId, jobId, rowNum,
+      String(rowData.name||''), String(rowData.email||''),
+      String(rowData.mobile||''), String(rowData.trade||''),
+      issues.join(' | '), safeStringify_(rowData),
+      'PENDING', '', ''
+    ]);
+    return itemId;
+  } catch(e) {
+    Logger.log('S44: addToReviewQueue_ error: ' + e.message);
+    return null;
+  }
+}
+
+// S44.F02 — Get pending review queue items
+function getReviewQueue() {
+  try {
+    ensureImportSheets_();
+    var sheet = getMasterSS_().getSheetByName(IMPORT_CFG.reviewSheet);
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    var data  = sheet.getRange(2, 1, sheet.getLastRow()-1, IMPORT_CFG.reviewHeaders.length).getValues();
+    return data.map(function(r, i) {
+      return {
+        sheetRow: i+2,
+        itemId:   String(r[0]||''), jobId:   String(r[1]||''),
+        rowNum:   parseInt(r[2])||0, name:    String(r[3]||''),
+        email:    String(r[4]||''), mobile:  String(r[5]||''),
+        trade:    String(r[6]||''), issues:  String(r[7]||''),
+        rowData:  safeParseJson_(r[8], {}), status: String(r[9]||'PENDING'),
+        adminAction: String(r[10]||''),
+        actionAt: r[11] instanceof Date ? r[11].toLocaleString() : String(r[11]||'')
+      };
+    }).filter(function(item) { return item.status === 'PENDING'; });
+  } catch(e) {
+    Logger.log('S44: getReviewQueue error: ' + e.message); return [];
+  }
+}
+
+// S44.F03 — Approve a review item (append to Candidates)
+function approveReviewItem(itemId) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(IMPORT_CFG.reviewSheet);
+    if (!sheet) return { ok: false, msg: 'Review sheet not found' };
+    var data  = sheet.getRange(2, 1, sheet.getLastRow()-1, IMPORT_CFG.reviewHeaders.length).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]) !== itemId) continue;
+      var rowData  = safeParseJson_(data[i][8], {});
+      var jobId    = String(data[i][1]||'');
+      var rawHdrs  = Object.keys(IMPORT_CFG.fieldAliases);
+      // Build a simple row object from rowData
+      var sheetRow = buildSheetRowFromData_(rowData);
+      var res      = appendImportedCandidate_(sheetRow);
+      if (!res.ok) return { ok: false, msg: res.msg };
+      // Generate KAI No for approved row
+      var kaiNo = generateKaiNo_();
+      try {
+        var cs = getMasterSS_().getSheetByName(CONFIG.sheetName);
+        cs.getRange(res.rowIndex, CONFIG_V2.extCol.kaiNo).setValue(kaiNo);
+        cs.getRange(res.rowIndex, CONFIG_V2.extCol.state).setValue('PARSED');
+      } catch(e2) {}
+      appendTimeline_(res.rowIndex, 'IMPORT_APPROVED', 'Review item ' + itemId + ' approved', 'admin');
+      // Update review row
+      sheet.getRange(i+2, 10).setValue('APPROVED');
+      sheet.getRange(i+2, 11).setValue('Approved → Row ' + res.rowIndex + ' | KAI: ' + kaiNo);
+      sheet.getRange(i+2, 12).setValue(new Date());
+      addToHistory_(jobId, 'ITEM_APPROVED', itemId + ' → row ' + res.rowIndex, 'admin');
+      return { ok: true, kaiNo: kaiNo, rowIndex: res.rowIndex };
+    }
+    return { ok: false, msg: 'Item not found: ' + itemId };
+  } catch(e) {
+    Logger.log('S44: approveReviewItem error: ' + e.message);
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S44.F04 — Reject a review item
+function rejectReviewItem(itemId, reason) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(IMPORT_CFG.reviewSheet);
+    if (!sheet) return { ok: false };
+    var data  = sheet.getRange(2, 1, sheet.getLastRow()-1, 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]) !== itemId) continue;
+      sheet.getRange(i+2, 10).setValue('REJECTED');
+      sheet.getRange(i+2, 11).setValue(reason || 'Rejected by admin');
+      sheet.getRange(i+2, 12).setValue(new Date());
+      addToHistory_('', 'ITEM_REJECTED', itemId + ' | ' + (reason||''), 'admin');
+      return { ok: true };
+    }
+    return { ok: false, msg: 'Item not found' };
+  } catch(e) { return { ok: false, msg: e.message }; }
+}
+
+// S44.F05 — Bulk approve multiple review items
+function bulkApproveReview(itemIds) {
+  if (!Array.isArray(itemIds) || itemIds.length === 0) return { ok: false, msg: 'No items' };
+  var approved = 0, failed = 0;
+  itemIds.forEach(function(id) {
+    var res = approveReviewItem(id);
+    if (res.ok) approved++; else failed++;
+  });
+  return { ok: true, approved: approved, failed: failed };
+}
+
+// S44.F06 — Build sheet row from stored row data object
+function buildSheetRowFromData_(rowData) {
+  var ic  = CONFIG.inputColumns;
+  var row = new Array(CONFIG.headers.length).fill('');
+  row[ic.stage-1]           = 'IMPORTED';
+  row[ic.applicationDate-1] = new Date();
+  row[ic.nationality-1]     = rowData.nationality     || '';
+  row[ic.name-1]            = rowData.name            || '';
+  row[ic.mobile-1]          = rowData.mobile          || '';
+  row[ic.email-1]           = rowData.email           || '';
+  row[ic.education-1]       = rowData.education       || '';
+  row[ic.positionApplied-1] = rowData.positionApplied || '';
+  row[ic.trade-1]           = rowData.trade           || '';
+  row[ic.industry-1]        = rowData.industry        || '';
+  row[ic.experience-1]      = rowData.experience      || '';
+  row[ic.gulf-1]            = rowData.gulfExp         || '';
+  row[ic.dob-1]             = rowData.dob             || '';
+  row[ic.age-1]             = rowData.age ? parseInt(rowData.age) : '';
+  row[ic.verdict-1]         = rowData.verdict         || '';
+  row[ic.cvLink-1]          = rowData.cvLink          || '';
+  row[ic.notes-1]           = rowData.notes           || '';
+  return row;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S45 · BACKGROUND IMPORT PROCESSOR
+// ═══════════════════════════════════════════════════════════════════
+
+// S45.F01 — Process pending import queue (triggered every 5 min)
+function processImportQueue_() {
+  if (isPipelinePaused_()) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) { Logger.log('S45: Import lock busy'); return; }
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(IMPORT_CFG.queueSheet);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var data  = sheet.getRange(2, 1, sheet.getLastRow()-1, IMPORT_CFG.queueHeaders.length).getValues();
+    var ran   = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (ran >= 2) break;  // max 2 jobs per run
+      var row    = data[i];
+      var jobId  = String(row[0]||'');
+      var status = String(row[3]||'');
+      var type   = String(row[2]||'');
+      if (status !== IMPORT_CFG.STATUS.PENDING && status !== IMPORT_CFG.STATUS.PROCESSING) continue;
+      // Mark as processing
+      sheet.getRange(i+2, 4).setValue(IMPORT_CFG.STATUS.PROCESSING);
+      sheet.getRange(i+2, 6).setValue(new Date());
+      if (type === IMPORT_CFG.TYPE.CSV || type === IMPORT_CFG.TYPE.EXCEL) {
+        processCsvJob_(jobId, i+2, sheet);
+      }
+      ran++;
+    }
+    if (ran > 0) Logger.log('S45: Processed ' + ran + ' import jobs');
+  } catch(e) {
+    Logger.log('S45: processImportQueue_ error: ' + e.message);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// S45.F02 — Process a single CSV/Excel job
+function processCsvJob_(jobId, queueRowIndex, queueSheet) {
+  var payloadKey = 'import_payload_' + jobId;
+  var csvText    = readPayloadChunked_(payloadKey);
+  if (!csvText) {
+    updateQueueStatus_(jobId, { status: IMPORT_CFG.STATUS.FAILED, notes: 'Payload not found in properties' });
+    return;
+  }
+  var rows       = parseCsv_(csvText);
+  if (rows.length === 0) {
+    updateQueueStatus_(jobId, { status: IMPORT_CFG.STATUS.FAILED, notes: 'No data rows found in CSV' });
+    deletePayloadChunked_(payloadKey);
+    return;
+  }
+  // Get headers from first row keys
+  var rawHeaders = Object.keys(rows[0]);
+  var fieldMap   = detectFieldMap_(rawHeaders);
+  var processed  = 0, failed = 0, reviewCount = 0, updated = 0;
+  rows.forEach(function(rowObj, idx) {
+    try {
+      var res = validateImportRow_(rowObj, fieldMap, rawHeaders);
+      if (!res.ok) {
+        var issues = res.issues.length > 0 ? res.issues : ['No name found'];
+        if (res.data.name || res.data.email || res.data.mobile) {
+          addToReviewQueue_(jobId, idx+2, res.data, issues);
+          reviewCount++;
+        } else {
+          failed++;  // completely empty row
+        }
+        return;
+      }
+      // Duplicate check
+      var dup = checkImportDuplicate_(res.data.email, res.data.mobile, res.data.name);
+      if (dup.isDuplicate) {
+        // Merge changes into existing record
+        mergeImportedCandidate_(dup.rowIndex, res.sheetRow);
+        updated++;
+        addToHistory_(jobId, 'RECORD_MERGED', res.data.name + ' | ' + dup.matchOn, 'import-engine');
+      } else {
+        // Append new candidate
+        var appRes = appendImportedCandidate_(res.sheetRow);
+        if (appRes.ok) {
+          // Assign KAI No and state
+          try {
+            var cs    = getMasterSS_().getSheetByName(CONFIG.sheetName);
+            var kaiNo = generateKaiNo_();
+            cs.getRange(appRes.rowIndex, CONFIG_V2.extCol.kaiNo).setValue(kaiNo);
+            cs.getRange(appRes.rowIndex, CONFIG_V2.extCol.state).setValue(
+              res.data.email || res.data.mobile ? 'PARSED' : 'INCOMPLETE_CONTACT'
+            );
+          } catch(e2) {}
+          processed++;
+        } else {
+          failed++;
+        }
+      }
+    } catch(rowErr) {
+      Logger.log('S45: Row ' + (idx+2) + ' error: ' + rowErr.message);
+      failed++;
+    }
+  });
+  var finalStatus = failed === rows.length ? IMPORT_CFG.STATUS.FAILED :
+    (reviewCount > 0 || failed > 0) ? IMPORT_CFG.STATUS.PARTIAL : IMPORT_CFG.STATUS.COMPLETE;
+  updateQueueStatus_(jobId, {
+    status:      finalStatus,
+    totalRows:   rows.length,
+    processed:   processed,
+    failed:      failed,
+    reviewCount: reviewCount,
+    notes:       processed + ' added, ' + updated + ' merged, ' + reviewCount + ' flagged for review'
+  });
+  deletePayloadChunked_(payloadKey);  // cleanup
+  addToHistory_(jobId, 'JOB_COMPLETE',
+    processed+' added | '+updated+' merged | '+reviewCount+' review | '+failed+' failed', 'import-engine');
+  // Clear dashboard cache so new candidates appear immediately
+  try { clearDashboardCacheV2(); } catch(e) {}
+  Logger.log('S45: Job ' + jobId + ' complete: ' + processed + ' added, ' + reviewCount + ' review');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S46 · IMPORT HISTORY & AUDIT
+// ═══════════════════════════════════════════════════════════════════
+
+// S46.F01 — Append to import history log
+function addToHistory_(jobId, action, details, actor) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(IMPORT_CFG.historySheet) ||
+                ensureSheet_(ss, IMPORT_CFG.historySheet, IMPORT_CFG.historyHeaders, '#0a2a1a');
+    var evId  = 'EVT-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMddHHmmss');
+    sheet.appendRow([ evId, new Date(), jobId||'', action||'', details||'', actor||'system' ]);
+  } catch(e) { Logger.log('S46: addToHistory_ error: ' + e.message); }
+}
+
+// S46.F02 — Get recent import history (last 50 events)
+function getImportHistory() {
+  try {
+    var sheet = getMasterSS_().getSheetByName(IMPORT_CFG.historySheet);
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    var lr   = sheet.getLastRow();
+    var data = sheet.getRange(2, 1, lr-1, IMPORT_CFG.historyHeaders.length).getValues();
+    return data.map(function(r) {
+      return {
+        eventId:   String(r[0]||''),
+        timestamp: r[1] instanceof Date ? r[1].toLocaleString() : String(r[1]||''),
+        jobId:     String(r[2]||''),
+        action:    String(r[3]||''),
+        details:   String(r[4]||''),
+        actor:     String(r[5]||'')
+      };
+    }).reverse().slice(0, 50);
+  } catch(e) { return []; }
+}
+
+// S46.F03 — Update queue row status
+function updateQueueStatus_(jobId, updates) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(IMPORT_CFG.queueSheet);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var data  = sheet.getRange(2, 1, sheet.getLastRow()-1, 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]) !== jobId) continue;
+      var r = i + 2;
+      if (updates.status)      sheet.getRange(r, 4).setValue(updates.status);
+      sheet.getRange(r, 6).setValue(new Date());
+      if (updates.totalRows  !== undefined) sheet.getRange(r, 7).setValue(updates.totalRows);
+      if (updates.processed  !== undefined) sheet.getRange(r, 8).setValue(updates.processed);
+      if (updates.failed     !== undefined) sheet.getRange(r, 9).setValue(updates.failed);
+      if (updates.reviewCount!== undefined) sheet.getRange(r, 10).setValue(updates.reviewCount);
+      if (updates.notes) {
+        var cur = String(sheet.getRange(r, 12).getValue()||'');
+        sheet.getRange(r, 12).setValue(updates.notes);
+      }
+      return;
+    }
+  } catch(e) { Logger.log('S46: updateQueueStatus_ error: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S47 · IMPORT SETUP & MENU EXTENSIONS
+// ═══════════════════════════════════════════════════════════════════
+
+// S47.F01 — One-time import engine setup
+function setupImportEngine() {
+  ensureImportSheets_();
+  // Install background processor trigger (every 5 min)
+  installTrigger_('processImportQueue_', 'everyMinutes', 5);
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('import_job_counter'))   props.setProperty('import_job_counter', '0');
+  if (!props.getProperty('review_item_counter'))  props.setProperty('review_item_counter', '0');
+  Logger.log('S47: Import engine setup complete');
+  try {
+    SpreadsheetApp.getUi().alert(
+      '✓ KAI Import Engine Installed\n\n' +
+      'New sheets: _ImportQueue · _ReviewQueue · _ImportHistory\n' +
+      'New trigger: Import queue processor (every 5 min)\n\n' +
+      'Enable Google Drive API in Project Settings → Services\n' +
+      'to support .xlsx and PDF file imports.\n\n' +
+      'CSV import and JD paste work immediately.'
+    );
+  } catch(e) {}
+}
+
+// S47.F02 — Get field mapping preview (called from dashboard before confirming import)
+function previewFieldMapping(csvText) {
+  try {
+    if (!csvText || csvText.length < 5) return { ok: false, msg: 'Empty content' };
+    var clean   = csvText.replace(/^﻿/, '');
+    var firstLine = clean.split('\n')[0];
+    var headers = parseCsvLine_(firstLine);
+    var mapping = detectFieldMap_(headers);
+    // Build preview: {header, detectedKaiField, confidence}
+    var preview = headers.map(function(h, i) {
+      var detected = null;
+      for (var field in mapping.map) {
+        if (mapping.map[field] === i) { detected = field; break; }
+      }
+      return { index: i, header: h, kaiField: detected || null,
+               matched: !!detected };
+    });
+    var unmapped = mapping.unmatched.length;
+    return { ok: true, headers: headers, preview: preview,
+             matchedCount: headers.length - unmapped, unmappedCount: unmapped };
+  } catch(e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+// S47.F03 — Extend onOpen menu with import items (patch onto existing menu)
+// Note: Call this from within existing onOpen() in V1, or it runs independently
+function addImportMenuItems_() {
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('KAI Import')
+      .addItem('📥 Open Import Center',   'openImportSidebar_')
+      .addItem('⚙️  Setup Import Engine', 'setupImportEngine')
+      .addItem('▶ Process Queue Now',     'processImportQueue_')
+      .addSeparator()
+      .addItem('📋 View Review Queue',    'openReviewSidebar_')
+      .addToUi();
+  } catch(e) {}
+}
+
+function openImportSidebar_() {
+  try {
+    SpreadsheetApp.getUi().alert('Use the Import Center in the KAI OS Dashboard.');
+  } catch(e) {}
+}
+function openReviewSidebar_() {
+  try {
+    var items = getReviewQueue();
+    SpreadsheetApp.getUi().alert('Pending review items: ' + items.length +
+      '. Open Import Center → Review Queue tab in the dashboard.');
+  } catch(e) {}
+}
+
+// END OF FILE — KAI_16May2026_patch_v280.gs

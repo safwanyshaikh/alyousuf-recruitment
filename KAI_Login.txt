@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>KAI — Recruiter Login</title>
+  <style>
+    :root{
+      --navy:   #16324f;
+      --navy2:  #1e3a5f;
+      --navy3:  #0d2137;
+      --gold:   #f59e0b;
+      --gold2:  #d97706;
+      --green:  #10b981;
+      --red:    #ef4444;
+      --border: #e5e7eb;
+      --bg:     #f0f4f8;
+      --text:   #1f2937;
+      --muted:  #6b7280;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+      font-size:13px;
+      background:linear-gradient(135deg, var(--navy3) 0%, var(--navy2) 60%, #1a3050 100%);
+      min-height:100vh;
+      display:flex;align-items:center;justify-content:center;
+      padding:20px;
+    }
+
+    /* ── LOGIN CARD ── */
+    .login-card{
+      background:#fff;border-radius:16px;
+      box-shadow:0 20px 60px rgba(0,0,0,.4);
+      width:100%;max-width:400px;overflow:hidden;
+    }
+
+    .lc-header{
+      background:var(--navy3);padding:28px 32px;text-align:center;
+    }
+    .lc-logo{
+      width:56px;height:56px;background:var(--gold);border-radius:12px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:26px;font-weight:900;color:var(--navy3);
+      margin:0 auto 14px;
+    }
+    .lc-title{font-size:20px;font-weight:700;color:#fff;letter-spacing:.3px}
+    .lc-sub{font-size:11.5px;color:rgba(255,255,255,.5);margin-top:4px;letter-spacing:.5px;text-transform:uppercase}
+
+    .lc-body{padding:32px}
+
+    .field-group{margin-bottom:18px}
+    .field-label{
+      display:block;font-size:11.5px;font-weight:700;
+      color:var(--navy);margin-bottom:6px;letter-spacing:.3px;text-transform:uppercase;
+    }
+    .field-input{
+      width:100%;padding:11px 14px;
+      border:1.5px solid var(--border);border-radius:8px;
+      font-size:13.5px;font-family:inherit;color:var(--text);
+      outline:none;transition:.15s;background:#fff;
+    }
+    .field-input:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(22,50,79,.1)}
+    .field-input.error{border-color:var(--red)}
+
+    .field-hint{font-size:11px;color:var(--muted);margin-top:4px}
+
+    .btn-login{
+      width:100%;padding:13px;border-radius:8px;
+      background:var(--navy);color:#fff;
+      font-size:14px;font-weight:700;font-family:inherit;
+      border:none;cursor:pointer;transition:.2s;
+      display:flex;align-items:center;justify-content:center;gap:8px;
+      margin-top:6px;
+    }
+    .btn-login:hover{background:var(--navy2)}
+    .btn-login:disabled{opacity:.55;pointer-events:none}
+
+    /* ── ALERT BOX ── */
+    .alert{
+      padding:10px 14px;border-radius:7px;font-size:12.5px;
+      margin-bottom:18px;display:none;
+    }
+    .alert.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+    .alert.success{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+    .alert.visible{display:block}
+
+    /* ── SPINNER ── */
+    .spinner{
+      width:18px;height:18px;border:2.5px solid rgba(255,255,255,.3);
+      border-top-color:#fff;border-radius:50%;
+      animation:spin .7s linear infinite;display:none;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── FOOTER ── */
+    .lc-footer{
+      border-top:1px solid var(--border);
+      padding:14px 32px;
+      display:flex;align-items:center;justify-content:space-between;
+    }
+    .lc-footer-brand{font-size:10.5px;color:var(--muted);letter-spacing:.3px}
+    .lc-footer-brand strong{color:var(--navy)}
+    .lc-version{font-size:10px;color:rgba(0,0,0,.3);font-family:monospace}
+
+    /* ── USER QUICK PICK (for dev/internal) ── */
+    .quick-users{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+    .qu-btn{
+      padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:600;
+      border:1.5px solid var(--border);background:#fff;color:var(--text);
+      cursor:pointer;transition:.15s;
+    }
+    .qu-btn:hover{border-color:var(--navy);color:var(--navy)}
+    .qu-label{font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  </style>
+</head>
+<body>
+
+<div class="login-card">
+
+  <!-- Header -->
+  <div class="lc-header">
+    <div class="lc-logo">AY</div>
+    <div class="lc-title">Al Yousuf Enterprises LLP</div>
+    <div class="lc-sub">GCC Recruitment OS — Recruiter Login</div>
+  </div>
+
+  <!-- Body -->
+  <div class="lc-body">
+
+    <!-- Alert area -->
+    <div class="alert error"   id="alert-error"></div>
+    <div class="alert success" id="alert-success">✅ Login successful — redirecting…</div>
+
+    <!-- Quick user pick (only show to internal team) -->
+    <div id="quick-user-section">
+      <div class="qu-label">Quick Select</div>
+      <div class="quick-users">
+        <button class="qu-btn" onclick="fillUser('hr5@alyousufent.com')">👤 hr5</button>
+        <button class="qu-btn" onclick="fillUser('hr7@alyousufent.com')">👤 hr7</button>
+        <button class="qu-btn" onclick="fillUser('hr8@alyousufent.com')">👤 hr8</button>
+      </div>
+    </div>
+
+    <!-- Email -->
+    <div class="field-group">
+      <label class="field-label" for="login-email">Email Address</label>
+      <input type="email" id="login-email" class="field-input"
+             placeholder="you@alyousufent.com" autocomplete="email"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+
+    <!-- Password -->
+    <div class="field-group">
+      <label class="field-label" for="login-pass">Password</label>
+      <input type="password" id="login-pass" class="field-input"
+             placeholder="••••••••" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')doLogin()">
+      <div class="field-hint">Contact your KAI system admin to reset password.</div>
+    </div>
+
+    <!-- Login button -->
+    <button class="btn-login" id="btn-login" onclick="doLogin()">
+      <span id="btn-login-text">🔐 Sign In</span>
+      <div class="spinner" id="login-spinner"></div>
+    </button>
+
+  </div><!-- /lc-body -->
+
+  <!-- Footer -->
+  <div class="lc-footer">
+    <div class="lc-footer-brand"><strong>Al Yousuf Enterprises LLP</strong> · GCC Recruitment Desk</div>
+    <div class="lc-version">KAI v2.0 · 17-May-2026</div>
+  </div>
+
+</div><!-- /login-card -->
+
+<script>
+/* ─────────────────────────────────────────────────────────────────
+   KAI Login Page
+   Calls GAS verifyLoginAndIssueToken(email, password)
+   → {ok, token, user, role, redirectUrl}
+   Stores session token in sessionStorage + cookie for web app auth
+───────────────────────────────────────────────────────────────── */
+
+var SESSION_KEY = 'kai_session_token';
+var USER_KEY    = 'kai_active_user';
+
+// ── Quick-fill for internal users ──
+function fillUser(email) {
+  document.getElementById('login-email').value = email;
+  document.getElementById('login-pass').focus();
+  // Extract hr code for display
+  var match = email.match(/^(hr\d+|admin)/i);
+  if (match) localStorage.setItem(USER_KEY, match[1].toLowerCase());
+}
+
+// ── Main login handler ──
+function doLogin() {
+  var email = (document.getElementById('login-email').value || '').trim().toLowerCase();
+  var pass  = (document.getElementById('login-pass').value  || '').trim();
+
+  clearAlerts();
+
+  if (!email || email.indexOf('@') < 0) {
+    showError('Enter a valid email address.'); return;
+  }
+  if (!pass) {
+    showError('Enter your password.'); return;
+  }
+
+  // Show spinner
+  setBusy(true);
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      setBusy(false);
+      if (!res) { showError('No response from server. Check GAS deployment.'); return; }
+      if (!res.ok) {
+        showError(res.msg || 'Invalid email or password.');
+        document.getElementById('login-pass').value = '';
+        document.getElementById('login-pass').classList.add('error');
+        return;
+      }
+
+      // Store token
+      sessionStorage.setItem(SESSION_KEY, res.token || '');
+      if (res.user) localStorage.setItem(USER_KEY, res.user);
+
+      // Show success
+      document.getElementById('alert-success').classList.add('visible');
+      document.getElementById('btn-login').disabled = true;
+
+      // Redirect to dashboard
+      setTimeout(function() {
+        var url = res.redirectUrl || window.location.href.replace('/login', '');
+        window.location.href = url;
+      }, 1200);
+    })
+    .withFailureHandler(function(e) {
+      setBusy(false);
+      showError('System error: ' + (e.message || String(e)) +
+                '. Ensure the GAS web app is deployed as "Anyone".');
+    })
+    .verifyLoginAndIssueToken(email, pass);
+}
+
+// ── UI helpers ──
+function setBusy(busy) {
+  var btn     = document.getElementById('btn-login');
+  var txtEl   = document.getElementById('btn-login-text');
+  var spinner = document.getElementById('login-spinner');
+  btn.disabled            = busy;
+  txtEl.textContent       = busy ? 'Signing in…' : '🔐 Sign In';
+  spinner.style.display   = busy ? 'block' : 'none';
+  // Clear input error states
+  if (!busy) {
+    document.getElementById('login-email').classList.remove('error');
+    document.getElementById('login-pass').classList.remove('error');
+  }
+}
+
+function showError(msg) {
+  var el = document.getElementById('alert-error');
+  el.textContent = '⚠️ ' + msg;
+  el.classList.add('visible');
+}
+
+function clearAlerts() {
+  document.getElementById('alert-error').classList.remove('visible');
+  document.getElementById('alert-success').classList.remove('visible');
+}
+
+// ── Auto-focus on load ──
+document.addEventListener('DOMContentLoaded', function() {
+  // If already logged in (token in sessionStorage), validate and redirect to dashboard
+  var token = sessionStorage.getItem(SESSION_KEY);
+  if (token) {
+    google.script.run
+      .withSuccessHandler(function(valid) {
+        if (valid) {
+          // Must include ?token= in URL so doGet can validate server-side
+          var baseUrl = window.location.href.split('?')[0];
+          window.location.href = baseUrl + '?token=' + encodeURIComponent(token);
+        } else {
+          sessionStorage.removeItem(SESSION_KEY);
+        }
+      })
+      .withFailureHandler(function() { /* silent — show login form normally */ })
+      .validateSessionToken(token);
+  }
+  document.getElementById('login-email').focus();
+});
+</script>
+</body>
+</html>

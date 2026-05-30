@@ -1,0 +1,1003 @@
+
+
+| # | Industry | Department | Trade | Specialization |
+|---|----------|------------|-------|----------------|
+| 1 | Academic | Trainer | Commercial Trainer | Classroom Trainer |
+| 2 | Academic | Trainer | Industrial Trainer | On-Site Trainer |
+| 3 | Artificial Intelligence | IT Professional | Developer | .NET Developer |
+| 4 | Artificial Intelligence | IT Professional | Developer | Application Developer |
+| 5 | Artificial Intelligence | IT Professional | IT Support & Operations | Application Support Analyst |
+| 6 | Artificial Intelligence | IT Professional | IT Management | Chief Information Officer (CIO) |
+| 7 | Artificial Intelligence | IT Professional | Cloud & Infrastructure | Cloud Architect |
+| 8 | Artificial Intelligence | IT Professional | Research & Science | Computer & Information Research Scientist |
+| 9 | Artificial Intelligence | IT Professional | Cloud & Infrastructure | Computer Network Architect |
+| 10 | Artificial Intelligence | IT Professional | IT Support & Operations | Data Center Support Specialist |
+| 11 | Artificial Intelligence | IT Professional | Cybersecurity | Information Security Analyst |
+| 12 | Artificial Intelligence | IT Professional | Research & Science | Robotics Scientist |
+| 13 | Media & Creative | Design & Creative | Graphic & Visual Design | 3D Artist |
+| 14 | Automobile | Accounting & Finance | Accounts | Accountant |
+| 15 | Automobile | Accounting & Finance | Accounts | Accounting & Tax Secretary |
+| 16 | Automobile | Accounting & Finance | Accounts | Accounts & Finance Executive |
+| 17 | Automobile | Administration | Admin & Office Management | Admin Executive |
+| 18 | Automobile | Sales & Business Development | Business Development | Assistant Manager – BD |
+| 19 | Automobile | Sales & Business Development | Client Relations | Client Servicing Executive |
+| 20 | Insurance & Financial Services | Accounting & Finance | Insurance | Commercial Insurance Underwriter |
+| 21 | Automobile | Sales & Business Development | Business Development | Direct Marketing – Account Manager |
+| 22 | Automobile | Maintenance & Facilities | BMS / HVAC / Fire | HVAC / BMS Technician |
+| 23 | Automobile | Maintenance & Facilities | Instrumentation & Control | Analyser Technician |
+| 24 | Automobile | Health, Safety & Environment | HSE | Assistant Manager – EHS |
+| 25 | Automobile | IT & Technology | Developer | AI Engineer |
+| 26 | Automobile | IT & Technology | Developer | Application Developer |
+| 27 | Automobile | IT & Technology | Developer | Applications Engineer |
+| 28 | Automobile | IT & Technology | IT Management | Chief Technology Officer (CTO) |
+| 29 | Automobile | IT & Technology | Cloud & Infrastructure | Cloud Consultant |
+| 30 | Automobile | IT & Technology | IT Management | Computer & Information Systems Manager |
+| 31 | Automobile | IT & Technology | IT Support & Operations | Computer Systems Analyst |
+| 32 | Automobile | IT & Technology | IT Support & Operations | Customer Support Administrator |
+| 33 | Automobile | IT & Technology | Data & Analytics | Data Quality Manager |
+| 34 | Automobile | IT & Technology | Cybersecurity | Security Specialist |
+| 35 | Automobile | Engineering | Design & Drafting | 2D CAD Draughtsman |
+| 36 | Architecture & Construction | Design & Creative | Architecture | 3D Architect Visualizer |
+| 37 | Aviation & Aerospace | Engineering | Aeronautical | Aeronautical Analyst |
+| 38 | Automobile | Manufacturing | Production | Assembler |
+| 39 | Energy & Utilities | Operations & Maintenance | Renewable Energy | Asset Manager – Wind & Solar |
+| 40 | Automobile | Engineering | Production Engineering | Assistant Engineer – Production |
+| 41 | Automobile | Health, Safety & Environment | HSE | Assistant Manager – EHS |
+| 42 | Automobile | Engineering | Instrumentation | Assistant Manager – Instrument |
+| 43 | Oil & Gas | Laboratory & Quality | Chemical Analysis | Chemical Analyst |
+| 44 | Oil & Gas | Engineering | Chemical Engineering | Chemical Engineer |
+| 45 | Telecommunications | Engineering | Communications | Communications Engineer |
+| 46 | Automobile | Engineering | Electrical & Instrumentation | E&I Engineer |
+| 47 | Automobile | Engineering | Mechanical | Electro Mechanical Engineer |
+| 48 | Construction | Engineering | Fire & Safety Systems | Fire Detection & Alarm Design Engineer |
+| 49 | Construction | Engineering | MEP | HVAC Design Engineer |
+| 50 | Oil & Gas | Engineering | Piping | Mechanical Piping Engineer |
+| 51 | Construction | Project Management | MEP | MEP Construction Manager |
+| 52 | Mining | Management | Senior Management | Senior Manager – Mining |
+| 53 | Aviation & Aerospace | Quality & Inspection | Inspector | Aircraft Inspector |
+| 54 | Automobile | Commissioning & Pre-Commissioning | Fabrication & Fitting | Aluminium / Glass Fitter |
+| 55 | Automobile | Commissioning & Pre-Commissioning | Welding | Panel / Body Welder |
+| 56 | Automobile | Manufacturing | CNC Operations | CNC Machine Operator |
+| 57 | Automobile | Manufacturing | Tool Room | Tool Room Assistant Operator |
+| 58 | Health & Fitness | Trainer | Commercial Trainer | Fitness Trainer |
+| 59 | Academic | Trainer | Industrial Trainer | Electrical Trainer |
+| 60 | Automobile | Maintenance | Carpentry | Carpenter |
+| 61 | Automobile | Maintenance | Masonry | Mason – All Rounder |
+| 62 | Automobile | Maintenance | Painting | Airless Painter |
+| 63 | Automobile | Maintenance | Plumbing | Plumber Assistant |
+| 64 | Automobile | Maintenance | General Maintenance | All Rounder |
+| 65 | Automobile | Body Shop & Paint | Auto Technician | Auto Denter |
+| 66 | Automobile | Sales & Business Development | Sales | Area Sales Manager |
+| 67 | Automobile | Electrical & Electronics | Auto Technician | Auto Electrician – Heavy Equipment |
+| 68 | Automobile | Sales & Business Development | Sales | Auto Sales Manager |
+| 69 | Automobile | Workshop & Service | Auto Technician | Auto Mechanic – General |
+| 70 | Automobile | Sales & Business Development | Sales | Dealer Sales Executive |
+| 71 | Automobile | Workshop & Service | Auto Technician | Auto Mechanic – Heavy Equipment |
+| 72 | Automobile | Manufacturing | Production | Production Manager |
+| 73 | Automobile | Body Shop & Paint | Auto Technician | Auto Painter |
+| 74 | Automobile | Sales & Business Development | Sales | Retail Sales Manager |
+| 75 | Academic | Trainer | Industrial Trainer | Automobile Trainer |
+| 76 | Automobile | Workshop & Service | Auto Technician | Other |
+| 77 | Automobile | Electrical & Electronics | Auto Technician | Crane Electrician |
+| 78 | Automobile | Sales & Business Development | Sales | Sales Executive |
+| 79 | Automobile | Workshop & Service | Auto Technician | Crane Mechanic |
+| 80 | Automobile | Sales & Business Development | Service | Service Advisor |
+| 81 | Automobile | Workshop & Service | Auto Technician | Generator Technician / Mechanic |
+| 82 | Automobile | Sales & Business Development | Service | Service Sales Manager |
+| 83 | Automobile | Workshop & Service | Auto Technician | Hydraulic Mechanic |
+| 84 | Automobile | Sales & Business Development | Sales | Other |
+| 85 | Automobile | Workshop & Service | Auto Technician | Automobile Technician |
+| 86 | Automobile | Workshop & Service | Auto Technician | Assistant / Trainee |
+| 87 | Automobile | Workshop & Service | Auto Technician | Tyreman – Commercial |
+| 88 | Automobile | Workshop & Service | Auto Technician | Tyreman – Heavy Equipment |
+| 89 | Automobile | Workshop & Service | Auto Technician | Repair Technician |
+| 90 | Automobile | Electrical & Electronics | Auto Technician | Auto Electrician – General |
+| 91 | Automobile | Design & Engineering | Design | Auto Designer |
+| 92 | Automobile | Workshop & Service | Auto Technician | Maintenance Technician |
+| 93 | Automobile | Workshop & Service | Auto Technician | Auto Mechanic |
+| 94 | Automobile | Workshop & Service | Auto Technician | Automobile Service Engineer |
+| 95 | Automobile | Engineering | Automotive Engineering | Automobile Engineer |
+| 96 | Aviation & Aerospace | IT & Technology | Developer | Applications Engineer |
+| 97 | Aviation & Aerospace | IT & Technology | Developer | Associate Developer |
+| 98 | Aviation & Aerospace | IT & Technology | Cloud & Infrastructure | Cloud Product & Project Manager |
+| 99 | Aviation & Aerospace | IT & Technology | Cloud & Infrastructure | Computer Network Architect |
+| 100 | Aviation & Aerospace | IT & Technology | IT Support & Operations | Customer Support Specialist |
+| 101 | Aviation & Aerospace | IT & Technology | Data & Analytics | Database Administrator |
+| 102 | Aviation & Aerospace | IT & Technology | IT Management | Director of Technology |
+| 103 | Aviation & Aerospace | IT & Technology | IT Management | Product Manager |
+| 104 | Aviation & Aerospace | IT & Technology | Developer | Programmer Analyst |
+| 105 | Aviation & Aerospace | IT & Technology | Cybersecurity | Senior Security Specialist |
+| 106 | Banking & Finance | Sales & Business Development | Client Relations | Account Director |
+| 107 | Banking & Finance | Accounting & Finance | Accounts | Accounting / Auditing Clerk |
+| 108 | Banking & Finance | Accounting & Finance | Accounts | Accounts & Finance Manager |
+| 109 | Banking & Finance | Administration | Admin & Office Management | Administration & Secretarial |
+| 110 | Banking & Finance | Administration | Admin & Office Management | Company Secretary |
+| 111 | Banking & Finance | Sales & Business Development | Business Development | BD Advisor |
+| 112 | Banking & Finance | Marketing & Communications | Digital Marketing | Digital Media Manager |
+| 113 | Banking & Finance | Sales & Business Development | Direct Marketing | Direct Marketing Executive / Officer |
+| 114 | Insurance & Financial Services | Operations | Insurance | Insurance Claims Manager |
+| 115 | Banking & Finance | IT & Technology | Data & Analytics | AI Data Analyst |
+| 116 | Banking & Finance | IT & Technology | Developer | Associate Developer |
+| 117 | Banking & Finance | IT & Technology | Developer | Back End Developer |
+| 118 | Banking & Finance | IT & Technology | Developer | Cloud Services Developer |
+| 119 | Banking & Finance | IT & Technology | Developer | Computer Programmer |
+| 120 | Banking & Finance | IT & Technology | IT Support & Operations | Computer Systems Analyst |
+| 121 | Banking & Finance | IT & Technology | IT Support & Operations | Desktop Support Manager |
+| 122 | Banking & Finance | IT & Technology | IT Management | IT Director |
+| 123 | Banking & Finance | IT & Technology | Data & Analytics | Senior Database Administrator |
+| 124 | Banking & Finance | IT & Technology | Developer | Senior Programmer Analyst |
+| 125 | Construction | Transport & Logistics | Driver | Trailer Driver |
+| 126 | Construction | Heavy Equipment | Heavy Equipment Operator | Crawler Crane Operator |
+| 127 | Hospitality & Catering | Sales & Business Development | Sales | Banquet Sales Executive |
+| 128 | Hospitality & Catering | Food & Beverage | Chef / Cook | Butcher Chef (Boucher) |
+| 129 | Hospitality & Catering | Food & Beverage | Bakery & Pastry | Bakery & Pastries |
+| 130 | Hospitality & Catering | Front Office & Guest Services | Front Office | Bellboy |
+| 131 | Hospitality & Catering | Food & Beverage | Chef / Cook | Chef-Owner / Group Chef |
+| 132 | Hospitality & Catering | Food & Beverage | Beverages | Barista (Coffee Maker) |
+| 133 | Cement, Mining & Steel | Engineering | Design & Drafting | 3D CAD Draughtsman |
+| 134 | Aviation & Aerospace | Engineering | Aeronautical | Aeronautical Engineer |
+| 135 | Cement, Mining & Steel | Engineering | Civil & Structural | Architect Engineer |
+| 136 | Cement, Mining & Steel | Health, Safety & Environment | HSE | Assistant Manager – HSE |
+| 137 | Mining | Operations | Mining Management | Assistant Mines Manager |
+| 138 | Cement, Mining & Steel | Engineering | Automation & Control | Automation Engineer |
+| 139 | Cement, Mining & Steel | Engineering | Chemical Engineering | Chemical Engineer |
+| 140 | Energy & Utilities | Sales & Business Development | Sales | Commercial Solar Energy Sales Representative |
+| 141 | Cement, Mining & Steel | Quality & Inspection | Inspection | Communication QC Inspector |
+| 142 | Cement, Mining & Steel | IT & Technology | IT Support & Operations | Desktop Support Engineer |
+| 143 | Mining | Engineering | Drilling | Drilling Engineer |
+| 144 | Cement, Mining & Steel | Engineering | Electrical & Instrumentation | E&I Inspector |
+| 145 | Construction | Engineering | Fire & Safety Systems | Fire Protection & Suppression Design Engineer |
+| 146 | Construction | Engineering | MEP | HVAC Draftsman |
+| 147 | Cement, Mining & Steel | Engineering | Mechanical | Lead Mechanical Engineer |
+| 148 | Construction | Engineering | MEP | MEP Design Engineer |
+| 149 | Oil & Gas | Engineering | Piping | PDS Piping Designer |
+| 150 | Cement, Mining & Steel | Engineering | Production & Maintenance | Production & Maintenance Engineer |
+| 151 | Cement, Mining & Steel | Sales & Business Development | Account Planning | Account Planning Head |
+| 152 | Cement, Mining & Steel | Accounting & Finance | Accounts | Accounts Assistant |
+| 153 | Cement, Mining & Steel | Administration | Admin & Office Management | Administration Assistant |
+| 154 | Cement, Mining & Steel | Administration | Admin & Office Management | Assistant Company Secretary |
+| 155 | Cement, Mining & Steel | Accounting & Finance | Finance | Assistant Finance Analyst |
+| 156 | Cement, Mining & Steel | Sales & Business Development | Business Development | BD Agent |
+| 157 | Cement, Mining & Steel | Sales & Business Development | Direct Marketing | Direct Marketing Manager / Head |
+| 158 | Insurance & Financial Services | Accounting & Finance | Accounts | Insurance Accountant |
+| 159 | Cement, Mining & Steel | Marketing & Communications | Media & Analytics | Media Analyst |
+| 160 | Cement, Mining & Steel | Health, Safety & Environment | HSE | Assistant Manager – HSE |
+| 161 | Cement, Mining & Steel | Quality & Inspection | Inspection | API Inspector |
+| 162 | Cement, Mining & Steel | Manufacturing | Fabrication | Aluminium Fabricator |
+| 163 | Cement, Mining & Steel | Manufacturing | CNC Operations | CNC Operator – Fiber Metal Machine |
+| 164 | Cement, Mining & Steel | Operations | Plant Operations | CCR Operator |
+| 165 | Cement, Mining & Steel | Manufacturing | Welding | MIG Welder (1G / 2G / 3G / 4G) GMAW |
+| 166 | Cement, Mining & Steel | Operations | Carpentry | Carpentry Foreman |
+| 167 | Cement, Mining & Steel | Operations | Masonry | Mason – Brick |
+| 168 | Cement, Mining & Steel | Operations | Painting | Assistant Painter |
+| 169 | Cement, Mining & Steel | Operations | Plumbing | Plumber – HDPE |
+| 170 | Cement, Mining & Steel | Operations | General Labour | Helper |
+| 171 | Cement, Mining & Steel | IT & Technology | Developer | Cloud Services Developer |
+| 172 | Cement, Mining & Steel | IT & Technology | Cloud & Infrastructure | Cloud Software & Network Engineer |
+| 173 | Cement, Mining & Steel | IT & Technology | Developer | Computer Programmer |
+| 174 | Cement, Mining & Steel | IT & Technology | IT Management | Computer Systems Manager |
+| 175 | Cement, Mining & Steel | IT & Technology | IT Support & Operations | Desktop Support Specialist |
+| 176 | Cement, Mining & Steel | IT & Technology | Developer | Developer |
+| 177 | Cement, Mining & Steel | IT & Technology | IT Management | IT Manager |
+| 178 | Cement, Mining & Steel | IT & Technology | Research & Science | Research Scientist |
+| 179 | Cement, Mining & Steel | IT & Technology | IT Support & Operations | Senior Systems Analyst |
+| 180 | Cement, Mining & Steel | Maintenance & Facilities | BMS / HVAC / Fire | Generator Technician |
+| 181 | Cement, Mining & Steel | Maintenance & Facilities | Instrumentation & Control | Analyser Technician – Construction |
+| 182 | Academic | Trainer | Commercial Trainer | Freelance Trainer |
+| 183 | Academic | Trainer | Industrial Trainer | Field Trainer |
+
+Continuing from **#184**:
+
+---
+
+**Group: Chemical — Architecture | Engineer (department wrong)**
+
+| # | Industry | Department | Trade | Specialization |
+|---|----------|------------|-------|----------------|
+| 184 | Aviation & Aerospace | Engineering | Aeronautical | Aeronautical Specialist |
+| 185 | Chemical / Fertilizers / Plastic / Rubber / Glass | Quality & Inspection | Inspection | Building / Utility Inspector |
+| 186 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Architecture | Architect Consultant |
+| 187 | Chemical / Fertilizers / Plastic / Rubber / Glass | Health, Safety & Environment | HSE | Assistant Safety Manager |
+| 188 | Chemical / Fertilizers / Plastic / Rubber / Glass | Operations | Chemical Production | Chemical Foreman |
+| 189 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Commercial Engineering | Commercial Engineer |
+| 190 | Energy & Utilities | Operations | Renewable Energy | Commercial Solar Foreman |
+| 191 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Instrumentation & Control | Control & Instrument Engineer |
+| 192 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Electrical & Automation | Electrical & Automation Manager |
+| 193 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Electrical & Electronics | Electrical & Electronics Engineer |
+| 194 | Construction | Engineering | MEP | HVAC Draughtsman |
+| 195 | Chemical / Fertilizers / Plastic / Rubber / Glass | Procurement & Planning | Supply Chain | Material Planner / Expediter |
+| 196 | Chemical / Fertilizers / Plastic / Rubber / Glass | Manufacturing | Assembly | Mechanical Assembler |
+| 197 | Construction | Engineering | MEP | MEP Designer |
+| 198 | Mining | Operations | Mining Management | Mines Manager |
+| 199 | Oil & Gas | Engineering | Pipeline | Pipeline Construction Engineer |
+| 200 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Process Control | Process Control Engineer |
+| 201 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Production Engineering | Production Engineer |
+| 202 | Chemical / Fertilizers / Plastic / Rubber / Glass | Sales & Business Development | Account Planning | Account Planning Manager |
+| 203 | Chemical / Fertilizers / Plastic / Rubber / Glass | Accounting & Finance | Accounts Payable | Accounts Payable Specialist |
+| 204 | Chemical / Fertilizers / Plastic / Rubber / Glass | Administration | Admin & Office Management | Administration Clerk |
+| 205 | Chemical / Fertilizers / Plastic / Rubber / Glass | Accounting & Finance | Finance | Assistant Finance Director |
+| 206 | Chemical / Fertilizers / Plastic / Rubber / Glass | Administration | Front Office | Assistant Manager – Front Office |
+| 207 | Chemical / Fertilizers / Plastic / Rubber / Glass | Sales & Business Development | Business Development | BD Analyst |
+| 208 | Insurance & Financial Services | Administration | Admin & Office Management | Insurance Administrator |
+| 209 | Chemical / Fertilizers / Plastic / Rubber / Glass | Sales & Business Development | International Marketing | International Marketing / Business Manager |
+| 210 | Media & Creative | Design & Creative | Graphic & Visual Design | Macromedia Flash Designer |
+| 211 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | Cloud & Infrastructure | Cloud System Administrator |
+| 212 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | Developer | Developer |
+| 213 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | Developer | Front End Developer |
+| 214 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | IT Support & Operations | Help Desk Specialist |
+| 215 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | Data & Analytics | IT Analyst |
+| 216 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | Developer | Java Developer |
+| 217 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | Research & Science | Machine Learning Engineer |
+| 218 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | IT Management | Management Information Systems Director |
+| 219 | Chemical / Fertilizers / Plastic / Rubber / Glass | IT & Technology | IT Support & Operations | Systems Analyst |
+| 220 | Chemical / Fertilizers / Plastic / Rubber / Glass | Commissioning & Pre-Commissioning | BMS / HVAC / Fire | PDM Technician |
+| 221 | Chemical / Fertilizers / Plastic / Rubber / Glass | Commissioning & Pre-Commissioning | Instrumentation & Control | Analyser Technician – Shutdown Specialist |
+| 222 | Chemical / Fertilizers / Plastic / Rubber / Glass | Health, Safety & Environment | HSE | Assistant Safety Manager |
+| 223 | Chemical / Fertilizers / Plastic / Rubber / Glass | Quality & Inspection | Inspection | Batching Inspector |
+| 224 | Chemical / Fertilizers / Plastic / Rubber / Glass | Manufacturing | Fabrication & Fitting | Conduit Fitter |
+| 225 | Chemical / Fertilizers / Plastic / Rubber / Glass | Manufacturing | Welding | MIG Welder (5G / 6G / 6GR) GMAW |
+| 226 | Health & Fitness | Trainer | Commercial Trainer | Life Skills (Lifeguard) Trainer |
+| 227 | Academic | Trainer | Industrial Trainer | HSE Trainer |
+| 228 | Chemical / Fertilizers / Plastic / Rubber / Glass | Manufacturing | CNC Operations | CNC Operator & Programmer |
+| 229 | Chemical / Fertilizers / Plastic / Rubber / Glass | Operations | Chemical Operations | Chemical Operator |
+| 230 | Chemical / Fertilizers / Plastic / Rubber / Glass | Operations | Carpentry | Carpentry Supervisor |
+| 231 | Chemical / Fertilizers / Plastic / Rubber / Glass | Operations | Masonry | Mason – Ceramic Tiles |
+| 232 | Chemical / Fertilizers / Plastic / Rubber / Glass | Operations | Painting | Auto Painter |
+| 233 | Chemical / Fertilizers / Plastic / Rubber / Glass | Operations | Plumbing | Plumber – Technical |
+| 234 | Courier / Transportation / Freight | IT & Technology | Cloud & Infrastructure | Cloud System Engineer |
+| 235 | Courier / Transportation / Freight | IT & Technology | Data & Analytics | Data Scientist |
+| 236 | Courier / Transportation / Freight | IT & Technology | IT Support & Operations | Help Desk Technician |
+| 237 | Courier / Transportation / Freight | IT & Technology | IT Support & Operations | IT Coordinator |
+| 238 | Courier / Transportation / Freight | IT & Technology | Developer | Java Developer |
+| 239 | Courier / Transportation / Freight | IT & Technology | Developer | Junior Software Engineer |
+| 240 | Courier / Transportation / Freight | IT & Technology | Cloud & Infrastructure | Network Engineer |
+| 241 | Courier / Transportation / Freight | IT & Technology | IT Support & Operations | Systems Designer |
+| 242 | Healthcare | Sales & Business Development | Sales | Account Executive |
+| 243 | Healthcare | Allied Health | Mental Health | Accredited Mental Health Social Worker |
+| 244 | Healthcare | Allied Health | Alternative Medicine | Acupuncturist |
+| 245 | Healthcare | Allied Health | Anaesthesiology | Anaesthetic Technologist |
+| 246 | Healthcare | Nursing | General Nursing | Assistant in Nursing |
+| 247 | Healthcare | Allied Health | Audiology | Audiologist |
+| 248 | Healthcare | Allied Health | Nutrition & Dietetics | CNS – Certified Nutrition Specialist |
+| 249 | Healthcare | Pharmacy | Community Pharmacy | Community Pharmacist |
+| 250 | Healthcare | Dental | Dental Support | Dental Assistant |
+| 251 | Healthcare | Emergency & Paramedics | Emergency Services | Paramedic |
+| 252 | Healthcare | Medical | General Practice | Physician |
+| 253 | Healthcare | Veterinary | Animal Health | Veterinarian |
+| 254 | Defence / Government | IT & Technology | Data & Analytics | Business Intelligence Developer |
+| 255 | Defence / Government | IT & Technology | Data & Analytics | IT Analyst |
+| 256 | Defence / Government | IT & Technology | Developer | Junior Software Engineer |
+| 257 | Defence / Government | IT & Technology | Cloud & Infrastructure | Network Administrator |
+| 258 | Defence / Government | IT & Technology | Developer | Oracle Consultant |
+| 259 | Defence / Government | IT & Technology | Developer | Oracle Developer |
+| 260 | Defence / Government | IT & Technology | IT Management | Team Leader – IT |
+| 261 | Ecommerce | IT & Technology | Data & Analytics | Big Data Engineer |
+| 262 | Ecommerce | IT & Technology | IT Support & Operations | IT Coordinator |
+| 263 | Ecommerce | IT & Technology | Cloud & Infrastructure | Network & Computer Systems Administrator |
+| 264 | Ecommerce | IT & Technology | Developer | Oracle Consultant |
+| 265 | Ecommerce | IT & Technology | Developer | Oracle Developer |
+| 266 | Ecommerce | IT & Technology | IT Support & Operations | Senior Web Administrator |
+| 267 | Ecommerce | IT & Technology | IT Support & Operations | Technical Operations Officer |
+| 268 | Education & Training | IT & Technology | IT Support & Operations | IT Support Engineer |
+| 269 | Education & Training | IT & Technology | Cloud & Infrastructure | Network Architect |
+| 270 | Education & Training | IT & Technology | Developer | Oracle Developer |
+| 271 | Education & Training | IT & Technology | Developer | Oracle ERP Consultant |
+| 272 | Education & Training | IT & Technology | Research & Science | Robotics Engineer |
+| 273 | Education & Training | IT & Technology | Developer | Senior Web Developer |
+| 274 | Security Services | Operations | CCTV & Surveillance | CCTV Surveillance Operator |
+| 275 | Hospitality & Catering | Food & Beverage | Chef / Cook | Executive Chef (Chef de Cuisine / Head Chef) |
+| 276 | Hospitality & Catering | Food & Beverage | Beverages | Barista / Coffee Maker |
+| 277 | Exploration & Production | Engineering | Design & Drafting | 3D Designer |
+| 278 | Exploration & Production | Engineering | Design & Drafting | 3D Modeling |
+| 279 | Exploration & Production | Marine & Offshore | Deck Operations | AB Seaman |
+| 280 | Exploration & Production | Marine & Offshore | Deck Operations | Able Bodied Seaman (AB Seaman) |
+| 281 | Exploration & Production | Operations | Well Services | Abandonment Engineer |
+| 282 | Exploration & Production | Accounting & Finance | Accounts | Accounting / Finance Executive |
+| 283 | Exploration & Production | Maintenance & Facilities | HVAC & Mechanical | AC Technician |
+| 284 | Exploration & Production | Operations | Drilling | Assessment Driller |
+| 285 | Exploration & Production | Engineering | Asset Integrity | Asset Integrity Engineer |
+| 286 | Exploration & Production | Engineering | Subsea | Assistant Subsea Engineer |
+| 287 | Exploration & Production | Operations | Drilling | BOP Inspector |
+| 288 | Hospitality & Catering | Food & Beverage | Chef / Cook | Catering – General |
+| 289 | Exploration & Production | Operations | Chemical Operations | Chemical Operator |
+| 290 | Exploration & Production | Operations | Well Services | Client Representative |
+| 291 | Exploration & Production | Operations | Control Room | Control Room Incharge / Supervisor |
+| 292 | Facility Management | Administration | Admin & Office Management | Conference Organizer |
+| 293 | Hospitality & Catering | Food & Beverage | Chef / Cook | Fish Chef (Poissonier) |
+| 294 | Hospitality & Catering | Food & Beverage | Beverages | Bartender |
+| 295 | Facility Management | Maintenance & Facilities | BMS / HVAC / Fire | Pump Technician |
+| 296 | Facility Management | Maintenance & Facilities | Instrumentation & Control | Condition Monitoring Technician |
+| 297 | Facility Management | Transport & Logistics | Driver | Driver – Commercial (Company) |
+| 298 | Facility Management | Operations | Heavy Equipment | Compactor Operator |
+| 299 | Facility Management | Manufacturing | Fabrication & Fitting | Duct Fabricator / Ductman |
+| 300 | Facility Management | Manufacturing | Welding | MIG Welder (5G / 6G) GMAW |
+| 301 | Facility Management | Sales & Business Development | Sales | Sales Trainer |
+| 302 | Facility Management | Maintenance & Facilities | Instrumentation & Control | Instrument Trainer |
+| 303 | FMCG | Administration | Admin & Office Management | Administration Executive |
+| 304 | FMCG | Marketing & Communications | Advertising | Advertising Account Executive |
+| 305 | FMCG | Accounting & Finance | Finance | Asset Management (CFA / CIMA) |
+| 306 | FMCG | Accounting & Finance | Finance | Assistant Finance Manager |
+| 307 | FMCG | Administration | Admin & Office Management | Back Office Assistant |
+| 308 | FMCG | Sales & Business Development | Business Development | BD Assistant |
+| 309 | Insurance & Financial Services | Sales & Business Development | Insurance | Insurance Advisor |
+| 310 | FMCG | Marketing & Communications | Market Research | Market Research – Client Servicing Executive |
+| 311 | FMCG | Marketing & Communications | Media Buying | Media Buying Executive / Officer |
+| 312 | FMCG | Sales & Business Development | Corporate Sales | Corporate Sales & BDM |
+| 313 | Hospitality & Catering | Food & Beverage | Chef / Cook | Fry Chef (Friturier) |
+| 314 | Hospitality & Catering | Food & Beverage | Beverages | Bartender – Juice & Drinks |
+| 315 | Aviation & Aerospace | Engineering | Aircraft Maintenance | Aircraft Engineer |
+| 316 | Construction | Engineering | Cost Engineering | Cost Engineer |
+| 317 | Construction | Engineering | Architecture | Architect Planner |
+| 318 | FMCG | Health, Safety & Environment | HSE | Assistant Manager – EHS |
+| 319 | FMCG | Quality & Inspection | Inspection | Chemical Inspector |
+| 320 | FMCG | IT & Technology | IT Management | Configuration Manager |
+| 321 | Energy & Utilities | Operations | Renewable Energy | Director – Solar & Renewable Energy |
+| 322 | FMCG | Engineering | Electrical & Automation | Electrical Automation Engineer |
+| 323 | Telecommunications | Engineering | Communications | Electronic Communication Engineer |
+| 324 | FMCG | Engineering | Instrumentation & Control | Electronic Instrument Engineer |
+| 325 | Construction | Engineering | MEP | HVAC Engineer |
+| 326 | FMCG | Engineering | Mechanical | Mechanical CAD Engineer |
+| 327 | Construction | Engineering | MEP | MEP Draughtsman |
+| 328 | Mining | Operations | Mining Management | Mine Superintendent |
+| 329 | FMCG | Engineering | Operations & Maintenance | O&M Engineer |
+| 330 | Oil & Gas | Engineering | Pipeline | Pipeline Design Engineer |
+| 331 | FMCG | Engineering | Process Engineering | Process Engineer |
+| 332 | FMCG | Engineering | Production Engineering | Production Engineer Trainee |
+| 333 | FMCG | Operations | Flooring & Finishing | Carpet Technician |
+| 334 | FMCG | Operations | Masonry | Mason – Cladding Fixer |
+| 335 | FMCG | Operations | Painting | Blaster cum Spray Painter |
+| 336 | FMCG | Operations | Plumbing | Plumber – Fabrication |
+| 337 | FMCG | Maintenance & Facilities | BMS / HVAC / Fire | Quay Crane Electrician |
+| 338 | FMCG | Maintenance & Facilities | Instrumentation & Control | Electrical Technician – Construction |
+| 339 | FMCG | Quality & Inspection | Inspection | BGAS Inspector |
+| 340 | FMCG | IT & Technology | Research & Science | Computer Vision Engineer |
+| 341 | FMCG | IT & Technology | IT Support & Operations | IT Support Manager |
+| 342 | FMCG | IT & Technology | Cloud & Infrastructure | Network Engineer |
+| 343 | FMCG | IT & Technology | Developer | Oracle ERP Consultant |
+| 344 | FMCG | IT & Technology | Developer | Oracle HRMS Consultant |
+| 345 | FMCG | IT & Technology | Developer | Software Developer |
+| 346 | FMCG | Health, Safety & Environment | HSE | Chief Crew – Fire Fighting |
+| 347 | Academic | Trainer | Commercial Trainer | Senior Corporate Trainer |
+| 348 | FMCG | Manufacturing | Fabrication & Fitting | Duct Fitter / Ductman |
+| 349 | Academic | Trainer | Industrial Trainer | Machine Operator Trainer |
+| 350 | FMCG | Manufacturing | CNC Operations | CNC / VMC Operator |
+| 351 | FMCG | Operations | Plant Operations | Commissioning Supervisor / Field Operator |
+| 352 | FMCG | Manufacturing | Welding | Multi-Process Welder |
+| 353 | Aviation & Aerospace | Quality & Inspection | Inspection | Aircraft Inspector |
+| 354 | Construction | Engineering | Cost Engineering | Cost Estimator |
+| 355 | Construction | Engineering | Architecture | Architect Project Manager |
+| 356 | Construction | Health, Safety & Environment | HSE | Assistant Manager – HSE |
+| 357 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Process Engineering | Chemical Process Engineer |
+| 358 | Courier / Transportation / Freight | Operations | Logistics Management | Delivery Manager / Head |
+| 359 | Construction | Engineering | Electrical | Electrical CAD Designer |
+| 360 | Construction | Quality & Inspection | Inspection | Electronic Control Inspector |
+| 361 | Energy & Utilities | Operations | Energy Management | Energy Advisor |
+| 362 | Construction | Engineering | MEP | HVAC Foreman |
+| 363 | Oil & Gas | Engineering | Instrumentation & Control | Instrument Automation Engineer |
+| 364 | Construction | Engineering | Mechanical | Mechanical Commissioning Engineer |
+| 365 | Construction | Engineering | MEP | MEP Engineer |
+| 366 | Mining | Operations | Mining Management | Mining Supervisor |
+| 367 | Oil & Gas | Engineering | Piping | Piping Design Engineer |
+| 368 | Construction | Engineering | Production Engineering | Production Engineer |
+| 369 | Construction | Engineering | Production Engineering | Production Engineering Manager |
+| 370 | Construction | Project Management | Project Management | Project Manager |
+| 371 | Hospitality & Catering | Administration | Admin & Office Management | Administration Manager |
+| 372 | Hospitality & Catering | Marketing & Communications | Advertising | Advertising Account Manager |
+| 373 | Hospitality & Catering | Accounting & Finance | Finance | Assistant Finance Officer |
+| 374 | Hospitality & Catering | Accounting & Finance | Audit & Tax | Audit & Tax Assistant |
+| 375 | Hospitality & Catering | Administration | Admin & Office Management | Back Office Computer Operator |
+| 376 | Hospitality & Catering | Sales & Business Development | Business Development | BD Associate |
+| 377 | Insurance & Financial Services | Sales & Business Development | Insurance | Insurance Agent |
+| 378 | Hospitality & Catering | Marketing & Communications | Market Research | Market Research – Client Servicing Manager |
+| 379 | Hospitality & Catering | Marketing & Communications | Media Buying | Media Buying Manager |
+| 380 | Hospitality & Catering | IT & Technology | IT Support & Operations | IT Support Specialist |
+| 381 | Hospitality & Catering | IT & Technology | Cloud & Infrastructure | Network Systems Administrator |
+| 382 | Hospitality & Catering | IT & Technology | Developer | Oracle HRMS Consultant |
+| 383 | Hospitality & Catering | IT & Technology | Developer | Oracle Programmer |
+| 384 | Hospitality & Catering | IT & Technology | Developer | UX & UI Developer |
+| 385 | Construction | Quality & Inspection | Inspection | Building Inspector |
+| 386 | Academic | Trainer | Commercial Trainer | Soft Skills Trainer |
+| 387 | Academic | Trainer | Industrial Trainer | Mechanical Trainer |
+| 388 | Hospitality & Catering | Health, Safety & Environment | HSE | Corporate HSE Manager |
+| 389 | Hospitality & Catering | Operations | Plant Operations | DCS Control Room Operator |
+| 390 | Hospitality & Catering | Operations | Plant Operations | Control Room Operator |
+| 391 | Hospitality & Catering | Transport & Logistics | Driver | Other Driver |
+| 392 | Hospitality & Catering | Operations | Heavy Equipment | Crawler Loader Operator |
+| 393 | Hospitality & Catering | Housekeeping | Housekeeping Management | Director of Housekeeping |
+| 394 | Hospitality & Catering | Food & Beverage | Chef / Cook | Grill Chef (Grillardin) |
+| 395 | Hospitality & Catering | Food & Beverage | QSR & Fast Food | Catering Assistant |
+| 396 | Healthcare | Allied Health | Alternative Medicine | Acupuncturist |
+| 397 | Healthcare | Administration | Healthcare Admin | Billing Manager |
+| 398 | Healthcare | Allied Health | Alternative Medicine | Chiropractor |
+| 399 | Healthcare | Nursing | Clinical Nursing | Clinical Nurse |
+| 400 | Healthcare | Administration | Healthcare Admin | Medical Coder |
+| 401 | Healthcare | Dental | Dental Support | Dental Hygienist |
+| 402 | Healthcare | Allied Health | Nutrition & Dietetics | Dietitian |
+| 403 | Healthcare | Allied Health | Therapy | Diversional Therapist |
+| 404 | Healthcare | Administration | Healthcare Admin | Doctorate in Administration |
+| 405 | Healthcare | Emergency & Paramedics | Emergency Services | Emergency Technician |
+| 406 | Healthcare | Pharmacy | Hospital Pharmacy | Hospital Pharmacist |
+| 407 | Healthcare | Allied Health | Clinical Support | Physician Assistant (PA) |
+| 408 | Healthcare | Veterinary | Animal Health | Veterinary Nurse |
+| 409 | IT & Technology | IT & Technology | IT Support & Operations | IT Systems Administrator |
+| 410 | IT & Technology | IT & Technology | Developer | Oracle Programmer |
+| 411 | IT & Technology | IT & Technology | Developer | Oracle Specialist |
+| 412 | IT & Technology | IT & Technology | Developer | Programmer |
+| 413 | IT & Technology | IT & Technology | Developer | UX Developer |
+| 414 | Healthcare | Administration | Healthcare Admin | Clinical Administrator |
+| 415 | Healthcare | Administration | Healthcare Admin | Coding Educator |
+| 416 | Healthcare | Dental | Dentistry | Dentist |
+| 417 | Healthcare | Medical | Surgery | Doctorate – Civil Surgeon |
+| 418 | Healthcare | Nursing | General Nursing | Enrolled Nurse (EN) |
+| 419 | Healthcare | Allied Health | Therapy | Massage Therapist |
+| 420 | Healthcare | Allied Health | Mental Health | Mental Health Support Worker |
+| 421 | Healthcare | Allied Health | Nutrition & Dietetics | Nutrition & Dietetics Specialist |
+| 422 | Healthcare | Pharmacy | Pharmaceutical Industry | Pharmaceutical Industry Specialist |
+| 423 | Healthcare | Allied Health | Clinical Support | Physician Assistant |
+| 424 | Healthcare | Veterinary | Animal Health | Veterinary Assistant |
+| 425 | Academic | Trainer | Commercial Trainer | Teacher |
+| 426 | Academic | Trainer | Industrial Trainer | Operations Trainer |
+| 427 | Construction | Maintenance & Facilities | BMS / HVAC / Fire | Reliability Technician |
+| 428 | Construction | Maintenance & Facilities | Instrumentation & Control | Electrical Technician – Maintenance |
+| 429 | Construction | Operations | Carpentry | Docking Carpenter |
+| 430 | Construction | Operations | Masonry | Mason – Finishing & Plaster |
+| 431 | Aviation & Aerospace | Engineering | Aircraft Maintenance | Aircraft Maintenance Engineer |
+| 432 | Construction | Quality & Inspection | QA / QC | QA/QC Coordinator |
+| 433 | Construction | Engineering | Architecture | Architectural Technician |
+| 434 | Construction | Health, Safety & Environment | HSE | Assistant Safety Manager |
+| 435 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Chemical Engineering | Chemical Project Engineer |
+| 436 | Construction | Engineering | Electrical | Electrical Design & Estimation Engineer |
+| 437 | Construction | Engineering | Electronics | Electronic Design Engineer |
+| 438 | Energy & Utilities | Engineering | Energy Management | Energy Auditor |
+| 439 | Construction | Engineering | Civil & Environmental | Environmental Engineer |
+| 440 | Construction | Engineering | MEP | HVAC Maintenance Engineer |
+| 441 | Construction | Engineering | Instrumentation & Control | Instrument Commissioning Engineer |
+| 442 | Construction | Engineering | Mechanical | Mechanical Commissioning Technician |
+| 443 | Construction | Engineering | MEP | MEP Estimation Engineer |
+| 444 | Mining | Operations | Mining Management | Mine Shift Boss |
+| 445 | Oil & Gas | Engineering | Piping | Piping Designer |
+| 446 | Construction | Engineering | Production Engineering | Production Planning Engineer |
+| 447 | Construction | Project Management | Planning & Scheduling | Project Scheduling Engineer |
+| 448 | Oil & Gas | Engineering | Reservoir | Reservoir Head |
+| 449 | Construction | Operations | Painting | Duco Painter |
+| 450 | Construction | Operations | Plumbing | Plumber – Leadman |
+| 451 | Construction | Marketing & Communications | Advertising | Advertising Account Planning Head |
+| 452 | Construction | Human Resources | HR Management | Area HR Manager |
+| 453 | Construction | Accounting & Finance | Finance | Assistant Manager – Finance & Accounts |
+| 454 | Construction | Accounting & Finance | Audit & Tax | Audit Consultant |
+| 455 | Construction | Administration | Admin & Office Management | Back Office Coordinator |
+| 456 | Construction | Sales & Business Development | Business Development | BD Consultant |
+| 457 | Insurance & Financial Services | Accounting & Finance | Insurance | Insurance Analyst – General Insurance |
+| 458 | Construction | Marketing & Communications | Market Research | Market Research Analyst |
+| 459 | Construction | Marketing & Communications | Media | Media Consultant |
+| 460 | Construction | IT & Technology | Cloud & Infrastructure | Network Architect |
+| 461 | Construction | IT & Technology | Developer | Oracle Specialist |
+| 462 | Construction | IT & Technology | Developer | Programmer |
+| 463 | Construction | IT & Technology | Cloud & Infrastructure | Senior Network Architect |
+| 464 | Construction | IT & Technology | IT Support & Operations | Web Administrator |
+| 465 | Construction | Quality & Inspection | Inspection | Chemical Inspector |
+| 466 | Construction | Manufacturing | Fabrication | Fabricator – Carbon Steel (CS) |
+| 467 | Construction | Manufacturing | Welding | Pipe Welder (4G) |
+| 468 | Construction | Operations | Plant Operations | DCS Operator |
+| 469 | Construction | Operations | Plant Operations | Control System Operator – DCS |
+| 470 | Academic | Trainer | Commercial Trainer | Training Coordinator |
+| 471 | Academic | Trainer | Industrial Trainer | Process Control Tech Trainer |
+| 472 | Construction | Health, Safety & Environment | HSE | Deputy Manager – EHS |
+| 473 | IT & Technology | IT & Technology | IT Support & Operations | Computer Analyst |
+| 474 | Healthcare | Medical | Surgery | Doctorate – Surgeon |
+| 475 | Healthcare | Administration | Healthcare Admin | Health Facilities Surveyor |
+| 476 | Healthcare | Nursing | Mental Health Nursing | Mental Health Nurse |
+| 477 | Healthcare | Allied Health | Alternative Medicine | Natural Therapy Specialist |
+| 478 | Healthcare | Allied Health | Nutrition & Dietetics | Nutrition Assistant |
+| 479 | Healthcare | Pharmacy | Pharmacy Support | Pharmacy Technician |
+| 480 | Healthcare | Medical | Surgery | Physician / Surgeon |
+| 481 | Healthcare | Medical | Psychiatry | Psychiatrist |
+| 482 | Healthcare | Veterinary | Animal Health | Veterinary Technologist |
+| 483 | IT & Technology | IT & Technology | Developer | Computer Programmer |
+| 484 | Healthcare | Allied Health | Physiotherapy | Doctorate – Physiotherapy |
+| 485 | Healthcare | Medical | General Practice | Family Physician |
+| 486 | Healthcare | Administration | Healthcare Admin | Health Services Manager |
+| 487 | Healthcare | Nursing | Midwifery | Midwife |
+| 488 | Healthcare | Allied Health | Alternative Medicine | Naturopath |
+| 489 | Healthcare | Allied Health | Nutrition & Dietetics | Nutritionist |
+| 490 | Healthcare | Allied Health | Mental Health | Psychologist |
+| 491 | Healthcare | Veterinary | Animal Health | Veterinary Technician |
+| 492 | Hospitality & Catering | Transport & Logistics | Driver | Driver |
+| 493 | Hospitality & Catering | Food & Beverage | Chef / Cook | Meat Chef (Rotisseur / Roast Chef) |
+| 494 | Hospitality & Catering | Housekeeping | Cleaning & Sanitation | Cleaner |
+| 495 | Aviation & Aerospace | Engineering | Aircraft Maintenance | Aircraft Specialist |
+| 496 | Industrial Products & Heavy Machinery | Engineering | Project Management | Senior Project / Site Engineer |
+| 497 | Construction | Sales & Business Development | Sales | Architecture Sales Executive / Manager |
+| 498 | Chemical / Fertilizers / Plastic / Rubber / Glass | Engineering | Chemical Engineering | Chemical Project Manager |
+| 499 | Industrial Products & Heavy Machinery | Health, Safety & Environment | HSE | Corporate HSE Manager |
+| 500 | Industrial Products & Heavy Machinery | Engineering | Electrical | Electrical Design Engineer |
+| 501 | Industrial Products & Heavy Machinery | Engineering | Electronics | Electronic Engineer |
+| 502 | Energy & Utilities | Engineering | Energy Management | Energy Projects Coordinator |
+| 503 | Industrial Products & Heavy Machinery | Engineering | Cost Engineering | Estimation Engineer |
+| 504 | Industrial Products & Heavy Machinery | Engineering | MEP | HVAC Manager |
+| 505 | Industrial Products & Heavy Machinery | Engineering | Instrumentation & Control | Instrument Control Engineer |
+| 506 | Industrial Products & Heavy Machinery | Engineering | Mechanical | Mechanical Coordinator |
+| 507 | Industrial Products & Heavy Machinery | Engineering | MEP | MEP Foreman |
+| 508 | Oil & Gas | Engineering | Piping | Piping Draftsman |
+| 509 | Industrial Products & Heavy Machinery | Engineering | Production Engineering | Production Project Manager |
+| 510 | Industrial Products & Heavy Machinery | Quality & Inspection | QA / QC | Quality Fabrication Engineer |
+| 511 | Mining | Engineering | Mining Engineering | Senior Mining Engineer |
+| 512 | Industrial Products & Heavy Machinery | Quality & Inspection | Inspection | Civil Inspector |
+| 513 | Industrial Products & Heavy Machinery | Health, Safety & Environment | HSE | Deputy Manager – Safety |
+| 514 | Healthcare | Medical | Gynaecology & Obstetrics | Gynaecology / Obstetrics Specialist |
+| 515 | Healthcare | Administration | Healthcare Admin | Healthcare Administrator |
+| 516 | Healthcare | Laboratory | Lab Support | Laboratory Animal Technician |
+| 517 | Healthcare | Allied Health | Medical Imaging | Medical Imaging Technologist |
+| 518 | Healthcare | Nursing | Nursing Education | Nurse Educator & Researcher |
+| 519 | Healthcare | Allied Health | Therapy | Occupational Therapist |
+| 520 | Healthcare | Allied Health | Mental Health | Psychotherapist / Counselor |
+| 521 | Courier / Transportation / Freight | Transport & Logistics | Driver | Salesman cum Driver |
+| 522 | Construction | Operations | Heavy Equipment | Crane Operator |
+| 523 | IT & Technology | IT & Technology | Cloud & Infrastructure | Network Engineer |
+| 524 | IT & Technology | IT & Technology | Developer | Programmer |
+| 525 | IT & Technology | IT & Technology | Developer | Programmer Analyst |
+| 526 | IT & Technology | IT & Technology | Cloud & Infrastructure | Senior Network Engineer |
+| 527 | IT & Technology | IT & Technology | Developer | Web Developer |
+| 528 | IT & Technology | IT & Technology | Cloud & Infrastructure | Operation Technology Network Specialist |
+| 529 | IT & Technology | IT & Technology | Developer | Programmer Analyst |
+| 530 | IT & Technology | IT & Technology | Developer | SAP ABAP Consultant |
+| 531 | IT & Technology | IT & Technology | Cloud & Infrastructure | Senior Network System Administrator |
+| 532 | IT & Technology | IT & Technology | IT Support & Operations | Other IT Support Service Staff |
+| 533 | IT & Technology | IT & Technology | Developer | SAP ABAP Consultant |
+| 534 | IT & Technology | IT & Technology | Developer | SAP Engineering Consultant |
+| 535 | Telecommunications | IT & Technology | Cloud & Infrastructure | Telecommunications Specialist |
+| 536 | IT & Technology | IT & Technology | IT Support & Operations | PC Lead Technician |
+| 537 | IT & Technology | IT & Technology | Developer | SAP Engineering Consultant |
+| 538 | IT & Technology | IT & Technology | Developer | SAP FICO Consultant |
+| 539 | Manufacturing | Marketing & Communications | Advertising | Advertising Account Planning Manager |
+| 540 | Manufacturing | Accounting & Finance | Finance | Associate General Manager – Finance |
+| 541 | Manufacturing | Accounting & Finance | Audit & Tax | Audit Coordinator |
+| 542 | Manufacturing | Administration | Admin & Office Management | Back Office Executive |
+| 543 | Manufacturing | Administration | Admin & Office Management | Back Office Operator |
+| 544 | Manufacturing | Sales & Business Development | Business Development | BD Coordinator |
+| 545 | Insurance & Financial Services | Accounting & Finance | Insurance | Insurance Analyst – Life Insurance |
+| 546 | Manufacturing | Marketing & Communications | Market Research | Market Research Executive |
+| 547 | Manufacturing | Marketing & Communications | Media | Media Coordinator |
+| 548 | Manufacturing | Transport & Logistics | Driver | Heavy Driver (Truck / Lorry) |
+| 549 | Manufacturing | Operations | Heavy Equipment | Concrete Pump Operator |
+| 550 | Manufacturing | Engineering | Technical Writing | Specification Writer |
+| 551 | Aviation & Aerospace | Operations | Aviation Management | Assistant Aviation Officer |
+| 552 | Manufacturing | Engineering | Chemical Engineering | Chemical Specialist |
+| 553 | Manufacturing | Engineering | Civil & Architecture | Civil Architecture Engineer |
+| 554 | Manufacturing | Health, Safety & Environment | HSE | Deputy Manager – EHS |
+| 555 | Manufacturing | Engineering | Electrical | Electrical Draftsman |
+| 556 | Manufacturing | Engineering | Instrumentation & Control | Electronic Instrument Engineer |
+| 557 | Energy & Utilities | Engineering | Energy Management | Energy Specialist |
+| 558 | Manufacturing | Engineering | Production Engineering | Factory Engineer |
+| 559 | Manufacturing | Engineering | MEP | HVAC Mechanical Engineer |
+| 560 | Manufacturing | Engineering | Instrumentation & Control | Instrument Design Engineer |
+| 561 | Mining | Engineering | Mining Engineering | Junior Mining Engineer |
+| 562 | Manufacturing | Engineering | Mechanical | Mechanical Design Engineer |
+| 563 | Construction | Engineering | MEP | MEP Head |
+| 564 | Oil & Gas | Engineering | Piping | Piping Draughtsman |
+| 565 | Manufacturing | Engineering | Production Engineering | Production Specialist |
+| 566 | Manufacturing | Quality & Inspection | QA / QC | Quality Site Engineer |
+| 567 | Manufacturing | IT & Technology | IT Support & Operations | PC Specialist |
+| 568 | Manufacturing | IT & Technology | Developer | SAP FICO Consultant |
+| 569 | Manufacturing | IT & Technology | Developer | SAP Functional Consultant |
+| 570 | Manufacturing | IT & Technology | IT Support & Operations | Webmaster |
+| 571 | Manufacturing | Quality & Inspection | Inspection | Coating & Painting Inspector |
+| 572 | Manufacturing | Operations | Carpentry | Finishing Carpenter |
+| 573 | Manufacturing | Operations | Masonry | Mason – Marble / Granite Fixer |
+| 574 | Manufacturing | Manufacturing | Fabrication | Fabricator – HDPE |
+| 575 | Manufacturing | Operations | Painting | Furniture Painter |
+| 576 | Manufacturing | Operations | Plumbing | Plumber – Mechanical Fitter |
+| 577 | Manufacturing | Manufacturing | Welding | Plastic Welder |
+| 578 | Manufacturing | Operations | Plant Operations | DCS / Panel Operator |
+| 579 | Manufacturing | Operations | Plant Operations | Hydraulic Test Operator |
+| 580 | Academic | Trainer | Industrial Trainer | Process Trainer |
+| 581 | Oil & Gas | Health, Safety & Environment | HSE | Drilling HSE Advisor |
+| 582 | Media & Creative | IT & Technology | Developer | SAP Functional Consultant |
+| 583 | Media & Creative | IT & Technology | Developer | SAP HCM Consultant |
+| 584 | Media & Creative | IT & Technology | Cloud & Infrastructure | Senior Network Architect |
+| 585 | Healthcare | Administration | Healthcare Admin | Healthcare Management Specialist |
+| 586 | Healthcare | Administration | Healthcare Admin | MBA – Medical Management |
+| 587 | Healthcare | Laboratory | Lab Support | Medical Laboratory Technician |
+| 588 | Healthcare | Nursing | Nursing Management | Nurse Manager |
+| 589 | Healthcare | Allied Health | Physiotherapy | Physiotherapist |
+| 590 | Construction | Maintenance & Facilities | BMS / HVAC / Fire | Auto Electrician Technician |
+| 591 | Construction | Maintenance & Facilities | Instrumentation & Control | Electrical Technician |
+| 592 | Mining | Transport & Logistics | Driver | Van Driver |
+| 593 | Mining | Operations | Heavy Equipment | Bulldozer Operator |
+| 594 | Oil & Gas | Engineering | Design & Drafting | 3D Mechanical Design |
+| 595 | Oil & Gas | Engineering | Acoustic Engineering | Acoustic Engineer |
+| 596 | Oil & Gas | Manufacturing | Fabrication | Aluminium Fabricator |
+| 597 | Oil & Gas | Marine & Offshore | Asset & Marine Planning | Asset & Marine Planner |
+| 598 | Oil & Gas | Maintenance & Facilities | Asset Maintenance | Asset Maintenance Technician |
+| 599 | Oil & Gas | Operations | Asset Management | Asset Manager |
+| 600 | Oil & Gas | Operations | Drilling | Assistant Driller |
+| 601 | Oil & Gas | Engineering | Design & Drafting | AutoCAD Draughtsman |
+| 602 | Oil & Gas | Operations | Drilling | BOP Maintenance Technician |
+| 603 | Hospitality & Catering | Food & Beverage | Catering | Catering – General |
+| 604 | Oil & Gas | Operations | Chemical Operations | Chemical Plant Operator |
+| 605 | Oil & Gas | Operations | Well Services | Coiled Tubing Personnel |
+| 606 | Oil & Gas | Operations | Control Room | Control Room Operator |
+| 607 | Oil & Gas | Maintenance & Facilities | Lifting & Rigging | Crane Health Check Specialist |
+| 608 | Oil & Gas | Operations | Drilling | Derrickman |
+| 609 | Oil & Gas | Operations | Carpentry | Gypsum Carpenter |
+| 610 | Oil & Gas | Operations | Masonry | Mason – Refractory |
+| 611 | Oil & Gas | Operations | Painting | Industrial Painter |
+| 612 | Oil & Gas | Operations | Plumbing | Pipe Fitter / Plumber |
+| 613 | Oil & Gas | Marketing & Communications | Advertising | Advertising Group Account Manager |
+| 614 | Oil & Gas | Accounting & Finance | Audit & Tax | Audit Trainee |
+| 615 | Oil & Gas | Administration | Admin & Office Management | Back Office Incharge |
+| 616 | Oil & Gas | Accounting & Finance | Finance | Bad Debts / Workouts Manager |
+| 617 | Oil & Gas | Sales & Business Development | Business Development | BD Director |
+| 618 | Oil & Gas | Administration | Admin & Office Management | Data Entry Operator |
+| 619 | Insurance & Financial Services | Sales & Business Development | Insurance | Insurance Associate |
+| 620 | Oil & Gas | Marketing & Communications | Market Research | Market Research Field Executive |
+| 621 | Oil & Gas | Marketing & Communications | Media | Media Planning Manager |
+| 622 | Oil & Gas | Maintenance & Facilities | BMS / HVAC / Fire | Biomedical Equipment Technician |
+| 623 | Oil & Gas | Maintenance & Facilities | Instrumentation & Control | Instrument Technician – Construction |
+| 624 | Aviation & Aerospace | Engineering | Aviation Engineering | Aviation Engineer |
+| 625 | Oil & Gas | Operations | Chemical Operations | Chemical Superintendent |
+| 626 | Construction | Engineering | Civil | Civil Audio/Visual Specialist |
+| 627 | Oil & Gas | Health, Safety & Environment | HSE | Deputy Manager – Safety |
+| 628 | Oil & Gas | Engineering | Design & Drafting | Draftsman / Draughtsman |
+| 629 | Oil & Gas | Engineering | Electrical | Electrical Draughtsman |
+| 630 | Oil & Gas | Engineering | Electronics | Electronic Maintenance Engineer |
+| 631 | Energy & Utilities | Engineering | Energy Management | Evaluation Energy Engineer |
+| 632 | Manufacturing | Operations | Production Management | Factory Manager |
+| 633 | Oil & Gas | Engineering | MEP | HVAC Operation Engineer |
+| 634 | Oil & Gas | Engineering | Instrumentation & Control | Instrument Engineer |
+| 635 | Oil & Gas | Engineering | Mechanical | Mechanical Draftsman |
+| 636 | Oil & Gas | Engineering | MEP | MEP Maintenance Engineer |
+| 637 | Mining | Engineering | Mining Engineering | Mining Engineer |
+| 638 | Oil & Gas | Engineering | Piping | Piping Engineer |
+| 639 | Oil & Gas | Engineering | Production Engineering | Production Support Engineer |
+| 640 | Oil & Gas | Quality & Inspection | Welding QA | Quality Welding Engineer |
+| 641 | IT & Technology | IT & Technology | Developer | SAP HCM Consultant |
+| 642 | IT & Technology | IT & Technology | Developer | SAP HR Consultant |
+| 643 | IT & Technology | IT & Technology | Cloud & Infrastructure | Senior Network Engineer |
+| 645 | Oil & Gas | Transport & Logistics | Driver | Bus Driver |
+| 646 | Oil & Gas | Manufacturing | Fabrication | Fabricator – Outfitter / Aluminium |
+| 647 | Oil & Gas | Operations | Heavy Equipment | Boom Truck Operator |
+| 648 | Oil & Gas | Operations | Plant Operations | DCS / Field Lead Operator |
+| 649 | Oil & Gas | Manufacturing | CNC Operations | Machine Operator |
+| 650 | Oil & Gas | Manufacturing | Welding | Steel Welder |
+| 651 | Academic | Trainer | Industrial Trainer | Safety Trainer |
+| 652 | Oil & Gas | Health, Safety & Environment | HSE | EHS Advisor |
+| 653 | Healthcare | Allied Health | Clinical Support | Healthcare Specialist |
+| 654 | Healthcare | Research & Science | Medical Research | Medical Research Scientist |
+| 655 | Healthcare | Nursing | Advanced Nursing | Nurse Practitioner |
+| 656 | Healthcare | Allied Health | Optometry | Optometrist |
+| 657 | Healthcare | Allied Health | Respiratory Therapy | Respiratory / Inhalation Therapist |
+| 658 | Hospitality & Catering | Front Office & Guest Services | Front Office | Front Office Manager |
+| 659 | Hospitality & Catering | Food & Beverage | Chef / Cook | Pantry Chef (Garde Manger) |
+| 660 | Hospitality & Catering | Food & Beverage | QSR & Fast Food | Food Inspector |
+| 661 | Healthcare | Administration | Healthcare Admin | Hospital Administration |
+| 662 | Healthcare | Medical | Surgery | Physician / Surgeon |
+| 663 | Healthcare | Nursing | General Nursing | Registered Nurse (RN) |
+| 664 | Healthcare | Research & Science | Medical Research | Research Assistant |
+| 665 | Healthcare | Allied Health | Therapy | Therapist |
+| 666 | Oil & Gas | Operations | Plant Operations | DCS Panel Operator |
+| 667 | Oil & Gas | Manufacturing | Production | Packing Machine Operator ||
+| 668 | Oil & Gas | Operations | Carpentry | Marine Carpenter |
+| 669 | Oil & Gas | Operations | Masonry | Mason – Tile Fixer |
+| 670 | Oil & Gas | Operations | Painting | Painter |
+| 671 | Oil & Gas | Operations | Plumbing | Sanitary Ware Fitter |
+| 672 | Oil & Gas | Maintenance & Facilities | BMS / HVAC / Fire | BMS Technician |
+| 673 | Oil & Gas | Maintenance & Facilities | Instrumentation & Control | Instrument Technician – Maintenance |
+| 674 | Aviation & Aerospace | Health, Safety & Environment | HSE | Aviation Fire Fighter |
+| 675 | Oil & Gas | Engineering | Chemical Engineering | Chemical Technician |
+| 676 | Oil & Gas | Engineering | Civil | Civil CAD Specialist |
+| 677 | Oil & Gas | Health, Safety & Environment | HSE | EHS Advisor |
+| 678 | Oil & Gas | Engineering | Electrical | Electrical Engineer |
+| 679 | Oil & Gas | Engineering | Electronics | Electronic Service Engineer |
+| 680 | Energy & Utilities | Operations | Renewable Energy | Field Solar Consultant |
+| 681 | Oil & Gas | Operations | Production | Floor Supervisor |
+| 682 | Oil & Gas | Engineering | MEP | HVAC Project Engineer |
+| 683 | Construction | Engineering | Architecture | Industrial Architect |
+| 684 | Oil & Gas | Engineering | Instrumentation & Control | Instrument Incharge |
+| 685 | Oil & Gas | Engineering | Mechanical | Mechanical Draughtsman |
+| 686 | Oil & Gas | Engineering | MEP | MEP Manager |
+| 687 | Mining | Engineering | Mining Engineering | Mining Engineer |
+| 688 | Oil & Gas | Engineering | Piping | Piping Field Engineer |
+| 689 | Oil & Gas | Engineering | Asset Integrity | Reliability Engineer |
+| 690 | Oil & Gas | Engineering | Production Engineering | Senior Production Engineer |
+| 691 | IT & Technology | IT & Technology | Developer | SAP HR Consultant |
+| 692 | IT & Technology | IT & Technology | Developer | Senior Applications Engineer |
+| 693 | IT & Technology | IT & Technology | IT Support & Operations | Senior Support Specialist |
+| 694 | Oil & Gas | Quality & Inspection | Welding Inspection | CWI Inspector |
+| 695 | Oil & Gas | Manufacturing | Fabrication | Fabricator – Outfitter / Structural |
+| 696 | Oil & Gas | Manufacturing | Welding | Structural Welder |
+| 697 | Oil & Gas | Health, Safety & Environment | HSE | EHS Consultant |
+| 698 | Academic | Trainer | Industrial Trainer | Senior Process Trainer |
+| 699 | Oil & Gas | Engineering | Design & Drafting | 3D Modeling |
+| 700 | Oil & Gas | Manufacturing | Fabrication | Aluminium Fitter |
+| 701 | Oil & Gas | Engineering | Geology | Applied Geology |
+| 702 | Oil & Gas | Marine & Offshore | Deck Operations | Ballast Control Operator |
+| 703 | Oil & Gas | Marine & Offshore | Barge Operations | Barge Engineer |
+| 704 | Oil & Gas | Accounting & Finance | Accounts | Bookkeeper |
+| 705 | Oil & Gas | Health, Safety & Environment | HSE | BOSIET Certified – Emergency Response |
+| 706 | Oil & Gas | Maintenance & Facilities | General Maintenance | Building Maintenance Technician |
+| 707 | Oil & Gas | Engineering | Design & Drafting | CAD / CAM Operator |
+| 708 | Oil & Gas | Operations | Well Services | Cement Supervisor |
+| 709 | Oil & Gas | Operations | Chemical Operations | Chemical Process Technician |
+| 710 | Oil & Gas | Maintenance & Facilities | Mechanical | Diesel Mechanic |
+| 711 | Oil & Gas | Engineering | Design & Drafting | Draughtsman |
+| 712 | Oil & Gas | Health, Safety & Environment | HSE | Emergency Response Supervisor / Foreman |
+| 713 | Oil & Gas | Operations | Well Services | Fracturing Specialist |
+| 714 | Oil & Gas | Transport & Logistics | Driver | Ambulance Driver |
+| 715 | Oil & Gas | Operations | Heavy Equipment | Backhoe Operator |
+| 716 | Oil & Gas | Operations | Well Services | Acid Engineer |
+| 717 | Oil & Gas | Engineering | Research & Science | Application Scientist |
+| 718 | Oil & Gas | Marine & Offshore | Barge Operations | Barge Master |
+| 719 | Oil & Gas | Operations | Painting | Blasting & Painting Technician |
+| 720 | Oil & Gas | Administration | Business Analysis | Business Analyst |
+| 721 | Oil & Gas | Engineering | Design & Drafting | CAD / CAM Specialist |
+| 722 | Oil & Gas | Operations | Drilling | Casing Crew |
+| 723 | Oil & Gas | Operations | Drilling | Casing Floorhand |
+| 724 | Oil & Gas | Operations | Well Services | Cementing Manager |
+| 725 | Oil & Gas | Engineering | Corrosion | Chemical Corrosion Engineer |
+| 726 | Oil & Gas | Operations | Control Room | Control Room Supervisor |
+| 727 | Oil & Gas | Operations | Drilling | Directional Driller |
+| 728 | Oil & Gas | Operations | Drilling | Dynamic Pressure Management (MPD / UBD) |
+| 729 | Oil & Gas | Health, Safety & Environment | Environmental | Environmental Engineer |
+| 730 | Oil & Gas | Operations | Gas Plant | Gas Plant Operator |
+| 731 | Oil & Gas | Laboratory & Quality | Chemical Analysis | Analytical Chemist |
+| 732 | Oil & Gas | Engineering | Geology | Applied Geology |
+| 733 | Oil & Gas | Sales & Business Development | Business Development | Business Development Executive |
+| 734 | Oil & Gas | Marine & Offshore | Vessel Command | Captain / Master |
+| 735 | Oil & Gas | Operations | Drilling | Casing Operator |
+| 736 | Oil & Gas | Engineering | Chemical Engineering | Chemical Engineer |
+| 737 | Oil & Gas | Operations | Well Services | Coil Tubing Supervisor |
+| 738 | Oil & Gas | Maintenance & Facilities | Mechanical | Corrective Maintenance Technician |
+| 739 | Oil & Gas | Operations | Well Services | Crew Chief |
+| 740 | Oil & Gas | Marine & Offshore | Deck Operations | Docking Seaman |
+| 741 | Oil & Gas | Maintenance & Facilities | Electrical | Electrician |
+| 742 | Oil & Gas | Engineering | Instrumentation & Control | Field Comm / SCADA Engineer |
+| 743 | Oil & Gas | Health, Safety & Environment | Fire Protection | Fire Protection Engineer |
+| 744 | Oil & Gas | Operations | Gas Plant | Gas Plant Operations Technician |
+| 745 | Oil & Gas | Operations | Production | Production Operator |
+| 746 | Oil & Gas | Marketing & Communications | Advertising & PR | Advertising / PR / Events / Media Planning |
+| 747 | Oil & Gas | Administration | Admin & Office Management | Back Office Staff |
+| 748 | Banking & Finance | Sales & Business Development | Bancassurance | Bancassurance Manager |
+| 749 | Oil & Gas | Sales & Business Development | Business Development | BD Executive |
+| 750 | Oil & Gas | Accounting & Finance | Accounts | Bookkeeper |
+| 751 | Oil & Gas | Human Resources | HR Management | Deputy HR Manager |
+| 752 | Insurance & Financial Services | Sales & Business Development | Insurance | Insurance Care Consultant |
+| 753 | Oil & Gas | Marketing & Communications | Market Research | Market Research Group Account Manager |
+| 754 | Oil & Gas | Marketing & Communications | Media | Media Planning Executive / Officer |
+| 755 | Oil & Gas | Maintenance & Facilities | BMS / HVAC / Fire | Busway Installer Technician |
+| 756 | Oil & Gas | Maintenance & Facilities | Instrumentation & Control | Instrument Technician – Shutdown Specialist |
+| 757 | Oil & Gas | Engineering | Civil | Civil Contract Manager |
+| 758 | Oil & Gas | Health, Safety & Environment | HSE | EHS Consultant |
+| 759 | Oil & Gas | Engineering | Electrical | Electrical Field Engineer |
+| 760 | Oil & Gas | Engineering | Electronics | Electronic Supervisor |
+| 761 | Oil & Gas | Engineering | MEP | HVAC Service Engineer |
+| 762 | Oil & Gas | Engineering | Industrial Engineering | Industrial Engineer |
+| 763 | Energy & Utilities | Trainer | Industrial Trainer | Instructor – Solar Energy |
+| 764 | Oil & Gas | Quality & Inspection | Inspection | Instrument Inspector |
+| 765 | Oil & Gas | Engineering | Architecture | Junior Architect |
+| 766 | Oil & Gas | Engineering | Mechanical | Mechanical Engineer Manager |
+| 767 | Oil & Gas | Engineering | MEP | MEP Operation Engineer |
+| 768 | Mining | Engineering | Mining Engineering | Mining Analyst |
+| 769 | Oil & Gas | Engineering | General | Other Engineer |
+| 770 | Oil & Gas | Engineering | Piping | Piping Foreman |
+| 771 | Oil & Gas | Operations | Plant Operations | Plant Operations Supervisor |
+| 772 | Oil & Gas | Project Management | Planning & Scheduling | Scheduler / Scheduling Engineer |
+| 773 | Oil & Gas | Manufacturing | Welding | Weld Shop Production Engineer |
+| 774 | IT & Technology | IT & Technology | Developer | Senior Applications Engineer |
+| 775 | IT & Technology | IT & Technology | Developer | Senior Programmer |
+| 776 | IT & Technology | IT & Technology | IT Support & Operations | Senior System Administrator |
+| 777 | Oil & Gas | Quality & Inspection | Inspection | E&I Inspector |
+| 778 | Oil & Gas | Operations | Plant Operations | DCS Field Operator |
+| 779 | Oil & Gas | Operations | Plant Operations | MMU Operator |
+| 780 | Oil & Gas | Operations | Carpentry | Shuttering Carpenter |
+| 781 | Oil & Gas | Operations | Masonry | Mason – Block / Brick & Plaster |
+| 782 | Oil & Gas | Manufacturing | Fabrication | Fabricator – Stainless Steel (SS) |
+| 783 | Oil & Gas | Operations | Painting | Painter / Polisher |
+| 784 | Oil & Gas | Operations | General Maintenance | All Rounder Technician |
+| 785 | Oil & Gas | Health, Safety & Environment | HSE | EHS Coordinator |
+| 786 | Oil & Gas | Manufacturing | Welding | TIG & ARC Welder (1G / 2G / 3G / 4G) GTAW SMAW |
+| 787 | Academic | Trainer | Industrial Trainer | Senior Technical Trainer |
+| 788 | Healthcare | Nursing | Renal / Dialysis Nursing | Dialysis Nurse |
+| 789 | Healthcare | Administration | Medical Records | Medical Records Administrator |
+| 790 | Healthcare | Allied Health | Respiratory Therapy | Respiratory Specialist |
+| 791 | Healthcare | Allied Health | Alternative Medicine | Traditional Chinese Medicine (TCM) Practitioner |
+| 792 | Event Management | Administration | Event Planning | In-House Event Planner |
+| 793 | Hospitality & Catering | Food & Beverage | Chef / Cook | Vegetable Chef (Entremetier) |
+| 794 | Construction | Operations | Heavy Equipment | Dozer Operator |
+| 795 | Construction | Health, Safety & Environment | HSE | EHS Manager |
+| 796 | Oil & Gas | Operations | Plant Operations | Field Operator – HCU |
+| 797 | Manufacturing | Operations | Plant Operations | Production Operator (PLC) |
+| 798 | Sales & Marketing | Sales & Business Development | Business Development | BD Representative |
+| 799 | Sales & Marketing | Administration | Business Analysis | Business Analyst |
+| 800 | Accounting & Financial Services | Accounting & Finance | Accounts | Certified Public Accountant (CPA) |
+| 801 | Banking & Finance | Accounting & Finance | Finance | Corporate Finance Executive |
+| 802 | Administration Services | Administration | Admin & Office Management | Data Entry Clerk / Operator |
+| 803 | Administration Services | Administration | Admin & Office Management | Back Office Executive |
+| 804 | Insurance & Financial Services | Sales & Business Development | Insurance | Insurance Executive |
+| 805 | Sales & Marketing | Marketing & Communications | Market Research | Market Research Executive – Qualitative |
+| 806 | Media & Creative | Marketing & Communications | Media Research | Media Research Field Executive |
+| 807 | Facility Management | Maintenance & Facilities | BMS / HVAC / Fire | Fire Alarm Technician |
+| 808 | Manufacturing | Maintenance & Facilities | Instrumentation & Control | Millwright Technician |
+| 809 | Manufacturing | Quality & Inspection | Inspection | Electronic Control Inspector |
+| 810 | Construction | Engineering | Civil | Civil Draughtsman |
+| 811 | Construction | Engineering | Electrical | Electrical Maintenance Engineer |
+| 812 | Construction | Health, Safety & Environment | HSE | EHS Manager |
+| 813 | Oil & Gas | Engineering | Instrumentation & Control | Instrument Site Engineer |
+| 814 | Manufacturing | Procurement & Planning | Supply Chain | Materials Executive |
+| 815 | Manufacturing | Engineering | Mechanical | Mechanical Head |
+| 816 | Construction | Engineering | MEP | MEP Quantity Surveyor |
+| 817 | Mining | Operations | Mining Management | Miner |
+| 818 | Shipping & Marine | Engineering | Naval Architecture | Naval Architect |
+| 819 | Telecommunications | Engineering | Network Planning | Network Planning Engineer |
+| 820 | Oil & Gas | Quality & Inspection | Piping QA | Piping Quality Engineer |
+| 821 | Oil & Gas | Quality & Inspection | Inspection | Process Inspector |
+| 822 | Energy & Utilities | Engineering | Renewable Energy | Project Developer – Solar |
+| 823 | Construction | Engineering | MEP | Senior HVAC Design Engineer |
+| 824 | Construction | Operations | General | Supervisor |
+| 825 | IT & Technology | IT & Technology | Developer | Senior Systems Software Engineer |
+| 826 | IT & Technology | IT & Technology | Developer | Software Architect |
+| 827 | IT & Technology | IT & Technology | IT Support & Operations | Technical Support Specialist |
+| 828 | Oil & Gas | Engineering | Applications Engineering | Application Engineering Manager |
+| 829 | Oil & Gas | Engineering | Geology | Cartography / Geological Mapping |
+| 830 | Construction | Operations | Civil | Civil Foreman / Supervisor |
+| 831 | Oil & Gas | Operations | Well Services | Coiled Tubing Personnel |
+| 832 | Oil & Gas | Operations | Commercial Management | Commercial Manager |
+| 833 | Oil & Gas | Operations | Well Services | Company Representative |
+| 834 | Oil & Gas | Project Management | Cost Control | Cost Control Engineer |
+| 835 | Oil & Gas | Operations | Drilling | Drilling Analyst |
+| 836 | Oil & Gas | Maintenance & Facilities | Drilling Maintenance | Drilling Maintenance Technician |
+| 837 | Oil & Gas | Maintenance & Facilities | Electrical | Electrical Rig Technician |
+| 838 | Oil & Gas | Operations | Well Services | Fishing Specialist (Tool Retrieval) |
+| 839 | Oil & Gas | Operations | Gas Plant | Gas Processing Plant Operator |
+| 840 | Oil & Gas | Operations | General Labour | Helper |
+| 841 | Oil & Gas | Health, Safety & Environment | HSE | Loss Prevention Engineer |
+| 842 | Oil & Gas | Operations | Well Services | Stimulation Engineer |
+| 843 | Construction | Manufacturing | Fabrication | Fabricator – Structural |
+| 844 | Construction | Operations | Painting | Sand Blaster / Painter |
+| 845 | Construction | Manufacturing | Welding | TIG & ARC Welder (5G / 6G) GTAW SMAW |
+| 846 | Power & Utilities | Operations | General Labour | Helper |
+| 847 | Power & Utilities | Operations | General Labour | Helper |
+| 848 | Power & Utilities | Operations | Painting | Painter / Bodywork Repairs |
+| 849 | Power & Utilities | Operations | General Labour | Helper |
+| 850 | Power & Utilities | Maintenance & Facilities | BMS / HVAC / Fire | Cable Jointer Technician |
+| 851 | Power & Utilities | Manufacturing | Production | Machine Operator |
+| 852 | Power & Utilities | Manufacturing | Fabrication | Fabricator – Steel / Structural |
+| 853 | Power & Utilities | Manufacturing | Welding | TIG & ARC Welder (5G / 6G / 6GR) GTAW SMAW |
+| 855 | Power & Utilities | Engineering | Civil | Civil Contractor |
+| 856 | Power & Utilities | Health, Safety & Environment | HSE | EHS Coordinator |
+| 857 | Power & Utilities | Engineering | Electrical | Electrical Foreman |
+| 858 | Telecommunications | Engineering | Communications | Electronics & Communication Engineer |
+| 859 | Power & Utilities | Engineering | MEP | HVAC Site Engineer |
+| 860 | Power & Utilities | Engineering | Instrumentation & Control | Instrument Maintenance Engineer |
+| 861 | Power & Utilities | Procurement & Planning | Supply Chain | Inventory Control Executive |
+| 862 | Facility Management | Operations | Landscaping | Landscape Horticulturist |
+| 863 | Energy & Utilities | Management | Senior Management | Managing Director – Solar |
+| 864 | Power & Utilities | Engineering | Mechanical | Mechanical Engineer Trainee |
+| 865 | Power & Utilities | Engineering | MEP | MEP Planning Engineer |
+| 866 | Mining | Operations | Mining Management | Mine Shift Boss |
+| 867 | Power & Utilities | Operations | General | Other Foreman |
+| 868 | Power & Utilities | Quality & Inspection | Inspection | Piping Inspector |
+| 869 | Power & Utilities | Engineering | Process Engineering | Process Design Engineer |
+| 870 | Power & Utilities | Engineering | Project Management | Senior Project / Site Engineer |
+| 871 | Power & Utilities | Transport & Logistics | Driver | House Driver |
+| 872 | Power & Utilities | Operations | Heavy Equipment | Crane & Hoisting Equipment Operator |
+| 873 | Power & Utilities | Operations | Plant Operations | Field Operator |
+| 874 | Power & Utilities | Operations | Plant Operations | Plant Operator – Water Treatment |
+| 875 | Academic | Trainer | Industrial Trainer | SHEM Trainer |
+| 876 | Hospitality & Catering | Front Office & Guest Services | Front Office | Front Office Receptionist |
+| 877 | Hospitality & Catering | Food & Beverage | Chef / Cook | Pastry Chef (Patissier) |
+| 878 | Hospitality & Catering | Food & Beverage | Restaurant Management | Restaurant Manager |
+| 879 | Hospitality & Catering | Front Office & Guest Services | Front Office | Front Office Supervisor |
+| 880 | Hospitality & Catering | Food & Beverage | Chef / Cook | Sauce Chef (Saucier / Saute Chef) |
+| 881 | Hospitality & Catering | Food & Beverage | QSR & Fast Food | Runner / Trainee / Helper |
+| 882 | Media & Creative | Design & Creative | Art Direction | Art Director |
+| 883 | Real Estate | Sales & Business Development | Business Development | BD Manager |
+| 884 | Real Estate | Accounting & Finance | Accounts | Branch Accounts Head |
+| 885 | Real Estate | Accounting & Finance | Finance | Business Finance Manager |
+| 886 | Real Estate | Accounting & Finance | Finance | CFO & Company Secretary |
+| 887 | Real Estate | Human Resources | HR Management | Director – HR |
+| 888 | Insurance & Financial Services | Operations | Insurance | Insurance Claims Advisor |
+| 889 | Real Estate | Marketing & Communications | Market Research | Market Research Manager |
+| 890 | Media & Creative | Marketing & Communications | Media Production | Media Producer |
+| 891 | IT & Technology | IT & Technology | Developer | Senior Programmer |
+| 892 | IT & Technology | IT & Technology | Developer | Senior Programmer Analyst |
+| 893 | IT & Technology | IT & Technology | IT Support & Operations | Support Specialist |
+| 894 | Research & Development | IT & Technology | Developer | Senior Programmer Analyst |
+| 895 | Research & Development | IT & Technology | Developer | Senior Software Engineer |
+| 896 | Research & Development | IT & Technology | IT Support & Operations | Systems Administrator |
+| 897 | Retail | Engineering | AV Design | Audiovisual Design Engineer |
+| 898 | Retail | Sales & Business Development | Business Development | BD Marketing Manager |
+| 899 | Retail | Accounting & Finance | Finance | Budget Analyst |
+| 900 | Retail | Accounting & Finance | Finance | Chief Finance Officer (CFO) |
+| 901 | Retail | Administration | Admin & Office Management | Company Secretary |
+| 902 | Retail | Transport & Logistics | Dispatch | Dispatch Incharge |
+| 903 | Insurance & Financial Services | Sales & Business Development | Insurance | Insurance Consultant |
+| 904 | Retail | Marketing & Communications | Market Research | Market Research Project Director |
+| 905 | Retail | Marketing & Communications | Media | Media Relationship Manager |
+| 906 | IT & Technology | IT & Technology | Developer | Senior Software Engineer |
+| 907 | IT & Technology | IT & Technology | Developer | Senior System Architect |
+| 908 | IT & Technology | IT & Technology | IT Support & Operations | Technical Specialist |
+| 909 | IT & Technology | IT & Technology | Developer | Senior System Architect |
+| 910 | IT & Technology | IT & Technology | Developer | Senior System Designer |
+| 911 | IT & Technology | IT & Technology | IT Support & Operations | Technical Support |
+| 912 | Hospitality & Catering | Housekeeping | Cleaning & Sanitation | Housekeeping Attendant |
+| 913 | Hospitality & Catering | Food & Beverage | Chef / Cook | Senior Chef (Chef de Partie / Station Chef) |
+| 914 | Hospitality & Catering | Food & Beverage | Chef / Cook | Sous Chef |
+| 915 | Courier / Transportation / Freight | Transport & Logistics | Driver | Delivery – Bike Rider (2 Wheeler) |
+| 916 | Construction | Operations | Heavy Equipment | Common Dump Truck Operator |
+| 917 | Shipping & Marine | Human Resources | HR Management | Human Resource Manager |
+| 918 | Healthcare | Allied Health | Clinical Support | Personal Care Labourer / Ward Boy |
+| 919 | Healthcare | Allied Health | Podiatry | Podiatrist |
+| 920 | Healthcare | Research & Science | Medical Research | Research Officer |
+| 921 | Healthcare | Allied Health | Therapy | Therapy Assistant |
+| 922 | Shipping & Marine | Operations | Painting | Painter Blaster |
+| 923 | Shipping & Marine | Health, Safety & Environment | HSE | EHS Executive |
+| 924 | Academic | Trainer | Commercial Trainer | Training Coordinator |
+| 925 | Oil & Gas | Laboratory & Quality | Chemical Analysis | Analyser Engineer |
+| 926 | Oil & Gas | Engineering | Geology | Basin Analysis Geologist |
+| 927 | Oil & Gas | Operations | Camp Management | Camp Boss |
+| 928 | Oil & Gas | Operations | Well Services | CDS Technician |
+| 929 | Construction | Engineering | Civil | Civil Engineer |
+| 930 | Oil & Gas | Operations | Well Services | Coiled Tubing Equipment Operator |
+| 931 | Oil & Gas | Commissioning & Pre-Commissioning | Commissioning Management | Commissioning Manager – High Integration Equipment |
+| 932 | Oil & Gas | Engineering | Corrosion | Corrosion Engineer |
+| 933 | Oil & Gas | Operations | Drilling | Driller |
+| 934 | Oil & Gas | Maintenance & Facilities | Electrical | Electrical Rig Maintenance Technician |
+| 935 | Oil & Gas | Maintenance & Facilities | Field Services | Field Service Technician |
+| 936 | Oil & Gas | Operations | Gas Plant | Gas Plant Process Operator |
+| 937 | Oil & Gas | Operations | Heavy Equipment | Heavy Machinery Operator |
+| 938 | Oil & Gas | Health, Safety & Environment | HSE | Loss Control Foreman / Supervisor |
+| 939 | Oil & Gas | Engineering | Production Engineering | Production Technologist |
+| 940 | Shipping & Marine | Sales & Business Development | Business Development | BD Office Executive |
+| 941 | Shipping & Marine | Sales & Business Development | Business Development | Business Alliances Manager |
+| 942 | Shipping & Marine | Accounting & Finance | Accounts | Cashier |
+| 943 | Shipping & Marine | Accounting & Finance | Finance | Commercial Finance Manager |
+| 944 | Shipping & Marine | Administration | Admin & Office Management | Company Secretary Trainee |
+| 945 | Shipping & Marine | Human Resources | HR Management | Employee Relations Manager |
+| 946 | Insurance & Financial Services | Operations | Insurance | Insurance Coordinator |
+| 947 | Shipping & Marine | Marketing & Communications | Market Research | Market Research Associate |
+| 948 | Shipping & Marine | Marketing & Communications | Media | Media Research Executive / Officer |
+| 949 | Shipping & Marine | Maintenance & Facilities | BMS / HVAC / Fire | Chiller Technician |
+| 950 | Shipping & Marine | Maintenance & Facilities | Mechanical | Mechanical Commissioning Technician |
+| 951 | Shipping & Marine | Engineering | Civil | Civil Design Engineer |
+| 952 | Shipping & Marine | Health, Safety & Environment | HSE | EHS Engineer |
+| 953 | Shipping & Marine | Engineering | Electrical | Electrical General Manager |
+| 954 | Shipping & Marine | Engineering | Electronics | Electronics Design Engineer |
+| 955 | Shipping & Marine | Engineering | MEP | HVAC Supervisor |
+| 956 | Shipping & Marine | Engineering | Instrumentation & Control | Instrument Project Engineer |
+| 957 | Shipping & Marine | Procurement & Planning | Supply Chain | Inventory Control Officer |
+| 958 | Construction | Engineering | Surveying | Land Surveyor |
+| 959 | Shipping & Marine | Engineering | Mechanical | Mechanical Estimator |
+| 960 | Shipping & Marine | Engineering | MEP | MEP Project Engineer |
+| 961 | Mining | Engineering | Mining Engineering | Mining Analyst |
+| 962 | Energy & Utilities | Operations | Renewable Energy | National Solar Lead |
+| 963 | Shipping & Marine | Engineering | Piping | Piping Lead Engineer |
+| 964 | Shipping & Marine | Engineering | Process Engineering | Process Engineer |
+| 965 | Shipping & Marine | Engineering | General | Service Engineer |
+| 966 | IT & Technology | IT & Technology | Developer | Senior System Designer |
+| 967 | IT & Technology | IT & Technology | Developer | Senior Systems Software Engineer |
+| 968 | IT & Technology | IT & Technology | IT Support & Operations | Technical Support Engineer |
+| 969 | Hospitality & Catering | Housekeeping | Housekeeping Management | Housekeeping Supervisor |
+| 970 | Hospitality & Catering | Food & Beverage | Chef / Cook | Sous Chef (Second Chef / Under Chef) |
+| 971 | Hospitality & Catering | Food & Beverage | QSR & Fast Food | Steward / Waiter |
+| 972 | Wastewater Treatment & Environment | Maintenance & Facilities | BMS / HVAC / Fire | Communication Technician |
+| 973 | Wastewater Treatment & Environment | Maintenance & Facilities | Mechanical | Mechanical Maintenance Technician |
+| 974 | Wastewater Treatment & Environment | Operations | Plant Operations | Field Executive |
+| 975 | Wastewater Treatment & Environment | Operations | Plant Operations | Production Operator |
+| 976 | Wastewater Treatment & Environment | Health, Safety & Environment | HSE | EHS Inspector |
+| 977 | Wastewater Treatment & Environment | Engineering | Civil | Civil Draftsman |
+| 978 | Wastewater Treatment & Environment | Health, Safety & Environment | HSE | EHS Executive |
+| 979 | Wastewater Treatment & Environment | Engineering | Electrical | Electrical Head |
+| 980 | Wastewater Treatment & Environment | Engineering | Electronics | Electronics Engineer |
+| 981 | Wastewater Treatment & Environment | Engineering | MEP | HVAC Technician |
+| 982 | Wastewater Treatment & Environment | Quality & Inspection | Inspection | Instrument QC Inspector |
+| 983 | Wastewater Treatment & Environment | Quality & Inspection | QA / QC | Lead Testing Engineer |
+| 984 | Wastewater Treatment & Environment | Administration | General | Management Trainee |
+| 985 | Wastewater Treatment & Environment | Engineering | Mechanical | Mechanical Foreman |
+| 986 | Wastewater Treatment & Environment | Engineering | MEP | MEP Project Manager |
+| 987 | Mining | Operations | Mining Management | Mining Foreman |
+| 988 | Wastewater Treatment & Environment | Engineering | Piping | Piping Principal Engineer |
+| 989 | Energy & Utilities | Engineering | Renewable Energy | Preconstruction Manager – Solar |
+| 990 | Wastewater Treatment & Environment | Operations | Process Operations | Process Foreman |
+| 991 | Wastewater Treatment & Environment | Operations | Plant Operations | Shift Incharge |
+| 992 | Wastewater Treatment & Environment | Quality & Inspection | Inspection | HVAC Inspector |
