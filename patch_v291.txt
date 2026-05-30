@@ -1461,5 +1461,8 @@ function onOpen_v291_addMenuItems() {
       .addToUi();
   } catch(e) {}
 }
+function runSetupTriggers() {
+  setupV291Triggers_();
+}
 
 // END OF FILE — patch_v291.gs
