@@ -176,11 +176,17 @@ function setupV291() {
 // S42 · GEMINI MODEL OVERRIDE + UPGRADED callGemini (FIX H6 + H1)
 // ═══════════════════════════════════════════════════════════════════
 
-// S42.F01 — get effective Gemini model (respects Script Property override)
+// S42.F01 — get effective Gemini model
 function getEffectiveGeminiModel_() {
   var override = PropertiesService.getScriptProperties()
                                   .getProperty('KAI_GEMINI_MODEL_OVERRIDE');
-  return override || (typeof CONFIG !== 'undefined' && CONFIG.defaultModel) || 'gemini-2.0-flash';
+  // Reject deprecated model — force upgrade
+  if (!override || override === 'gemini-2.0-flash' || override === 'gemini-2.5-flash-lite-preview') {
+    PropertiesService.getScriptProperties()
+      .setProperty('KAI_GEMINI_MODEL_OVERRIDE', 'gemini-2.5-flash-lite');
+    return 'gemini-2.5-flash-lite';
+  }
+  return override;
 }
 
 // S42.F02 — security-hardened API key validator
