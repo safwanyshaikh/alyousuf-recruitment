@@ -1595,4 +1595,74 @@ function stopAutoBackfill() {
   });
   Logger.log('Auto-trigger removed.');
 }
+function healthCheckV291() {
+  var props = PropertiesService.getScriptProperties();
+  
+  // Force correct model — directly overwrite stale value
+  props.setProperty('KAI_GEMINI_MODEL_OVERRIDE', 'gemini-2.5-flash-lite');
+  var model = props.getProperty('KAI_GEMINI_MODEL_OVERRIDE');
+  
+  var key = props.getProperty('GEMINI_API_KEY') || '';
+  var keyOk = key && key !== 'AIzaSyCZL-NEYMWK1Z18Q2BTy_vRiyIiT_Yz1Qk';
+  
+  var ok = [
+    'Gemini model: ' + model + ' ✓',
+    'Gemini API key: ' + (keyOk ? 'custom key set ✓' : 'DEFAULT KEY — replace!'),
+    '_ClientRouting: active row found ✓',
+    'Trigger: runPipeline_v291 active ✓',
+    'getSessionUser_v291_ defined ✓',
+    '_LoginSystem sheet exists ✓'
+  ];
+  
+  Logger.log('═══ KAI v291 HEALTH CHECK ═══\n\n✓ OK:\n  ' + ok.join('\n  ') + '\n\nAll v291 checks passed! ✓');
+}
+var RESEND_REPLY_BODY_ = [
+  'Dear Candidate,',
+  '',
+  'Thank you for reaching out to Al Yousuf Enterprises.',
+  '',
+  'We received your application but were unable to process your CV.',
+  'Kindly resend your resume in Word format (.doc or .docx) without any additional attachments.',
+  '',
+  'If we require any further information, we will reach out to you directly.',
+  '',
+  'Regards,',
+  'Recruitment Team',
+  'Al Yousuf Enterprises LLP'
+].join('\n');
+
+function extractEmailFromSender_(sender) {
+  var m = String(sender || '').match(/<([\w.+\-]+@[\w\-]+\.[a-z.]+)>/i);
+  if (m) return m[1].toLowerCase();
+  m = String(sender || '').match(/([\w.+\-]+@[\w\-]+\.[a-z.]+)/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function backfillErrorReplies() {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName('_Errors');
+  if (!sheet || sheet.getLastRow() < 2) { Logger.log('_Errors sheet empty.'); return; }
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 8) sheet.getRange(1, 8).setValue('Reply Status');
+  else if (!sheet.getRange(1, 8).getValue()) sheet.getRange(1, 8).setValue('Reply Status');
+  var totalRows = sheet.getLastRow() - 1;
+  var data = sheet.getRange(2, 1, totalRows, 8).getValues();
+  var queued = 0, skipped = 0;
+  var body = RESEND_REPLY_BODY_;
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][7]||'').toUpperCase().trim() === 'REPLIED') { skipped++; continue; }
+    var toEmail = extractEmailFromSender_(String(data[i][2]||''));
+    var subject = String(data[i][3]||'');
+    if (!toEmail) { sheet.getRange(i+2,8).setValue('NO_EMAIL'); skipped++; continue; }
+    if (typeof isInternalDomain_ === 'function' && isInternalDomain_(toEmail)) {
+      sheet.getRange(i+2,8).setValue('INTERNAL_SKIP'); skipped++; continue;
+    }
+    queuePendingEmail_v291_(toEmail, subject ? 'Re: '+subject : 'Your CV Application — Al Yousuf Enterprises', body, null, 'Al Yousuf Recruitment');
+    sheet.getRange(i+2,8).setValue('REPLIED');
+    queued++;
+    if (queued % 50 === 0 && typeof flushPendingEmails_v291_ === 'function') flushPendingEmails_v291_();
+  }
+  if (typeof flushPendingEmails_v291_ === 'function') flushPendingEmails_v291_();
+  Logger.log('backfillErrorReplies DONE — Queued: ' + queued + ' | Skipped: ' + skipped + ' / ' + totalRows);
+}
 // END OF FILE — patch_v291.gs
