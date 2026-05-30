@@ -1503,5 +1503,96 @@ function computeTop3Positions_(opts) {
 function clearCache() {
   CacheService.getScriptCache().remove('kai_dashboard_v2');
 }
+// ═══════════════════════════════════════════════════════════════════
+//  BACKFILL — Process all unscored CVs from Jan 1 2026 onwards
+//  Run backfillCVs() manually. Re-run until log says "COMPLETE".
+//  Run resetBackfill() to start over from the beginning.
+// ═══════════════════════════════════════════════════════════════════
 
+function backfillCVs() {
+  var BATCH    = 20;   // threads per run (keep low to avoid timeout)
+  var DELAY_MS = 2000; // ms between Gemini calls
+  var props    = PropertiesService.getScriptProperties();
+  var startIdx = parseInt(props.getProperty('bf_idx') || '0');
+
+  // Search all CV emails to ai@ from Jan 1 2026
+  var query   = 'to:ai@alyousufent.com after:2026/01/01';
+  var threads = GmailApp.search(query, startIdx, BATCH);
+
+  if (!threads || threads.length === 0) {
+    Logger.log('✅ BACKFILL COMPLETE — all threads processed from index ' + startIdx);
+    props.deleteProperty('bf_idx');
+    return;
+  }
+
+  var processed = 0, skipped = 0, errors = 0;
+
+  for (var i = 0; i < threads.length; i++) {
+    try {
+      var thread = threads[i];
+      var msgs   = thread.getMessages();
+      if (!msgs || !msgs.length) { skipped++; continue; }
+
+      // Skip if already scored (find candidate by sender email)
+      var from       = msgs[0].getFrom();
+      var emailMatch = from.match(/[\w.+\-]+@[\w\-]+\.[a-z.]+/i);
+      var senderEmail = emailMatch ? emailMatch[0].toLowerCase() : '';
+
+      if (senderEmail && isAlreadyScored_(senderEmail)) {
+        skipped++;
+        Logger.log('SKIP (already scored): ' + senderEmail);
+        continue;
+      }
+
+      Logger.log('Processing thread ' + (startIdx + i + 1) + ': ' + thread.getFirstMessageSubject());
+      processThread_v291_(thread);
+      processed++;
+      Utilities.sleep(DELAY_MS);
+
+    } catch(e) {
+      errors++;
+      Logger.log('ERROR on thread ' + (startIdx + i) + ': ' + e.message);
+    }
+  }
+
+  // Save progress for next run
+  var nextIdx = startIdx + threads.length;
+  if (threads.length === BATCH) {
+    props.setProperty('bf_idx', String(nextIdx));
+    Logger.log('⏩ Batch done [' + startIdx + '→' + nextIdx + '] | Processed: ' + processed + ' | Skipped: ' + skipped + ' | Errors: ' + errors);
+    Logger.log('▶ Run backfillCVs() again to continue.');
+  } else {
+    props.deleteProperty('bf_idx');
+    Logger.log('✅ BACKFILL COMPLETE | Processed: ' + processed + ' | Skipped: ' + skipped + ' | Errors: ' + errors);
+  }
+}
+
+function isAlreadyScored_(email) {
+  try {
+    var rowNum = findCandidateByEmail_v291_(email);
+    if (!rowNum) return false;
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    var score = sheet.getRange(rowNum, 17).getValue(); // col 17 = Score
+    return !!(score && parseInt(score) > 0);
+  } catch(e) { return false; }
+}
+
+function resetBackfill() {
+  PropertiesService.getScriptProperties().deleteProperty('bf_idx');
+  Logger.log('Backfill reset — next run starts from Jan 2026.');
+}
+
+function autoBackfillTrigger() {
+  // Run this to set a trigger that auto-continues every 4 minutes
+  ScriptApp.newTrigger('backfillCVs')
+    .timeBased().everyMinutes(5).create();
+  Logger.log('Auto-trigger set — backfillCVs() will run every 4 minutes until complete.');
+}
+
+function stopAutoBackfill() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'backfillCVs') ScriptApp.deleteTrigger(t);
+  });
+  Logger.log('Auto-trigger removed.');
+}
 // END OF FILE — patch_v291.gs
