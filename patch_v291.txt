@@ -1279,10 +1279,10 @@ function healthCheckV291() {
 
   // 1. Gemini model
   var model = getEffectiveGeminiModel_();
-  if (model === 'gemini-2.5-flash-lite') {
-    issues.push('Model still gemini-2.5-flash-lite — run setupV291() to upgrade');
+  if (model === 'gemini-2.0-flash' || model === 'gemini-2.5-flash-lite-preview') {
+    issues.push('Gemini model is deprecated (' + model + ') — will auto-correct on next run');
   } else {
-    ok.push('Gemini model: ' + model);
+    ok.push('Gemini model: ' + model + ' ✓');
   }
 
   // 2. API key not default
