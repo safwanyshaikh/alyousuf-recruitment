@@ -9,7 +9,7 @@
 var CONFIG = {
   SHEET_ID:        '1dqz_Eq8tGnm6YwWac-vj2imffKW_fBKLoY1ZscD7Wbs',
   SHEET_NAME:      'Gmail_CV_Candidates',
-  DAILY_LIMIT:     80,          // 80/day = safe margin (Gmail limit 500/day)
+  DAILY_LIMIT:     400,         // 400/day — safe within Gmail's 500/day limit
   FROM_NAME:       'Al Yousuf Recruitment',
   REPLY_TO:        'ai@alyousufent.com',
   
