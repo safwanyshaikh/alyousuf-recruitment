@@ -1782,4 +1782,275 @@ function clearCache() {
   CacheService.getScriptCache().remove('kai_dashboard_v2');
   Logger.log('Dashboard cache cleared.');
 }
+// ─── NEW ADDITIONS — paste at bottom ───────────────────────────
+
+function queueResendReply_(toEmail, originalSubject) {
+  if (!toEmail || (typeof isInternalDomain_ === 'function' && isInternalDomain_(toEmail))) return;
+  var subj = originalSubject ? 'Re: ' + originalSubject : 'Your CV Application — Al Yousuf Enterprises';
+  queuePendingEmail_v291_(toEmail, subj, RESEND_REPLY_BODY_, null, 'Al Yousuf Recruitment');
+}
+
+function processThreadWithReply_(thread, circuit) {
+  var result = processThread_v291_(thread, circuit);
+  try { thread.markRead(); } catch(e) {}
+  if (result === 'DUPLICATE') {
+    try {
+      var msgs = thread.getMessages();
+      var msg  = msgs[msgs.length - 1];
+      var att  = (typeof pickBestAttachment_ === 'function') ? pickBestAttachment_(msg) : null;
+      if (att) {
+        var senderEmail = extractEmailFromSender_(msg.getFrom());
+        var rowNum      = senderEmail ? findCandidateByEmail_v291_(senderEmail) : 0;
+        if (rowNum) {
+          Logger.log('Re-engagement: ' + senderEmail + ' row ' + rowNum);
+          return handleReEngagement_(thread, msg, att, senderEmail, rowNum, circuit);
+        }
+      }
+    } catch(e) { Logger.log('processThreadWithReply_: re-engagement failed — ' + e.message); }
+  }
+  if (result === 'ERROR_GEMINI' || result === 'ERROR_SIZE' || result === 'ERROR_NO_CV') {
+    try {
+      var msgs2   = thread.getMessages();
+      var msg2    = msgs2[msgs2.length - 1];
+      var toEmail = extractEmailFromSender_(msg2.getFrom());
+      queueResendReply_(toEmail, msg2.getSubject() || '');
+    } catch(e) { Logger.log('processThreadWithReply_: reply queue failed — ' + e.message); }
+  }
+  return result;
+}
+
+function handleReEngagement_(thread, msg, att, senderEmail, rowNum, circuit) {
+  var cvLink = '', geminiParts = null;
+  var body = msg.getPlainBody() || '', subject = msg.getSubject() || '';
+  try { if (typeof saveCvToDrive_ === 'function') cvLink = saveCvToDrive_(att, senderEmail); } catch(e) {}
+  if (typeof buildGeminiParts_ === 'function')
+    geminiParts = buildGeminiParts_(att, body, senderEmail, subject);
+  else if (typeof buildGeminiPartsWithFallback_ === 'function')
+    geminiParts = buildGeminiPartsWithFallback_(att, body, senderEmail, subject);
+  if (!geminiParts) { Logger.log('Re-engagement: no parseable CV for ' + senderEmail); return 'REENGAGEMENT_NO_CV'; }
+  var parsed = null;
+  try {
+    var rawResp = callGemini_v291_(geminiParts, circuit);
+    var gText   = (typeof extractGeminiText_ === 'function') ? extractGeminiText_(rawResp) : '';
+    var cleaned = (typeof cleanJsonResponse_ === 'function') ? cleanJsonResponse_(gText) : gText;
+    if (gText && gText.length >= 10)
+      parsed = (typeof parseGeminiJson_ === 'function') ? parseGeminiJson_(cleaned) : null;
+  } catch(e) { Logger.log('Re-engagement Gemini error: ' + e.message); }
+  if (!parsed) { Logger.log('Re-engagement: parse failed for ' + senderEmail); return 'REENGAGEMENT_PARSE_FAIL'; }
+  if (typeof normalizeCandidate_ === 'function') normalizeCandidate_(parsed, senderEmail);
+  var rules    = (typeof loadRules_    === 'function') ? loadRules_()    : [];
+  var taxonomy = (typeof loadTaxonomy_ === 'function') ? loadTaxonomy_() : [];
+  var taxResult= (typeof mapCandidateToTaxonomy_ === 'function') ? mapCandidateToTaxonomy_(parsed, taxonomy) : {pts:0};
+  if (taxResult.trade && !parsed.trade) parsed.trade = taxResult.trade;
+  if (taxResult.industry && !parsed.industry) parsed.industry = taxResult.industry;
+  var scored = (typeof scoreCandidate_ === 'function') ? scoreCandidate_(parsed, rules, taxResult) : parsed;
+  if (typeof applyDecisionRules_ === 'function') applyDecisionRules_(scored, rules);
+  updateCandidateRecord_v291_(rowNum, scored, cvLink);
+  appendLog_v291_({ status:'REENGAGED', name:scored.full_name||'', email:senderEmail,
+                    trade:scored.trade||'', notes:'Updated CV | '+scored.verdict+' | Score='+scored.score });
+  try {
+    var doneLabel  = (CONFIG.labels && CONFIG.labels.processed) || 'karigar/processed';
+    var inputLabel = (CONFIG.labels && CONFIG.labels.input)     || 'karigar/cv';
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, doneLabel);
+  } catch(e) {}
+  if (typeof incrementQuota_ === 'function') incrementQuota_('cv');
+  return 'REENGAGED';
+}
+
+function updateCandidateRecord_v291_(rowNum, scored, cvLink) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet || !rowNum) return;
+    var fields = [
+      [7,  scored.education          || ''],
+      [9,  scored.trade              || ''],
+      [11, scored.experience         || ''],
+      [12, scored.gulf_experience || scored.gulfExp || ''],
+      [14, scored.age                || ''],
+      [15, scored.verdict            || ''],
+      [16, scored.flag               || ''],
+      [17, scored.score              || 0],
+      [18, scored.scoreBreakdown     || ''],
+      [19, scored.recommendedRoles   || ''],
+      [20, scored.kaiAssessment || scored.kai_assessment || '']
+    ];
+    if (cvLink) fields.push([22, cvLink]);
+    fields.forEach(function(f) { sheet.getRange(rowNum, f[0]).setValue(f[1]); });
+    try { CacheService.getScriptCache().remove('kai_dashboard_v2'); } catch(e) {}
+  } catch(e) { Logger.log('updateCandidateRecord_v291_: ' + e.message); }
+}
+
+// Updated backfillCVs — uses processThreadWithReply_ (handles re-engagement + replies)
+function backfillCVs() {
+  var BATCH = 75, DELAY_MS = 300;
+  var props    = PropertiesService.getScriptProperties();
+  var startIdx = parseInt(props.getProperty('bf_idx') || '0');
+  props.setProperty('BACKFILL_MODE', 'true');
+  var threads = GmailApp.search('to:ai@alyousufent.com after:2026/01/01', startIdx, BATCH);
+  if (!threads || threads.length === 0) {
+    Logger.log('✅ BACKFILL COMPLETE from index ' + startIdx);
+    props.deleteProperty('bf_idx'); props.deleteProperty('BACKFILL_MODE'); return;
+  }
+  var processed = 0, skipped = 0, errors = 0;
+  var startTime = new Date().getTime();
+  for (var i = 0; i < threads.length; i++) {
+    if (new Date().getTime() - startTime > 300000) { Logger.log('⏱ Time limit — saving progress.'); break; }
+    try {
+      var msgs = threads[i].getMessages();
+      if (!msgs || !msgs.length) { skipped++; continue; }
+      var from = msgs[0].getFrom();
+      var em   = from.match(/[\w.+\-]+@[\w\-]+\.[a-z.]+/i);
+      var se   = em ? em[0].toLowerCase() : '';
+      if (se && isAlreadyScored_(se)) { skipped++; continue; }
+      Logger.log('[' + (startIdx + i + 1) + '] ' + threads[i].getFirstMessageSubject().slice(0, 60));
+      processThreadWithReply_(threads[i]);
+      processed++;
+      Utilities.sleep(DELAY_MS);
+    } catch(e) { errors++; Logger.log('ERR [' + (startIdx+i) + ']: ' + e.message); Utilities.sleep(500); }
+  }
+  var nextIdx = startIdx + processed + skipped;
+  props.setProperty('bf_idx', String(nextIdx));
+  Logger.log('⏩ [' + startIdx + '→' + nextIdx + '] ✅ ' + processed + ' | ⏭ ' + skipped + ' | ❌ ' + errors);
+}
+
+// Updated isAlreadyScored_ — parseFloat handles decimal scores like 90.0
+function isAlreadyScored_(email) {
+  try {
+    var rowNum = findCandidateByEmail_v291_(email);
+    if (!rowNum) return false;
+    var score = getMasterSS_().getSheetByName(CONFIG.sheetName).getRange(rowNum, 17).getValue();
+    return !!(score && parseFloat(score) > 0);
+  } catch(e) { return false; }
+}
+
+// ─── RECRUITER DAILY BRIEFING ─────────────────────────────────────
+
+function sendRecruiterDailyReport() {
+  var tz = 'Asia/Kolkata';
+  var today      = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  var todayLabel = Utilities.formatDate(new Date(), tz, 'd MMM yyyy');
+  var ic         = CONFIG.inputColumns;
+  var sheet      = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var rows       = sheet.getRange(2, 1, sheet.getLastRow()-1, CONFIG.headers.length).getValues();
+  var total = 0, shortlisted = 0, needsReview = 0, trades = {};
+  rows.forEach(function(row) {
+    var ts = row[ic.applicationDate - 1];
+    var ds = ts instanceof Date ? Utilities.formatDate(ts, tz, 'yyyy-MM-dd') : String(ts).slice(0,10);
+    if (ds !== today) return;
+    total++;
+    var v = String(row[ic.verdict - 1] || '').toUpperCase();
+    if (v === 'SHORTLISTED') shortlisted++;
+    else if (v === 'NEEDS_REVIEW' || v === 'NEEDS_CALL') needsReview++;
+    var t = String(row[ic.trade - 1] || '').trim();
+    if (t) trades[t] = (trades[t] || 0) + 1;
+  });
+  var topTrades  = Object.keys(trades).sort(function(a,b){return trades[b]-trades[a];}).slice(0,3);
+  var industry   = buildIndustrySuggestion_(topTrades, trades);
+  var recruiters = getRecruitersForReport_();
+  if (!recruiters.length) recruiters = [{ name:'Team', email: getOwnerEmail_() }];
+  recruiters.forEach(function(rec) {
+    var html = buildRecruiterReportHtml_(rec.name, todayLabel, total, shortlisted, needsReview, topTrades, trades, industry);
+    try {
+      MailApp.sendEmail({ to: rec.email,
+        subject: 'CV Update · ' + todayLabel + ' · ' + total + ' profile' + (total!==1?'s':'') + ' received',
+        htmlBody: html, name: (CONFIG.brand && CONFIG.brand.companyName) || 'Al Yousuf Enterprises' });
+      Logger.log('Report sent → ' + rec.email);
+    } catch(e) { Logger.log('sendRecruiterDailyReport failed for ' + rec.email + ': ' + e.message); }
+  });
+}
+
+function getRecruitersForReport_() {
+  var result = [];
+  try {
+    var sheet = getMasterSS_().getSheetByName('_LoginSystem');
+    if (!sheet || sheet.getLastRow() < 2) return result;
+    sheet.getRange(2, 1, sheet.getLastRow()-1, 8).getValues().forEach(function(r) {
+      var email = String(r[0]||'').trim().toLowerCase();
+      var role  = String(r[2]||'').toLowerCase();
+      var name  = String(r[3]||'Recruiter').trim();
+      if (!email || !email.includes('@')) return;
+      if (role === 'admin' || role === 'owner') return;
+      result.push({ name: name, email: email });
+    });
+  } catch(e) { Logger.log('getRecruitersForReport_: ' + e.message); }
+  return result;
+}
+
+function buildIndustrySuggestion_(topTrades, trades) {
+  var map = {
+    'electrician':'construction & MEP','electrical':'construction & MEP',
+    'plumber':'construction & MEP','plumbing':'construction & MEP',
+    'hvac':'MEP & facilities','ac technician':'MEP & facilities',
+    'welder':'oil & gas / fabrication','welding':'oil & gas / fabrication',
+    'fitter':'oil & gas / fabrication','pipe fitter':'oil & gas / fabrication',
+    'rigger':'oil & gas / offshore','scaffolder':'oil & gas / construction',
+    'operator':'oil & gas / heavy industry','mason':'construction',
+    'steel fixer':'construction','carpenter':'construction & fit-out',
+    'painter':'construction & fit-out','tiler':'construction & fit-out',
+    'driver':'logistics & transport','heavy driver':'logistics & transport',
+    'forklift':'warehouse & logistics','helper':'general contracting'
+  };
+  var industries = {};
+  topTrades.forEach(function(t) {
+    var ind = map[t.toLowerCase().trim()] || '';
+    if (ind) industries[ind] = (industries[ind]||0) + (trades[t]||1);
+  });
+  var sorted = Object.keys(industries).sort(function(a,b){return industries[b]-industries[a];});
+  return sorted.length ? sorted[0] : '';
+}
+
+function buildRecruiterReportHtml_(name, dateLabel, total, shortlisted, needsReview, topTrades, trades, industry) {
+  var firstName = name.split(' ')[0];
+  var msg = total === 0
+    ? 'A quiet day on CVs — good time to follow up on existing shortlists and open clients.'
+    : shortlisted >= 3
+      ? shortlisted + ' strong shortlists came in today. These candidates are actively looking — reach out to matching clients now.'
+      : total + ' new profile' + (total!==1?'s':'') + ' received today. Every CV is a potential placement.';
+  var tradesHtml = topTrades.length
+    ? topTrades.map(function(t){
+        return '<span style="display:inline-block;background:#f3f4f6;color:#374151;padding:4px 12px;border-radius:20px;margin:3px 4px 3px 0;font-size:13px">'
+          +t+' &nbsp;<strong>'+trades[t]+'</strong></span>';
+      }).join('')
+    : '<span style="color:#9ca3af;font-size:13px">None today</span>';
+  var industryHtml = industry
+    ? '<div style="margin:16px 0 0;padding:12px 16px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;font-size:13px;color:#92400e">'
+      +'<strong>Action tip:</strong> Today\'s profiles suit <strong>'+industry+'</strong> clients. '
+      +'If you have open mandates in this space, now is a good time to follow up.</div>'
+    : '';
+  return '<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:540px;margin:0 auto;color:#1d1d1f">'
+    +'<div style="background:#16324f;padding:18px 24px;border-radius:8px 8px 0 0">'
+    +'<p style="margin:0;font-size:10px;color:rgba(255,255,255,0.55);text-transform:uppercase;letter-spacing:1px">Al Yousuf Enterprises</p>'
+    +'<h2 style="margin:4px 0 0;color:#fff;font-size:19px;font-weight:600">Your CV Update &nbsp;&middot;&nbsp; '+dateLabel+'</h2>'
+    +'</div>'
+    +'<div style="padding:22px 24px 18px;background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">'
+    +'<p style="margin:0 0 6px;font-size:15px">Hi '+firstName+',</p>'
+    +'<p style="margin:0 0 20px;font-size:14px;color:#374151;line-height:1.55">'+msg+'</p>'
+    +'<table style="width:100%;border-collapse:separate;border-spacing:6px;margin:0 0 18px"><tr>'
+    +rptStatCell_('#f9fafb','#374151','Total CVs',total)
+    +rptStatCell_('#d1fae5','#065f46','Shortlisted',shortlisted)
+    +rptStatCell_('#fef3c7','#92400e','Needs Review',needsReview)
+    +'</tr></table>'
+    +'<p style="margin:0 0 6px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Top trades today</p>'
+    +'<p style="margin:0 0 4px">'+tradesHtml+'</p>'
+    +industryHtml
+    +'<p style="margin:20px 0 0;font-size:11px;color:#d1d5db;border-top:1px solid #f3f4f6;padding-top:12px">KAI Recruitment OS &nbsp;&middot;&nbsp; Auto-generated &nbsp;&middot;&nbsp; Do not reply</p>'
+    +'</div></div>';
+}
+
+function rptStatCell_(bg, color, label, val) {
+  return '<td style="padding:0"><div style="background:'+bg+';padding:14px 8px;border-radius:8px;text-align:center">'
+    +'<div style="font-size:26px;font-weight:700;color:'+color+'">'+val+'</div>'
+    +'<div style="font-size:11px;color:'+color+';margin-top:3px;opacity:.75">'+label+'</div>'
+    +'</div></td>';
+}
+
+function scheduleRecruiterDailyReport() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'sendRecruiterDailyReport') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendRecruiterDailyReport')
+    .timeBased().atHour(19).nearMinute(0).everyDays(1).create();
+  Logger.log('✅ Recruiter daily report scheduled at 7 PM. Run sendRecruiterDailyReport() to test now.');
+}
 // END OF FILE — patch_v291.gs
