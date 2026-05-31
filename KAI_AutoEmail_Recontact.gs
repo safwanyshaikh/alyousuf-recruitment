@@ -100,63 +100,48 @@ function runDailyRecontactBatch() {
 
 // ── EMAIL CONTENT ────────────────────────────────────────────
 function buildSubject_() {
-  return 'Your CV with Al Yousuf — Update Required for Current Openings';
+  return 'Your Updated CV — Al Yousuf Recruitment';
 }
 
 function buildPlainBody_(firstName) {
+  var greeting = firstName ? 'Hi ' + firstName + ',' : 'Hi,';
   return [
-    'Dear ' + firstName + ',',
+    greeting,
     '',
-    'Thank you for previously submitting your CV to Al Yousuf Manpower Recruitment.',
+    "It's been a while. We received your CV earlier and would appreciate it if you could",
+    'share your latest updated CV (PDF). Please also update your passport details if possible.',
     '',
-    'We currently have several active openings across the Gulf region and your profile',
-    'may be a strong match. However, we need your most up-to-date CV to proceed.',
+    "We're expanding across Saudi Arabia, Dubai, Bahrain, and Malaysia, and would like",
+    'to keep your profile active for future opportunities.',
     '',
-    'Please reply to this email with your latest CV attached (PDF or Word format).',
-    '',
-    'Once received, our KAI screening system will review your profile and our team',
-    'will contact you if there is a suitable match.',
-    '',
-    'Current active sectors:',
-    '  • Oil & Gas (Engineers, Technicians, Safety Officers)',
-    '  • Construction (Civil, Electrical, Mechanical)',
-    '  • HVAC & MEP',
-    '  • Hospitality & Facilities Management',
-    '',
-    'To unsubscribe from future messages, reply with "UNSUBSCRIBE" in the subject.',
+    'Looking forward to your updated CV.',
     '',
     'Best regards,',
-    'KAI Recruitment Team',
-    'Al Yousuf Manpower Recruitment',
+    'Al Yousuf Recruitment Team',
     'Email: ai@alyousufent.com',
+    '',
+    'To unsubscribe, reply with "UNSUBSCRIBE" in the subject.',
   ].join('\n');
 }
 
 function buildHtmlBody_(firstName) {
+  var greeting = firstName ? 'Hi <strong>' + firstName + '</strong>,' : 'Hi,';
   return '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;">'
     + '<div style="background:#1F4E79;padding:20px 30px;">'
-    + '<h2 style="color:#fff;margin:0;font-size:20px;">Al Yousuf Manpower Recruitment</h2>'
-    + '<p style="color:#9DC3E6;margin:4px 0 0;font-size:13px;">KAI Intelligent Screening System</p>'
+    + '<h2 style="color:#fff;margin:0;font-size:20px;">Al Yousuf Recruitment</h2>'
     + '</div>'
     + '<div style="padding:30px;">'
-    + '<p>Dear <strong>' + firstName + '</strong>,</p>'
-    + '<p>Thank you for previously submitting your CV to <strong>Al Yousuf Manpower Recruitment</strong>.</p>'
-    + '<p>We currently have <strong>active openings across the Gulf region</strong> and your profile may be a strong match. '
-    + 'To proceed, we need your <strong>most up-to-date CV</strong>.</p>'
+    + '<p>' + greeting + '</p>'
+    + "<p>It's been a while. We received your CV earlier and would appreciate it if you could share your <strong>latest updated CV (PDF)</strong>. Please also update your passport details if possible.</p>"
     + '<div style="background:#E8F4FF;border-left:4px solid #1F4E79;padding:15px 20px;margin:20px 0;border-radius:4px;">'
-    + '<p style="margin:0;font-weight:bold;">&#128206; Please reply to this email with your latest CV (PDF or Word format)</p>'
+    + '<p style="margin:0;">&#128206; <strong>Simply reply to this email with your updated CV attached.</strong></p>'
     + '</div>'
-    + '<p><strong>Current active sectors:</strong></p>'
-    + '<ul>'
-    + '<li>Oil &amp; Gas — Engineers, Technicians, Safety Officers</li>'
-    + '<li>Construction — Civil, Electrical, Mechanical</li>'
-    + '<li>HVAC &amp; MEP</li>'
-    + '<li>Hospitality &amp; Facilities Management</li>'
-    + '</ul>'
-    + '<p>Once received, our KAI system will screen your profile and our team will contact you if there is a match.</p>'
+    + "<p>We're expanding across <strong>Saudi Arabia, Dubai, Bahrain, and Malaysia</strong>, and would like to keep your profile active for future opportunities.</p>"
+    + '<p>Looking forward to your updated CV.</p>'
     + '<hr style="border:none;border-top:1px solid #eee;margin:25px 0;">'
-    + '<p style="font-size:12px;color:#999;">To unsubscribe, reply with "UNSUBSCRIBE" in the subject line.<br>'
-    + 'Al Yousuf Manpower | ai@alyousufent.com</p>'
+    + '<p style="font-size:13px;"><strong>Al Yousuf Recruitment Team</strong><br>'
+    + '<a href="mailto:ai@alyousufent.com" style="color:#1F4E79;">ai@alyousufent.com</a></p>'
+    + '<p style="font-size:11px;color:#aaa;">To unsubscribe, reply with "UNSUBSCRIBE" in the subject line.</p>'
     + '</div>'
     + '</div>';
 }
