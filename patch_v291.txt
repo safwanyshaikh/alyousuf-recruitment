@@ -1514,6 +1514,9 @@ function queueResendReply_(toEmail, originalSubject) {
 function processThreadWithReply_(thread, circuit) {
   var result = processThread_v291_(thread, circuit);
 
+  // Mark thread as read after any processing so ai@alyousufent.com inbox stays clean
+  try { thread.markRead(); } catch(e) {}
+
   // ── Re-engagement: known candidate replied with updated CV ──
   if (result === 'DUPLICATE') {
     try {
@@ -1803,4 +1806,201 @@ function stopAutoBackfill() {
   });
   PropertiesService.getScriptProperties().deleteProperty('BACKFILL_MODE');
   Logger.log('✅ Auto-trigger stopped. Quota limits restored.');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  RECRUITER DAILY BRIEFING — simple, positive, actionable
+//  sendRecruiterDailyReport()     → run manually or via 7 PM trigger
+//  scheduleRecruiterDailyReport() → sets the daily 7 PM IST trigger
+// ═══════════════════════════════════════════════════════════════════
+
+function sendRecruiterDailyReport() {
+  var tz        = 'Asia/Kolkata';
+  var today     = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  var todayLabel= Utilities.formatDate(new Date(), tz, 'd MMM yyyy');
+  var ic        = CONFIG.inputColumns;
+
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG.headers.length).getValues();
+  var total = 0, shortlisted = 0, needsReview = 0;
+  var trades = {};
+
+  rows.forEach(function(row) {
+    var ts = row[ic.applicationDate - 1];
+    var ds = ts instanceof Date ? Utilities.formatDate(ts, tz, 'yyyy-MM-dd') : String(ts).slice(0, 10);
+    if (ds !== today) return;
+    total++;
+    var v = String(row[ic.verdict - 1] || '').toUpperCase();
+    if (v === 'SHORTLISTED') shortlisted++;
+    else if (v === 'NEEDS_REVIEW' || v === 'NEEDS_CALL') needsReview++;
+    var t = String(row[ic.trade - 1] || '').trim();
+    if (t) trades[t] = (trades[t] || 0) + 1;
+  });
+
+  var topTrades = Object.keys(trades)
+    .sort(function(a, b) { return trades[b] - trades[a]; })
+    .slice(0, 3);
+
+  var industry = buildIndustrySuggestion_(topTrades, trades);
+
+  var recruiters = getRecruitersForReport_();
+  if (!recruiters.length) {
+    recruiters = [{ name: 'Team', email: getOwnerEmail_() }];
+  }
+
+  recruiters.forEach(function(rec) {
+    var html = buildRecruiterReportHtml_(rec.name, todayLabel, total, shortlisted, needsReview, topTrades, trades, industry);
+    try {
+      MailApp.sendEmail({
+        to:       rec.email,
+        subject:  'CV Update · ' + todayLabel + ' · ' + total + ' profile' + (total !== 1 ? 's' : '') + ' received',
+        htmlBody: html,
+        name:     (CONFIG.brand && CONFIG.brand.companyName) || 'Al Yousuf Enterprises'
+      });
+      Logger.log('Recruiter report sent → ' + rec.email);
+    } catch(e) {
+      Logger.log('sendRecruiterDailyReport: failed for ' + rec.email + ' — ' + e.message);
+    }
+  });
+}
+
+function getRecruitersForReport_() {
+  var result = [];
+  try {
+    var sheet = getMasterSS_().getSheetByName('_LoginSystem');
+    if (!sheet || sheet.getLastRow() < 2) return result;
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+    rows.forEach(function(r) {
+      var email = String(r[0] || '').trim().toLowerCase();
+      var role  = String(r[2] || '').toLowerCase();
+      var name  = String(r[3] || 'Recruiter').trim();
+      if (!email || !email.includes('@')) return;
+      // Skip admin/owner accounts — they get the owner digest separately
+      if (role === 'admin' || role === 'owner') return;
+      result.push({ name: name, email: email });
+    });
+  } catch(e) {
+    Logger.log('getRecruitersForReport_: ' + e.message);
+  }
+  return result;
+}
+
+function buildIndustrySuggestion_(topTrades, trades) {
+  var map = {
+    'electrician':   'construction & MEP',
+    'electrical':    'construction & MEP',
+    'plumber':       'construction & MEP',
+    'plumbing':      'construction & MEP',
+    'hvac':          'MEP & facilities',
+    'ac technician': 'MEP & facilities',
+    'welder':        'oil & gas / fabrication',
+    'welding':       'oil & gas / fabrication',
+    'fitter':        'oil & gas / fabrication',
+    'pipe fitter':   'oil & gas / fabrication',
+    'rigger':        'oil & gas / offshore',
+    'scaffolder':    'oil & gas / construction',
+    'operator':      'oil & gas / heavy industry',
+    'mason':         'construction',
+    'steel fixer':   'construction',
+    'carpenter':     'construction & fit-out',
+    'painter':       'construction & fit-out',
+    'tiler':         'construction & fit-out',
+    'driver':        'logistics & transport',
+    'heavy driver':  'logistics & transport',
+    'forklift':      'warehouse & logistics',
+    'helper':        'general contracting'
+  };
+  var industries = {};
+  topTrades.forEach(function(t) {
+    var ind = map[t.toLowerCase().trim()] || '';
+    if (ind) industries[ind] = (industries[ind] || 0) + (trades[t] || 1);
+  });
+  var sorted = Object.keys(industries).sort(function(a, b) { return industries[b] - industries[a]; });
+  return sorted.length ? sorted[0] : '';
+}
+
+function buildRecruiterReportHtml_(name, dateLabel, total, shortlisted, needsReview, topTrades, trades, industry) {
+  var firstName = name.split(' ')[0];
+
+  var msg;
+  if (total === 0) {
+    msg = 'A quiet day on CVs — good time to follow up on your existing shortlists and check in with open clients.';
+  } else if (shortlisted >= 3) {
+    msg = shortlisted + ' strong shortlists came in today. These candidates are actively looking — reach out to matching clients now.';
+  } else if (total >= 5) {
+    msg = total + ' new profiles received. A few look promising — review the shortlist and keep the pipeline moving.';
+  } else {
+    msg = total + ' new profile' + (total !== 1 ? 's' : '') + ' received today. Every CV is a potential placement.';
+  }
+
+  var tradesHtml = topTrades.length
+    ? topTrades.map(function(t) {
+        return '<span style="display:inline-block;background:#f3f4f6;color:#374151;padding:4px 12px;'
+          + 'border-radius:20px;margin:3px 4px 3px 0;font-size:13px">'
+          + t + ' &nbsp;<strong>' + trades[t] + '</strong></span>';
+      }).join('')
+    : '<span style="color:#9ca3af;font-size:13px">None today</span>';
+
+  var industryHtml = industry
+    ? '<div style="margin:16px 0 0;padding:12px 16px;background:#fffbeb;border-left:3px solid #f59e0b;'
+      + 'border-radius:0 6px 6px 0;font-size:13px;color:#92400e">'
+      + '<strong>Action tip:</strong> Today\'s profiles suit <strong>' + industry + '</strong> clients. '
+      + 'If you have any open mandates in this space, this is a good time to follow up and close short-term.'
+      + '</div>'
+    : '';
+
+  return '<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:540px;margin:0 auto;color:#1d1d1f">'
+
+    // Header
+    + '<div style="background:#16324f;padding:18px 24px;border-radius:8px 8px 0 0">'
+    + '<p style="margin:0;font-size:10px;color:rgba(255,255,255,0.55);text-transform:uppercase;letter-spacing:1px">Al Yousuf Enterprises</p>'
+    + '<h2 style="margin:4px 0 0;color:#fff;font-size:19px;font-weight:600">Your CV Update &nbsp;&middot;&nbsp; ' + dateLabel + '</h2>'
+    + '</div>'
+
+    // Body
+    + '<div style="padding:22px 24px 18px;background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">'
+
+    + '<p style="margin:0 0 6px;font-size:15px;color:#1d1d1f">Hi ' + firstName + ',</p>'
+    + '<p style="margin:0 0 20px;font-size:14px;color:#374151;line-height:1.55">' + msg + '</p>'
+
+    // Stats
+    + '<table style="width:100%;border-collapse:separate;border-spacing:6px;margin:0 0 18px"><tr>'
+    + rptStatCell_('#f9fafb', '#374151', 'Total CVs', total)
+    + rptStatCell_('#d1fae5', '#065f46', 'Shortlisted', shortlisted)
+    + rptStatCell_('#fef3c7', '#92400e', 'Needs Review', needsReview)
+    + '</tr></table>'
+
+    // Trades
+    + '<p style="margin:0 0 6px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Top trades today</p>'
+    + '<p style="margin:0 0 4px">' + tradesHtml + '</p>'
+
+    + industryHtml
+
+    + '<p style="margin:20px 0 0;font-size:11px;color:#d1d5db;border-top:1px solid #f3f4f6;padding-top:12px">'
+    + 'KAI Recruitment OS &nbsp;&middot;&nbsp; Auto-generated &nbsp;&middot;&nbsp; Do not reply</p>'
+    + '</div></div>';
+}
+
+function rptStatCell_(bg, color, label, val) {
+  return '<td style="padding:0"><div style="background:' + bg + ';padding:14px 8px;border-radius:8px;text-align:center">'
+    + '<div style="font-size:26px;font-weight:700;color:' + color + '">' + val + '</div>'
+    + '<div style="font-size:11px;color:' + color + ';margin-top:3px;opacity:.75">' + label + '</div>'
+    + '</div></td>';
+}
+
+// Schedules sendRecruiterDailyReport() at 7 PM IST daily
+// (GAS uses the project's timezone setting — ensure it is Asia/Kolkata)
+function scheduleRecruiterDailyReport() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'sendRecruiterDailyReport') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendRecruiterDailyReport')
+    .timeBased()
+    .atHour(19)
+    .nearMinute(0)
+    .everyDays(1)
+    .create();
+  Logger.log('✅ Recruiter daily report scheduled at 7 PM (project timezone). Run sendRecruiterDailyReport() now to test.');
 }
