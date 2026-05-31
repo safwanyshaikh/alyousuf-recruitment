@@ -3302,4 +3302,17 @@ function normalizeAlignment(sheet) {
       .setVerticalAlignment('middle');
   }
 }
+function checkApiKey() {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+  Logger.log('Key starts with: ' + key.slice(0, 12) + '...');
+  Logger.log('Key length: ' + key.length);
+}
+function fixModel() {
+  PropertiesService.getScriptProperties().deleteProperty('KAI_GEMINI_MODEL_OVERRIDE');
+  var model = (typeof getEffectiveGeminiModel_ === 'function') 
+    ? getEffectiveGeminiModel_() 
+    : 'check CONFIG.defaultModel';
+  Logger.log('Effective model now: ' + model);
+}
+
 // END OF FILE — KAI_15May2026_V1.gs
