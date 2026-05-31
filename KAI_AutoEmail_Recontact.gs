@@ -27,8 +27,11 @@ var CONFIG = {
 // ── MAIN: Run daily via Time Trigger ────────────────────────
 function runDailyRecontactBatch() {
   var ss    = SpreadsheetApp.openById(CONFIG.SHEET_ID);
-  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  if (!sheet) { Logger.log('Sheet not found: ' + CONFIG.SHEET_NAME); return; }
+  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME)
+             || ss.getSheetByName('Sheet1')
+             || ss.getSheets()[0];
+  if (!sheet) { Logger.log('No sheet found in spreadsheet'); return; }
+  Logger.log('Using sheet: ' + sheet.getName());
 
   var data      = sheet.getDataRange().getValues();
   var headers   = data[0];
@@ -204,7 +207,9 @@ function setupDailyTrigger() {
 // ── STATS: Run anytime to check campaign progress ────────────
 function getCampaignStats() {
   var ss    = SpreadsheetApp.openById(CONFIG.SHEET_ID);
-  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME)
+             || ss.getSheetByName('Sheet1')
+             || ss.getSheets()[0];
   if (!sheet) { Logger.log('Sheet not found'); return; }
 
   var data  = sheet.getDataRange().getValues();
