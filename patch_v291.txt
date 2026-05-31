@@ -1510,20 +1510,136 @@ function queueResendReply_(toEmail, originalSubject) {
   queuePendingEmail_v291_(toEmail, subject, RESEND_REPLY_BODY_, null, 'Al Yousuf Recruitment');
 }
 
-// Wrapper around processThread_v291_ — queues reply on any parse error
+// Wrapper around processThread_v291_ — handles re-engagement updates + error replies
 function processThreadWithReply_(thread, circuit) {
   var result = processThread_v291_(thread, circuit);
+
+  // ── Re-engagement: known candidate replied with updated CV ──
+  if (result === 'DUPLICATE') {
+    try {
+      var msgs       = thread.getMessages();
+      var msg        = msgs[msgs.length - 1];
+      var att        = (typeof pickBestAttachment_ === 'function') ? pickBestAttachment_(msg) : null;
+      if (att) {
+        var senderEmail = extractEmailFromSender_(msg.getFrom());
+        var rowNum      = senderEmail ? findCandidateByEmail_v291_(senderEmail) : 0;
+        if (rowNum) {
+          Logger.log('Re-engagement detected: ' + senderEmail + ' row ' + rowNum);
+          return handleReEngagement_(thread, msg, att, senderEmail, rowNum, circuit);
+        }
+      }
+    } catch (e) {
+      Logger.log('processThreadWithReply_: re-engagement check failed — ' + e.message);
+    }
+  }
+
+  // ── Parse failure: queue resend-request reply ──
   if (result === 'ERROR_GEMINI' || result === 'ERROR_SIZE' || result === 'ERROR_NO_CV') {
     try {
-      var msgs    = thread.getMessages();
-      var msg     = msgs[msgs.length - 1];
-      var toEmail = extractEmailFromSender_(msg.getFrom());
-      queueResendReply_(toEmail, msg.getSubject() || '');
+      var msgs2   = thread.getMessages();
+      var msg2    = msgs2[msgs2.length - 1];
+      var toEmail = extractEmailFromSender_(msg2.getFrom());
+      queueResendReply_(toEmail, msg2.getSubject() || '');
     } catch (e) {
       Logger.log('processThreadWithReply_: reply queue failed — ' + e.message);
     }
   }
+
   return result;
+}
+
+// Re-parse updated CV and overwrite scored fields in existing row
+function handleReEngagement_(thread, msg, att, senderEmail, rowNum, circuit) {
+  var cvLink     = '';
+  var geminiParts = null;
+  var body        = msg.getPlainBody() || '';
+  var subject     = msg.getSubject()   || '';
+
+  try { if (typeof saveCvToDrive_ === 'function') cvLink = saveCvToDrive_(att, senderEmail); } catch(e) {}
+
+  if (typeof buildGeminiParts_ === 'function')
+    geminiParts = buildGeminiParts_(att, body, senderEmail, subject);
+  else if (typeof buildGeminiPartsWithFallback_ === 'function')
+    geminiParts = buildGeminiPartsWithFallback_(att, body, senderEmail, subject);
+
+  if (!geminiParts) {
+    Logger.log('Re-engagement: no parseable CV for ' + senderEmail);
+    return 'REENGAGEMENT_NO_CV';
+  }
+
+  var parsed = null;
+  try {
+    var rawResp = callGemini_v291_(geminiParts, circuit);
+    var gText   = (typeof extractGeminiText_   === 'function') ? extractGeminiText_(rawResp)   : '';
+    var cleaned = (typeof cleanJsonResponse_   === 'function') ? cleanJsonResponse_(gText)      : gText;
+    if (gText && gText.length >= 10)
+      parsed  = (typeof parseGeminiJson_ === 'function') ? parseGeminiJson_(cleaned) : null;
+  } catch(e) { Logger.log('Re-engagement Gemini error: ' + e.message); }
+
+  if (!parsed) {
+    Logger.log('Re-engagement: Gemini parse failed for ' + senderEmail);
+    return 'REENGAGEMENT_PARSE_FAIL';
+  }
+
+  if (typeof normalizeCandidate_ === 'function') normalizeCandidate_(parsed, senderEmail);
+
+  var rules    = (typeof loadRules_              === 'function') ? loadRules_()                            : [];
+  var taxonomy = (typeof loadTaxonomy_           === 'function') ? loadTaxonomy_()                         : [];
+  var taxResult= (typeof mapCandidateToTaxonomy_ === 'function') ? mapCandidateToTaxonomy_(parsed,taxonomy): {pts:0};
+  if (taxResult.trade    && !parsed.trade)    parsed.trade    = taxResult.trade;
+  if (taxResult.industry && !parsed.industry) parsed.industry = taxResult.industry;
+  var scored   = (typeof scoreCandidate_         === 'function') ? scoreCandidate_(parsed,rules,taxResult)  : parsed;
+  if (typeof applyDecisionRules_ === 'function') applyDecisionRules_(scored, rules);
+
+  // Write updated fields to existing row
+  updateCandidateRecord_v291_(rowNum, scored, cvLink);
+
+  appendLog_v291_({ status:'REENGAGED', name:scored.full_name||'', email:senderEmail,
+                    trade:scored.trade||'', notes:'Updated CV | '+scored.verdict+' | Score='+scored.score });
+
+  // Move Gmail label to processed
+  try {
+    var doneLabel  = (CONFIG.labels && CONFIG.labels.processed) || 'karigar/processed';
+    var inputLabel = (CONFIG.labels && CONFIG.labels.input)     || 'karigar/cv';
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, doneLabel);
+  } catch(e) {}
+
+  if (typeof incrementQuota_ === 'function') incrementQuota_('cv');
+  return 'REENGAGED';
+}
+
+// Update scored fields in existing candidate row — preserves KAI No, AppDate, Notes, Timeline
+function updateCandidateRecord_v291_(rowNum, scored, cvLink) {
+  try {
+    var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+    if (!sheet || !rowNum) return;
+
+    // Columns are 1-indexed: matches known schema
+    var fields = [
+      [7,  scored.education          || ''],  // Education
+      [9,  scored.trade              || ''],  // Trade
+      [11, scored.experience         || ''],  // Experience
+      [12, scored.gulf_experience || scored.gulfExp || ''], // Gulf Exp
+      [14, scored.age                || ''],  // Age
+      [15, scored.verdict            || ''],  // Verdict
+      [16, scored.flag               || ''],  // FLAGS
+      [17, scored.score              || 0],   // Score
+      [18, scored.scoreBreakdown     || ''],  // Score Breakdown
+      [19, scored.recommendedRoles   || ''],  // Recommended Roles
+      [20, scored.kaiAssessment || scored.kai_assessment || ''] // KAI Assessment
+    ];
+    if (cvLink) fields.push([22, cvLink]);     // CV Link — only update if new CV saved
+
+    fields.forEach(function(f) {
+      sheet.getRange(rowNum, f[0]).setValue(f[1]);
+    });
+
+    // Clear dashboard cache so board shows updated data immediately
+    try { CacheService.getScriptCache().remove('kai_dashboard_v2'); } catch(e) {}
+
+  } catch(e) {
+    Logger.log('updateCandidateRecord_v291_: ' + e.message);
+  }
 }
 
 // ── BACKFILL: send resend-request replies to all 458 historical _Errors rows ──
