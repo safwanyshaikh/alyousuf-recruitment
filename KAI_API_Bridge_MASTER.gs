@@ -1086,13 +1086,49 @@ function setupAllNewSheets() {
 // Run to verify all endpoints are working
 function testBridgeEndpoints() {
   Logger.log('=== KAI Bridge Endpoint Test ===');
+
+  // Candidates list
   var cands = getCandidates_({});
   Logger.log('Candidates: ' + (cands.ok ? cands.total+' total, page 1 of '+cands.totalPages : 'FAILED — '+cands.error));
+
+  // Single candidate (first row from sheet)
+  if (cands.ok && cands.records && cands.records.length > 0) {
+    var firstRow = cands.records[0].rowIndex;
+    var single = getSingleCandidate_({ rowIndex: String(firstRow) });
+    Logger.log('SingleCandidate: ' + (single.ok ? 'OK — ' + single.candidate.name : 'FAILED — '+single.error));
+  }
+
+  // Global search
+  var search = globalSearch_({ q: 'welder' });
+  Logger.log('GlobalSearch "welder": ' + (search.ok ? search.count+' results' : 'FAILED — '+search.error));
+
+  // Requirements
   var reqs = getRequirementsEnhanced_();
   Logger.log('Requirements: ' + (reqs.ok ? reqs.count+' found' : 'FAILED — '+reqs.error));
+
+  // JDs
   var jds = getJDs_({});
   Logger.log('JDs: ' + (jds.ok ? jds.count+' found' : 'FAILED — '+jds.error));
+
+  // Metrics
   var metrics = getMetrics_();
   Logger.log('Metrics: ' + (metrics.ok ? JSON.stringify(metrics.metrics) : 'FAILED — '+metrics.error));
+
+  // SAC performance
+  var sac = getSacPerformance_();
+  Logger.log('SAC Performance: ' + (sac.ok ? sac.count+' records' : 'FAILED — '+sac.error));
+
+  // Activity log
+  var actLog = getActivityLog_({ limit: '5' });
+  Logger.log('ActivityLog: ' + (actLog.ok ? actLog.count+' entries' : 'FAILED — '+actLog.error));
+
+  // Gmail inbox (may need Gmail scope — OK if fails with scope error)
+  try {
+    var inbox = getGmailInbox_({ tab: 'all', limit: '3' });
+    Logger.log('GmailInbox: ' + (inbox.ok ? inbox.count+' threads' : 'FAILED — '+inbox.error));
+  } catch(e) {
+    Logger.log('GmailInbox: SCOPE ERROR (add Gmail scope in manifest) — ' + e.message);
+  }
+
   Logger.log('=== Test complete ===');
 }
