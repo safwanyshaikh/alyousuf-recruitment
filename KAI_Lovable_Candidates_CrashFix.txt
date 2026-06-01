@@ -1,0 +1,51 @@
+The Candidates page is crashing with "This page didn't load" — it is a React runtime error.
+
+The GAS API is working correctly (SAC Performance screen loads real data: 200 candidates).
+The problem is in the Candidates component code itself — a crash during render.
+
+Fix the Candidates page crash:
+
+1. The crash is most likely caused by one of these — fix all of them:
+   a. Calling .map() or .filter() on a value that is undefined or null before data loads
+   b. Accessing a nested property (e.g. candidate.top3Positions.first) without null checks
+   c. A missing useState initialisation (candidates should start as [] not undefined)
+
+2. Make sure all state is initialised safely:
+   const [candidates, setCandidates] = useState<any[]>([]);
+   const [total, setTotal] = useState(0);
+   const [isLoading, setIsLoading] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+
+3. Wrap all candidate property access with null-safe fallbacks:
+   candidate.top3Positions?.first ?? '—'
+   candidate.name ?? ''
+   candidate.score ?? 0
+   candidate.confidenceTier ?? 'REVIEW'
+   candidate.stage ?? 'New'
+   candidate.mobile ?? ''
+   candidate.email ?? ''
+   candidate.cvLink ?? ''
+
+4. The GAS API response shape is:
+   {
+     ok: true,
+     records: [...],   ← array of candidates
+     total: 4520,
+     page: 1,
+     limit: 100,
+     totalPages: 46
+   }
+   Make sure the fetch does: setCandidates(data.records ?? [])
+
+5. Add a top-level try/catch in the component render so a single bad row
+   does not crash the whole page:
+   — If candidates.map() fails, show an error message instead of crashing
+
+6. The GAS URL and fetch logic is correct — do NOT change it:
+   const GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec";
+   fetch(url, { method: 'GET', redirect: 'follow' })
+
+7. The token key is localStorage.getItem('kai_session_token') — do NOT change it.
+
+Do not change any other page. Only fix the Candidates page crash.
+After fix, the page should load and show candidates (real data: 4520 in the system).
