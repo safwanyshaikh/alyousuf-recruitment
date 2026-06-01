@@ -1,0 +1,28 @@
+================================================================
+KAI SPRINT 1 — Stage Chip Colour Fix
+================================================================
+
+The stage values coming from the API are NOT "New/Review/Shortlisted/etc."
+They are derived from the KAI verdict field. Update the stage chip
+colour mapping in the Candidates grid to match the real values:
+
+  "Shortlisted"  → green chip
+  "Review"       → blue chip
+  "Needs Call"   → orange chip
+  "Selected"     → dark green chip
+  "Deployed"     → dark green chip (darker shade)
+  "Client Sent"  → purple chip
+  "On Hold"      → amber chip
+  "Rejected"     → red chip
+  "New"          → grey chip
+  (any other)    → grey chip
+
+These are the EXACT string values returned by the API in the
+candidate.stage field. Case-sensitive match.
+
+Also update the filter chip [Stage ▼] dropdown options to:
+  New, Review, Needs Call, Shortlisted, Client Sent, Selected,
+  Deployed, On Hold, Rejected
+
+Do not change anything else — only the stage colour mapping
+and the Stage filter dropdown values.

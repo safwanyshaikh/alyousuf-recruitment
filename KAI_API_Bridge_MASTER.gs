@@ -275,12 +275,24 @@ function getCandidates_(params) {
     if (!name && !email) return;
 
     var score   = parseInt(row[COL.score-1])   || 0;
-    var stage   = String(row[COL.stage-1]||'').trim();
+    var stageRaw= String(row[COL.stage-1]||'').trim();
     var trade   = String(row[COL.trade-1]||'').trim();
     var nat     = String(row[COL.nationality-1]||'').trim();
-    var verdict = String(row[COL.verdict-1]||'').trim();
+    var verdict = String(row[COL.verdict-1]||'').trim().toUpperCase();
     var gulfExp = String(row[COL.gulfExp-1]||'').trim();
     var loc     = String(row[COL.currentLocation-1]||'').trim();
+
+    // Compute display stage: use recruiter-set stage if meaningful,
+    // otherwise derive from AI verdict so chips are never blank
+    var PENDING = (stageRaw === '' || stageRaw === 'Pending action');
+    var stage = PENDING
+      ? (verdict === 'SHORTLISTED' ? 'Shortlisted'
+       : verdict === 'NEEDS_REVIEW' ? 'Review'
+       : verdict === 'NEEDS_CALL'   ? 'Needs Call'
+       : verdict === 'SELECTED'     ? 'Selected'
+       : verdict === 'REJECTED'     ? 'Rejected'
+       : 'New')
+      : stageRaw;
 
     if (fStage   && stage.toLowerCase().indexOf(fStage)   < 0) return;
     if (fTrade   && trade.toLowerCase().indexOf(fTrade)   < 0) return;
