@@ -1095,7 +1095,7 @@ function testBridgeEndpoints() {
   if (cands.ok && cands.records && cands.records.length > 0) {
     var firstRow = cands.records[0].rowIndex;
     var single = getSingleCandidate_({ rowIndex: String(firstRow) });
-    Logger.log('SingleCandidate: ' + (single.ok ? 'OK — ' + single.candidate.name : 'FAILED — '+single.error));
+    Logger.log('SingleCandidate: ' + (single.ok ? 'OK — ' + single.name : 'FAILED — '+single.error));
   }
 
   // Global search
