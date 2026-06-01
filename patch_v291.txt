@@ -36,6 +36,20 @@ function setupV291() {
   props.setProperty('KAI_PATCH_DATE',    '2026-05-31');
   Logger.log('✓ patch_v291 setup complete.');
 
+  // Update _Config sheet version row to 2.9.1
+  try {
+    var ss_ = (typeof getMasterSS_ === 'function') ? getMasterSS_() : null;
+    if (ss_) {
+      var cfg_ = ss_.getSheetByName('_Config');
+      if (cfg_ && cfg_.getLastRow() > 0) {
+        var cfgData_ = cfg_.getRange(1, 1, cfg_.getLastRow(), 2).getValues();
+        for (var ci_ = 0; ci_ < cfgData_.length; ci_++) {
+          if (String(cfgData_[ci_][0]) === 'version') { cfg_.getRange(ci_+1, 2).setValue('2.9.1'); break; }
+        }
+      }
+    }
+  } catch(e_) {}
+
   try {
     SpreadsheetApp.getUi().alert(
       'KAI patch_v291 applied.\n\nRun:\n' +
@@ -860,6 +874,13 @@ function onOpen_v291_addMenuItems() {
       .addItem('Schedule Recruiter Report (7 PM daily)','scheduleRecruiterDailyReport')
       .addItem('Send Owner Status Report',             'sendStatusReport')
       .addItem('Clear Dashboard Cache',                'clearCache')
+      .addSeparator()
+      .addItem('Grow Taxonomy from Candidates',        'growTaxonomyFromCandidates')
+      .addItem('Deduplicate Taxonomy',                 'deduplicateTaxonomy')
+      .addItem('Approve Pending Taxonomy Suggestions', 'approvePendingTaxonomySuggestions')
+      .addSeparator()
+      .addItem('Retry Unreplied Errors',               'retryUnrepliedErrors')
+      .addItem('Daily Quota Summary',                  'printDailyQuotaSummary')
       .addItem('Generate SaaS Handoff Checklist',      'generateSaasHandoffChecklist')
       .addToUi();
   } catch(e) {}
@@ -953,7 +974,8 @@ function extractEmailFromSender_(sender) {
 
 function queueResendReply_(toEmail, originalSubject) {
   if (!toEmail || (typeof isInternalDomain_ === 'function' && isInternalDomain_(toEmail))) return;
-  var subj = originalSubject ? 'Re: ' + originalSubject : 'Your CV Application — Al Yousuf Enterprises';
+  var rawSubj = originalSubject ? 'Re: ' + originalSubject : 'Your CV Application — Al Yousuf Enterprises';
+  var subj = rawSubj.length > 200 ? rawSubj.slice(0, 197) + '...' : rawSubj;
   queuePendingEmail_v291_(toEmail, subj, RESEND_REPLY_BODY_, null, 'Al Yousuf Recruitment');
 }
 
@@ -1247,6 +1269,228 @@ function scheduleRecruiterDailyReport() {
   ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === 'sendRecruiterDailyReport') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('sendRecruiterDailyReport').timeBased().atHour(19).nearMinute(0).everyDays(1).create();
   Logger.log('Recruiter daily report scheduled at 7 PM. Run sendRecruiterDailyReport() to test now.');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S58 · TAXONOMY GROWTH & MAINTENANCE
+// ═══════════════════════════════════════════════════════════════════
+
+function inferTradeIndustry_(trade) {
+  var t = trade.toLowerCase();
+  var rules = [
+    [/oil|gas|petroleum|refin|offshore|pipeline|upstream|downstream|driller|wellhead|lng|lpg/, 'Oil & Gas'],
+    [/weld|fabricat|piping.*fitter|structural.*steel/, 'Oil & Gas'],
+    [/hse|safety officer|fire.*fight/, 'Oil & Gas'],
+    [/\bqc\b|\bqa\b|quality.*control|ndt|radiograph|ultrasonic.*test|weld.*inspect/, 'Oil & Gas'],
+    [/instrument|dcs|scada|\bplc\b|control.*system/, 'Oil & Gas'],
+    [/mechanical.*tech|rotating.*equip/, 'Oil & Gas'],
+    [/civil|concrete|mason|rebar|formwork|scaffold|surveyor|site.*engineer|construct/, 'Construction'],
+    [/landscap|irrigation|horticulture/, 'Architecture & Construction'],
+    [/hvac|plumb|mep|chiller|air.*condit|refrigerat/, 'Architecture & Construction'],
+    [/electric/, 'Power & Utilities'],
+    [/cement|mining|quarry|steel.*plant/, 'Cement Mining & Steel'],
+    [/pharma|chemical|fertilizer|rubber|plastic/, 'Chemical / Fertilizers / Plastic / Rubber / Glass'],
+    [/software|developer|programm|network.*admin|cloud|cyber|database/, 'IT & Technology'],
+    [/nurse|doctor|physician|pharmacist|lab.*tech|radiolog/, 'Healthcare'],
+    [/accountant|financ.*officer|audit|tax.*officer/, 'Banking & Finance'],
+    [/logistic|supply chain|warehouse|fleet.*manage/, 'Logistics & Transportation'],
+    [/sales|business dev|crm/, 'Sales & Marketing'],
+    [/chef|cook|hospitality|housekeep|steward|catering/, 'Hospitality & Catering'],
+    [/aircraft|aviation|pilot|cabin crew/, 'Aviation & Aerospace'],
+    [/\bship\b|marine|deck officer|naval/, 'Shipping & Marine']
+  ];
+  for (var i = 0; i < rules.length; i++) { if (rules[i][0].test(t)) return rules[i][1]; }
+  return 'Construction';
+}
+
+function inferTradeDepartment_(trade) {
+  var t = trade.toLowerCase();
+  if (/manager|director|head of|\bvp\b|ceo|coo/.test(t)) return 'Management';
+  if (/safety|hse|ehs|\bqc\b|\bqa\b|quality|inspector|ndt/.test(t)) return 'Quality & Safety';
+  if (/engineer/.test(t)) return 'Engineering';
+  if (/supervisor|foreman|\blead\b/.test(t)) return 'Technical';
+  if (/technician|mechanic/.test(t)) return 'Technical';
+  if (/operator/.test(t)) return 'Operations';
+  if (/admin|secretary|coordinator/.test(t)) return 'Administration';
+  return 'Technical';
+}
+
+function growTaxonomyFromCandidates() {
+  var ss = getMasterSS_(); if (!ss) return;
+  var candSheet = ss.getSheetByName(CONFIG.sheetName || 'Candidates'); if (!candSheet) return;
+  var taxSheet  = ss.getSheetByName('Taxonomy'); if (!taxSheet) return;
+
+  // Build case-insensitive set of existing trades
+  var taxRows = taxSheet.getLastRow() > 1
+    ? taxSheet.getRange(2, 1, taxSheet.getLastRow()-1, 3).getValues() : [];
+  var existing = {};
+  taxRows.forEach(function(r) { if (r[2]) existing[String(r[2]).toLowerCase().trim()] = true; });
+
+  // Count trades from candidates
+  var lr = candSheet.getLastRow();
+  if (lr < 2) { Logger.log('No candidates.'); return; }
+  var tradeCol = candSheet.getRange(2, 9, lr-1, 1).getValues(); // col 9 = Trade
+  var counts = {};
+  tradeCol.forEach(function(r) {
+    var t = String(r[0]||'').trim();
+    if (t && t !== 'TEST TRADE' && t.length > 2 && !/^\d+$/.test(t))
+      counts[t] = (counts[t]||0) + 1;
+  });
+
+  // Find and add missing trades, sorted by frequency
+  var missing = Object.keys(counts).filter(function(t) { return !existing[t.toLowerCase()]; });
+  missing.sort(function(a,b){ return counts[b]-counts[a]; });
+
+  var newRows = missing.map(function(trade) {
+    return [inferTradeIndustry_(trade), inferTradeDepartment_(trade), trade, ''];
+  });
+  if (newRows.length === 0) { Logger.log('Taxonomy is already up to date.'); return; }
+
+  taxSheet.getRange(taxSheet.getLastRow()+1, 1, newRows.length, 4).setValues(newRows);
+  Logger.log('growTaxonomyFromCandidates: added ' + newRows.length + ' trades. Top 10: ' +
+    missing.slice(0,10).map(function(t){ return t+'('+counts[t]+')'; }).join(', '));
+}
+
+function deduplicateTaxonomy() {
+  var ss = getMasterSS_(); if (!ss) return;
+  var sheet = ss.getSheetByName('Taxonomy'); if (!sheet || sheet.getLastRow() < 2) return;
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 4).getValues();
+  var seen = {}, keep = [], removed = 0;
+  data.forEach(function(r) {
+    var key = (String(r[0]||'') + '|' + String(r[1]||'') + '|' + String(r[2]||'') + '|' + String(r[3]||'')).toLowerCase().trim();
+    if (!seen[key] && (r[0]||r[2])) { seen[key]=true; keep.push(r); }
+    else removed++;
+  });
+  if (removed === 0) { Logger.log('No duplicates found.'); return; }
+  sheet.getRange(2, 1, sheet.getLastRow()-1, 4).clearContent();
+  sheet.getRange(2, 1, keep.length, 4).setValues(keep);
+  Logger.log('deduplicateTaxonomy: removed ' + removed + ' duplicate rows. ' + keep.length + ' clean rows remain.');
+}
+
+function approvePendingTaxonomySuggestions() {
+  var ss = getMasterSS_(); if (!ss) return;
+  var sugSheet = ss.getSheetByName('_Taxonomy_Suggestions'); if (!sugSheet || sugSheet.getLastRow() < 2) return;
+  var taxSheet = ss.getSheetByName('Taxonomy'); if (!taxSheet) return;
+  var data = sugSheet.getRange(2, 1, sugSheet.getLastRow()-1, 8).getValues();
+  var approved = 0;
+  data.forEach(function(r, i) {
+    if (String(r[5]||'').toUpperCase() !== 'PENDING') return;
+    var trade = String(r[3]||'').trim(); if (!trade) return;
+    var industry = inferTradeIndustry_(trade);
+    var dept     = inferTradeDepartment_(trade);
+    taxSheet.appendRow([industry, dept, trade, '']);
+    sugSheet.getRange(i+2, 6).setValue('APPROVED');
+    sugSheet.getRange(i+2, 7).setValue('KAI-AUTO');
+    approved++;
+  });
+  Logger.log('approvePendingTaxonomySuggestions: approved ' + approved + ' suggestions.');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S59 · RETRY UNREPLIED ERRORS
+// ═══════════════════════════════════════════════════════════════════
+
+function retryUnrepliedErrors() {
+  var ss = getMasterSS_(); if (!ss) return;
+  var errSheet = ss.getSheetByName('_Errors'); if (!errSheet || errSheet.getLastRow() < 2) return;
+  var data = errSheet.getRange(2, 1, errSheet.getLastRow()-1, 8).getValues();
+  var queued = 0;
+  data.forEach(function(r, i) {
+    var replyStatus = String(r[7]||'').toUpperCase();
+    if (replyStatus && replyStatus !== 'INTERNAL_SKIP') return; // already handled
+    var sender = String(r[2]||'');
+    var toEmail = (typeof extractEmailFromSender_ === 'function') ? extractEmailFromSender_(sender) : '';
+    if (!toEmail || (typeof isInternalDomain_ === 'function' && isInternalDomain_(toEmail))) {
+      errSheet.getRange(i+2, 8).setValue('INTERNAL_SKIP');
+      return;
+    }
+    var errType = String(r[4]||'');
+    // Only queue resend reply for no-CV errors — Gemini nulls already got one at parse time
+    if (/No valid CV attachment|No CV attachment|body.*too short/i.test(errType)) {
+      var subj = String(r[3]||'');
+      if (typeof queueResendReply_ === 'function') queueResendReply_(toEmail, subj);
+      errSheet.getRange(i+2, 8).setValue('REPLIED');
+      queued++;
+    }
+  });
+  if (typeof flushPendingEmails_v291_ === 'function') flushPendingEmails_v291_();
+  Logger.log('retryUnrepliedErrors: queued replies for ' + queued + ' errors.');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S60 · DAILY QUOTA SUMMARY
+// ═══════════════════════════════════════════════════════════════════
+
+function printDailyQuotaSummary() {
+  var ss = getMasterSS_(); if (!ss) return;
+  var qSheet = ss.getSheetByName('_Quota'); if (!qSheet || qSheet.getLastRow() < 2) { Logger.log('No quota data.'); return; }
+
+  // Gemini 2.5-flash-lite Tier 1 paid: 1500 RPM, no daily cap → effectively unlimited per day
+  // Gmail Workspace send limit: 1500 emails/day
+  // GAS: 6 min/execution, ~90 trigger executions/day
+  var GEMINI_RPM_LIMIT = 1500; // per minute
+  var GMAIL_DAILY_LIMIT = 1500;
+  var SAFE_DAILY_GEMINI = 1000; // conservative daily target to stay well under burst
+
+  var lr = qSheet.getLastRow();
+  var rows = qSheet.getRange(2, 1, lr-1, 6).getValues();
+  var last7 = rows.slice(-7);
+
+  var lines = ['═══ KAI DAILY QUOTA SUMMARY ═══', ''];
+  lines.push('Limits:');
+  lines.push('  Gemini 2.5-flash-lite (Tier 1 paid) — 1500 RPM, no daily cap');
+  lines.push('  Gmail Workspace — 1500 emails/day');
+  lines.push('  Safe daily Gemini target — ≤ ' + SAFE_DAILY_GEMINI + ' calls/day');
+  lines.push('');
+  lines.push('Last 7 days:');
+  lines.push('  Date         CV-Fresh  CV-BL  JDs  Replies  Emails  Total-API  Gmail%');
+  last7.forEach(function(r) {
+    var dateStr = r[0] instanceof Date
+      ? Utilities.formatDate(r[0], 'Asia/Kolkata', 'dd MMM')
+      : String(r[0]).slice(5,10);
+    var cvF  = r[1]||0, cvB = r[2]||0, jd = r[3]||0, rep = r[4]||0, em = r[5]||0;
+    var api  = cvF + cvB + jd + rep;
+    var gmailPct = Math.round((em / GMAIL_DAILY_LIMIT) * 100);
+    var flag = api > SAFE_DAILY_GEMINI ? ' ⚠ HIGH' : '';
+    lines.push('  ' + dateStr + '        ' + pad_(cvF,6) + '  ' + pad_(cvB,5) + '  ' + pad_(jd,3) + '  ' + pad_(rep,7) + '  ' + pad_(em,6) + '  ' + pad_(api,9) + '  ' + gmailPct + '%' + flag);
+  });
+
+  // Today totals
+  var today = last7[last7.length-1];
+  var todayApi = (today[1]||0) + (today[2]||0) + (today[3]||0) + (today[4]||0);
+  lines.push('');
+  lines.push('Today: ' + todayApi + ' Gemini API calls  |  ' + (today[5]||0) + ' emails sent');
+  lines.push('Gemini headroom: ' + (SAFE_DAILY_GEMINI - todayApi) + ' calls before soft limit');
+  lines.push('Gmail headroom:  ' + (GMAIL_DAILY_LIMIT - (today[5]||0)) + ' emails remaining today');
+
+  // Pending emails
+  var pendSheet = ss.getSheetByName('_PendingEmails');
+  if (pendSheet && pendSheet.getLastRow() > 1) {
+    var pendData = pendSheet.getRange(2, 1, pendSheet.getLastRow()-1, 6).getValues();
+    var queued = pendData.filter(function(r){ return String(r[5]).toUpperCase()==='QUEUED'; }).length;
+    lines.push('');
+    lines.push('_PendingEmails QUEUED: ' + queued + ' (flush runs automatically with pipeline)');
+    if (queued > 0) {
+      var batchesNeeded = Math.ceil(queued / 50);
+      lines.push('  Estimated flushes needed: ' + batchesNeeded + ' trigger runs (~' + batchesNeeded + ' min)');
+    }
+  }
+
+  // Errors without reply
+  var errSheet = ss.getSheetByName('_Errors');
+  if (errSheet && errSheet.getLastRow() > 1) {
+    var errData = errSheet.getRange(2, 1, errSheet.getLastRow()-1, 8).getValues();
+    var noReply = errData.filter(function(r){ return !r[7]; }).length;
+    if (noReply > 0) lines.push('\n⚠ Unreplied errors: ' + noReply + ' — run retryUnrepliedErrors() to fix');
+  }
+
+  lines.push('');
+  lines.push('═══════════════════════════════');
+  Logger.log(lines.join('\n'));
+}
+
+function pad_(n, w) {
+  var s = String(n); while (s.length < w) s = ' ' + s; return s;
 }
 
 // END OF FILE — patch_v291.gs
