@@ -1,0 +1,135 @@
+================================================================
+KAI SPRINT 1 — FIX: Candidates grid showing 0 / No data loading
+================================================================
+
+The grid structure is correct. The problem is the API call is not
+loading data. Fix the data loading in the Candidates screen.
+
+================================================================
+DIAGNOSIS STEPS — do all of these:
+================================================================
+
+STEP 1: Check what token key is used in localStorage.
+
+  Look at the login flow. Find where the session token is saved
+  after successful login. It may be stored as:
+    "kai_session_token"   or
+    "session_token"       or
+    "token"
+
+  In the Candidates page, read the token using the SAME key that
+  the login page writes.
+
+STEP 2: Add a console.log debug block immediately when the
+  Candidates component mounts:
+
+    console.log('TOKEN:', localStorage.getItem('kai_session_token'));
+    console.log('Fetching candidates...');
+
+  Also log the full URL being called and the response.
+
+STEP 3: The API call must be:
+
+  GET https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec?action=candidates&token=TOKEN&page=1&limit=100
+
+  Where TOKEN is the value from localStorage.
+
+  IMPORTANT: Google Apps Script requires fetch with NO-CORS or
+  the response must use redirect: "follow". Use this exact fetch:
+
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+    });
+
+STEP 4: The GAS API returns this shape:
+
+    {
+      ok: true,
+      records: [...],
+      total: 1730,
+      page: 1,
+      limit: 100,
+      totalPages: 18
+    }
+
+  Map: response.records → candidates array
+       response.total   → total count for stats bar
+
+STEP 5: If token is null/empty, check if the login page is setting
+  it correctly. In the login success handler, make sure it does:
+
+    localStorage.setItem('kai_session_token', token);
+
+  NOT: sessionStorage.setItem(...)
+  NOT: any other key name
+
+================================================================
+FULL FIX — rewrite the data fetch in Candidates page:
+================================================================
+
+Replace the current fetch logic with exactly this:
+
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec";
+
+  async function loadCandidates(filters = {}) {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('kai_session_token') || '';
+      if (!token) {
+        setError('Not logged in. Please log in again.');
+        setIsLoading(false);
+        return;
+      }
+      const params = new URLSearchParams({
+        action: 'candidates',
+        token: token,
+        page: '1',
+        limit: '100',
+        ...filters,
+      });
+      const url = `${GAS_URL}?${params.toString()}`;
+      console.log('Fetching:', url);
+      const res = await fetch(url, { method: 'GET', redirect: 'follow' });
+      const data = await res.json();
+      console.log('Response:', data);
+      if (data.ok && data.records) {
+        setCandidates(data.records);
+        setTotal(data.total || data.records.length);
+      } else {
+        setError(data.error || 'Failed to load candidates');
+      }
+    } catch (err: any) {
+      console.error('Fetch error:', err);
+      setError('Connection error: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCandidates();
+  }, []);
+
+================================================================
+ALSO CHECK: localStorage token key consistency
+================================================================
+
+Find the Login component. Check what key it uses when saving the
+token after successful login. Show me the line that does
+localStorage.setItem(...) in the login success handler.
+
+If the key is different from 'kai_session_token', update the
+Candidates page to use the same key.
+
+================================================================
+DO NOT:
+================================================================
+- Do not change the login logic or auth flow
+- Do not redirect to login from this component (just show error)
+- Do not add new GAS functions
+- Do not change the grid structure (it's correct)
+
+Just fix the data loading. The grid is already built correctly.
+================================================================
