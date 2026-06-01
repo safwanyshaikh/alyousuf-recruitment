@@ -578,7 +578,7 @@ function getActivityLog_(params) {
   if (!rowIndex && !kaiNo) return { ok:false, error:'rowIndex or kaiNo required' };
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('_ActivityLog');
-  if (!sheet || sheet.getLastRow() < 2) return { ok:true, log:[] };
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, log:[], count:0 };
   var data = sheet.getDataRange().getValues();
   var log  = [];
   for (var i = 1; i < data.length; i++) {
