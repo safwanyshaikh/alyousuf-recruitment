@@ -1,0 +1,57 @@
+The Candidates screen is showing 0 candidates. The API is working correctly.
+The fix is to update the data fetch in the Candidates page only.
+
+Do these 3 things:
+
+1. Find where the login stores the token after successful login.
+   Change it to use this exact key:
+   localStorage.setItem('kai_session_token', token)
+
+2. In the Candidates page, replace the entire data fetch logic with this:
+
+const GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec";
+
+async function loadCandidates(filters = {}) {
+  setIsLoading(true);
+  setError(null);
+  try {
+    const token = localStorage.getItem('kai_session_token') || '';
+    if (!token) {
+      setError('Not logged in. Please log in again.');
+      setIsLoading(false);
+      return;
+    }
+    const params = new URLSearchParams({
+      action: 'candidates',
+      token: token,
+      page: '1',
+      limit: '100',
+      ...filters,
+    });
+    const url = `${GAS_URL}?${params.toString()}`;
+    const res = await fetch(url, { method: 'GET', redirect: 'follow' });
+    const data = await res.json();
+    if (data.ok && data.records) {
+      setCandidates(data.records);
+      setTotal(data.total || data.records.length);
+    } else {
+      setError(data.error || 'Failed to load candidates');
+    }
+  } catch (err: any) {
+    setError('Connection error: ' + err.message);
+  } finally {
+    setIsLoading(false);
+  }
+}
+
+useEffect(() => {
+  loadCandidates();
+}, []);
+
+3. Make sure the stats bar reads from the candidates array:
+   Total = total (from API response)
+   Shortlisted = candidates.filter(c => c.stage === 'Shortlisted').length
+   Strong Match = candidates.filter(c => c.confidenceTier === 'STRONG').length
+   Deployed = candidates.filter(c => c.stage === 'Deployed').length
+
+Do not change anything else — grid layout, filters, login page are all correct.
