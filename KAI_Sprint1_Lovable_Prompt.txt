@@ -6,11 +6,36 @@ Complete 12-Column Candidate Grid Rebuild
 CONTEXT
 -------
 This is the KAI Recruitment OS dashboard.
-Backend is Google Apps Script (GAS) serving JSON via a URL.
-Data comes from GasDataContext (already wired, already working).
-Do NOT change the login system, auth, or API connection.
-Do NOT touch GasDataContext.tsx or gasApi.ts yet.
-Only rebuild the candidate grid UI.
+Backend is Google Apps Script (GAS) serving JSON via this URL:
+
+  GAS_BRIDGE_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec"
+
+Update gasApi.ts to use this URL for all API calls.
+The API accepts: ?action=candidates&token=TOKEN&page=1&limit=100
+Token comes from the existing login session (localStorage key: kai_session_token).
+
+If GasDataContext and gasApi.ts already exist and are wired:
+  → Keep them, but update the BASE_URL to the URL above.
+  → Update the candidates fetch to pass: page, limit, and any active filters as query params.
+
+If they do not exist, create them as follows:
+
+gasApi.ts:
+  const BASE_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec";
+
+  export async function fetchCandidates(token: string, params?: Record<string,string>) {
+    const q = new URLSearchParams({ action: 'candidates', token, ...params }).toString();
+    const res = await fetch(`${BASE_URL}?${q}`);
+    return res.json();
+  }
+
+  export async function fetchCandidate(token: string, rowIndex: number) {
+    const q = new URLSearchParams({ action: 'candidate', token, rowIndex: String(rowIndex) }).toString();
+    const res = await fetch(`${BASE_URL}?${q}`);
+    return res.json();
+  }
+
+Only rebuild the candidate grid UI (described below).
 
 ================================================================
 TASK
@@ -209,13 +234,32 @@ Show search bar + stage filter chips above cards on mobile.
 DATA SOURCE
 ===========
 
-Read from: useGasData() context (already wired)
-  candidates array → use for the grid
-  isLoading → show skeleton loader while loading
-  error → show error message if present
+API URL:
+  https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec
 
-Do NOT add any new API calls.
-Do NOT modify GasDataContext.
+Call on load:
+  GET ?action=candidates&token={kai_session_token}&page=1&limit=100
+
+Response shape:
+  {
+    ok: true,
+    records: Candidate[],   // array of candidates (see field mapping below)
+    total: number,          // total matching count
+    page: number,
+    limit: number,
+    totalPages: number
+  }
+
+Token: read from localStorage key "kai_session_token"
+If token is missing or null → redirect to login page.
+
+Use React state (useState + useEffect) to:
+  • Store candidates array
+  • Store isLoading boolean
+  • Store error string
+  • Store total count
+  • Show skeleton loader rows while isLoading = true
+  • Show error banner if error is not null
 
 Field mapping from the API response:
   stage             → COL 1
