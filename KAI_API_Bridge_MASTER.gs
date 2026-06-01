@@ -1098,9 +1098,9 @@ function testBridgeEndpoints() {
     Logger.log('SingleCandidate: ' + (single.ok ? 'OK — ' + single.name : 'FAILED — '+single.error));
   }
 
-  // Global search
+  // Global search (returns same shape as getCandidates_ — uses .total)
   var search = globalSearch_({ q: 'welder' });
-  Logger.log('GlobalSearch "welder": ' + (search.ok ? search.count+' results' : 'FAILED — '+search.error));
+  Logger.log('GlobalSearch "welder": ' + (search.ok ? search.total+' results' : 'FAILED — '+search.error));
 
   // Requirements
   var reqs = getRequirementsEnhanced_();
@@ -1114,13 +1114,15 @@ function testBridgeEndpoints() {
   var metrics = getMetrics_();
   Logger.log('Metrics: ' + (metrics.ok ? JSON.stringify(metrics.metrics) : 'FAILED — '+metrics.error));
 
-  // SAC performance
+  // SAC performance (returns { sacPerformance: [...] })
   var sac = getSacPerformance_();
-  Logger.log('SAC Performance: ' + (sac.ok ? sac.count+' records' : 'FAILED — '+sac.error));
+  Logger.log('SAC Performance: ' + (sac.ok ? sac.sacPerformance.length+' source groups' : 'FAILED — '+sac.error));
 
-  // Activity log
-  var actLog = getActivityLog_({ limit: '5' });
-  Logger.log('ActivityLog: ' + (actLog.ok ? actLog.count+' entries' : 'FAILED — '+actLog.error));
+  // Activity log — requires rowIndex or kaiNo; use first candidate's rowIndex
+  if (cands.ok && cands.records && cands.records.length > 0) {
+    var actLog = getActivityLog_({ rowIndex: String(cands.records[0].rowIndex) });
+    Logger.log('ActivityLog: ' + (actLog.ok ? actLog.count+' entries for row '+cands.records[0].rowIndex : 'FAILED — '+actLog.error));
+  }
 
   // Gmail inbox (may need Gmail scope — OK if fails with scope error)
   try {
