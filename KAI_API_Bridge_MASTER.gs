@@ -993,24 +993,80 @@ function uploadCV_(body) {
   var senderEmail = String(body.senderEmail||'').trim();
   var recruiter   = String(body.recruiter  ||'system').trim();
   if (!fileB64) return { ok:false, error:'fileBase64 required' };
+
   try {
-    var bytes  = Utilities.base64Decode(fileB64);
-    var blob   = Utilities.newBlob(bytes, mimeType, fileName);
-    var folder = getOrCreateUploadFolder_();
-    var file   = folder.createFile(blob);
+    // STEP 1 — Save file to Drive
+    var bytes    = Utilities.base64Decode(fileB64);
+    var blob     = Utilities.newBlob(bytes, mimeType, fileName);
+    var folder   = getOrCreateUploadFolder_();
+    var file     = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     var driveUrl = 'https://drive.google.com/file/d/' + file.getId() + '/view';
-    var ss = SpreadsheetApp.openById(SS_ID);
+
+    var ss       = SpreadsheetApp.openById(SS_ID);
     var uploadId = 'UPL-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss');
-    ensureUploadSheet_(ss).appendRow([
+    var uploadSheet   = ensureUploadSheet_(ss);
+
+    // STEP 2 — Log row immediately (status PARSING)
+    uploadSheet.appendRow([
       uploadId, new Date(), fileName, file.getId(), driveUrl,
-      senderName, senderEmail, recruiter, 'PENDING_PARSE', '', '', ''
+      senderName, senderEmail, recruiter, 'PARSING', '', '', ''
     ]);
-    return { ok:true, uploadId:uploadId, driveUrl:driveUrl,
-             status:'PENDING_PARSE',
-             message:'CV uploaded. KAI will parse within the next pipeline run.' };
+    var uploadRowNum = uploadSheet.getLastRow();
+
+    // STEP 3 — Parse CV with Gemini
+    var parsed = parseCV_(fileB64, mimeType, senderName, senderEmail);
+
+    if (!parsed) {
+      // No API key or Gemini failed — keep file in Drive, mark for pipeline
+      uploadSheet.getRange(uploadRowNum, 9).setValue('PENDING_PARSE');
+      uploadSheet.getRange(uploadRowNum, 12).setValue('GEMINI_API_KEY missing or Gemini error');
+      return { ok:true, uploadId:uploadId, driveUrl:driveUrl, status:'PENDING_PARSE',
+               message:'CV saved to Drive. Set GEMINI_API_KEY in Bridge script properties to enable instant parsing.' };
+    }
+
+    // STEP 4 — Generate KI Number
+    var kaiNo = generateKaiNumber_(ss);
+
+    // STEP 5 — Score candidate
+    var scoreResult = computeBasicScore_(parsed);
+
+    // STEP 6 — Write candidate record to Candidates sheet (42 cols)
+    var candidatesSheet = ss.getSheetByName('Candidates');
+    if (!candidatesSheet) throw new Error('Candidates sheet not found');
+    candidatesSheet.appendRow(buildCandidateRow_(parsed, scoreResult, kaiNo, driveUrl, recruiter, senderName, senderEmail));
+    var candidateRowIndex = candidatesSheet.getLastRow();
+
+    // STEP 7 — Update upload log
+    uploadSheet.getRange(uploadRowNum, 9).setValue('PARSED');
+    uploadSheet.getRange(uploadRowNum, 10).setValue(kaiNo);
+    uploadSheet.getRange(uploadRowNum, 11).setValue('Score:' + scoreResult.score + ' | ' + scoreResult.verdict);
+
+    // STEP 8 — Log activity
+    logActivity_(ss, {
+      kaiNo:    kaiNo,
+      rowIndex: candidateRowIndex,
+      action:   'MANUAL_UPLOAD',
+      detail:   'CV uploaded by ' + recruiter + ' — ' + fileName,
+      actor:    recruiter
+    });
+
+    return {
+      ok:               true,
+      uploadId:         uploadId,
+      driveUrl:         driveUrl,
+      kaiNo:            kaiNo,
+      candidateRowIndex:candidateRowIndex,
+      status:           'PARSED',
+      score:            scoreResult.score,
+      verdict:          scoreResult.verdict,
+      name:             String(parsed.name || senderName),
+      trade:            String(parsed.trade || ''),
+      message:          'CV parsed and candidate record created. KI: ' + kaiNo
+    };
+
   } catch(e) {
-    return { ok:false, error:'Upload failed: '+e.message };
+    return { ok:false, error:'Upload failed: ' + e.message };
   }
 }
 
@@ -1031,6 +1087,260 @@ function ensureUploadSheet_(ss) {
     s.setFrozenRows(1);
   }
   return s;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 9B — CV PARSE + CANDIDATE WRITE (Manual Upload Pipeline)
+// ════════════════════════════════════════════════════════════════════
+
+// Calls Gemini to extract structured fields from a CV file.
+// Requires GEMINI_API_KEY in this Bridge project's Script Properties.
+// Returns parsed object or null if key missing / Gemini error.
+var CV_PARSE_PROMPT =
+  'You are a GCC recruitment CV parser for an oil & gas agency.\n' +
+  'Extract all information from the attached CV.\n' +
+  'Return ONLY a valid JSON object — no markdown, no explanation, just JSON.\n' +
+  '{\n' +
+  '  "name": "",\n' +
+  '  "nationality": "",\n' +
+  '  "mobile": "",\n' +
+  '  "email": "",\n' +
+  '  "dob": "",\n' +
+  '  "age": 0,\n' +
+  '  "education": "",\n' +
+  '  "positionApplied": "",\n' +
+  '  "trade": "",\n' +
+  '  "industry": "",\n' +
+  '  "experience": 0,\n' +
+  '  "gulfExp": "",\n' +
+  '  "currentLocation": "",\n' +
+  '  "empStatus": "",\n' +
+  '  "noticeDays": 0,\n' +
+  '  "top3Positions": "",\n' +
+  '  "passportNo": "",\n' +
+  '  "passportExpiry": "",\n' +
+  '  "ecrStatus": "",\n' +
+  '  "kaiAssessment": "",\n' +
+  '  "recruiterAction": "",\n' +
+  '  "recommendedRoles": "",\n' +
+  '  "missingFields": ""\n' +
+  '}\n\n' +
+  'Rules:\n' +
+  '- experience: total years as a decimal number (e.g. 8.5)\n' +
+  '- gulfExp: all GCC/Gulf experience — countries, companies, duration, current or past\n' +
+  '- trade: primary technical trade (e.g. "Welder", "QC Inspector", "Pipe Fitter", "Safety Officer")\n' +
+  '- industry: e.g. "Oil & Gas", "Construction", "Petrochemical"\n' +
+  '- positionApplied: the most recent or most senior role held\n' +
+  '- top3Positions: up to 3 roles this candidate qualifies for, comma-separated\n' +
+  '- passportNo: one capital letter + 7 digits (Indian format, e.g. A1234567)\n' +
+  '- passportExpiry: yyyy-MM-dd format, or empty string\n' +
+  '- ecrStatus: "ECNR" if stamp mentioned, otherwise "ECR" for Indian nationals\n' +
+  '- kaiAssessment: 2–3 sentences: strengths, GCC suitability, concerns\n' +
+  '- recruiterAction: specific next action for the recruiter\n' +
+  '- missingFields: comma-separated list of fields not found in the CV\n';
+
+function parseCV_(fileB64, mimeType, senderName, senderEmail) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return null;
+
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+            'gemini-2.5-flash-lite:generateContent?key=' + apiKey;
+
+  // Build parts: attach file first, then prompt
+  var parts = [];
+  var approxBytes = fileB64.length * 0.75;
+  var supported   = (mimeType === 'application/pdf' ||
+                     mimeType.indexOf('image/') === 0);
+
+  if (supported && approxBytes < 15 * 1024 * 1024) {
+    parts.push({ inline_data: { mime_type: mimeType, data: fileB64 } });
+  }
+  parts.push({ text: CV_PARSE_PROMPT });
+
+  var payload = {
+    contents: [{ parts: parts }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
+  };
+
+  var options = {
+    method:          'post',
+    contentType:     'application/json',
+    payload:         JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var result   = JSON.parse(response.getContentText());
+
+    if (!result.candidates || !result.candidates[0]) {
+      Logger.log('parseCV_: Gemini returned no candidates — ' +
+                 response.getContentText().slice(0, 300));
+      return null;
+    }
+
+    var text = String(result.candidates[0].content.parts[0].text || '');
+    text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+    var parsed = JSON.parse(text);
+
+    // Fallbacks from sender metadata
+    if (!parsed.name  && senderName)  parsed.name  = senderName;
+    if (!parsed.email && senderEmail) parsed.email = senderEmail;
+
+    return parsed;
+  } catch(e) {
+    Logger.log('parseCV_ error: ' + e.message);
+    return null;
+  }
+}
+
+// Read col 25 (kaiNo) to find the current max, then increment.
+// Safe to use alongside the main pipeline because it reads the sheet,
+// not a separate counter — both will see each other's records.
+function generateKaiNumber_(ss) {
+  var sheet  = ss.getSheetByName('Candidates');
+  var year   = new Date().getFullYear();
+  var prefix = 'AYE-KAI-' + year + '-';
+
+  if (!sheet || sheet.getLastRow() < 2) return prefix + '000001';
+
+  var lr   = sheet.getLastRow() - 1;
+  var data = sheet.getRange(2, 25, lr, 1).getValues();
+  var max  = 0;
+
+  data.forEach(function(row) {
+    var val = String(row[0]||'').trim();
+    if (!val) return;
+    var m = val.match(/AYE-KAI-\d{4}-(\d+)/);
+    if (m) {
+      var num = parseInt(m[1]);
+      if (num > max) max = num;
+    }
+  });
+
+  return prefix + String(max + 1).padStart(6, '0');
+}
+
+// Simplified scoring for manually uploaded CVs.
+// Mirrors the spirit of Code.gs scoring without replicating its full engine.
+function computeBasicScore_(parsed) {
+  var score  = 0;
+  var exp    = parseFloat(parsed.experience) || 0;
+  var gulf   = String(parsed.gulfExp || '').trim().toLowerCase();
+  var hasGulf = gulf.length > 3 && gulf !== 'na' && gulf !== 'nil' && gulf !== 'none';
+  var isCurrentGulf = hasGulf && /current|present|working|employed|ongoing|till date|till now/i.test(parsed.gulfExp||'');
+
+  // Experience (max 30)
+  if      (exp >= 10) score += 30;
+  else if (exp >= 5)  score += 22;
+  else if (exp >= 2)  score += 12;
+  else if (exp >= 1)  score += 5;
+
+  // Gulf experience (max 25)
+  if      (isCurrentGulf) score += 25;
+  else if (hasGulf)        score += 15;
+
+  // Trade + position clarity (max 20)
+  if (parsed.trade            && parsed.trade.length > 2)            score += 10;
+  if (parsed.positionApplied  && parsed.positionApplied.length > 2)  score += 10;
+
+  // Contact completeness (max 10)
+  if (parsed.mobile && parsed.mobile.length > 5) score += 5;
+  if (parsed.email  && parsed.email.length  > 5) score += 5;
+
+  // Education (max 10)
+  if (parsed.education && parsed.education.length > 2) score += 10;
+
+  // KAI assessment quality (max 5)
+  if (parsed.kaiAssessment && parsed.kaiAssessment.length > 50) score += 5;
+
+  score = Math.min(100, score);
+
+  var verdict;
+  if      (score >= 75) verdict = 'SHORTLISTED';
+  else if (score >= 60) verdict = 'NEEDS_REVIEW';
+  else                  verdict = 'NEEDS_CALL';
+
+  return { score: score, verdict: verdict };
+}
+
+// Builds a 42-column array matching the Candidates sheet COL map exactly.
+function buildCandidateRow_(parsed, scoreResult, kaiNo, driveUrl, recruiter, senderName, senderEmail) {
+  var now = new Date();
+  var edu = parseEducation_(String(parsed.education || ''));
+
+  var age = parseInt(parsed.age) || 0;
+  if (!age && parsed.dob) {
+    try {
+      var dob = new Date(parsed.dob);
+      if (!isNaN(dob)) {
+        var computed = Math.floor((now - dob) / (365.25 * 24 * 60 * 60 * 1000));
+        if (computed >= 15 && computed <= 80) age = computed;
+      }
+    } catch(e) {}
+  }
+
+  // Passport expiry as Date object (or blank)
+  var ppExp = '';
+  if (parsed.passportExpiry) {
+    try {
+      var d = new Date(parsed.passportExpiry);
+      if (!isNaN(d)) ppExp = d;
+    } catch(e) {}
+  }
+
+  var row = new Array(42).fill('');
+
+  // ── Cols 1-24 (standard schema) ──────────────────────────────────
+  row[0]  = 'Pending action';                                             // Stage
+  row[1]  = now;                                                          // Application Date
+  row[2]  = String(parsed.nationality        || '').trim();               // Nationality
+  row[3]  = String(parsed.name || senderName || '').trim();               // Name
+  row[4]  = String(parsed.mobile             || '').replace(/^'/,'').trim(); // Mobile
+  row[5]  = String(parsed.email || senderEmail || '').trim();             // Email
+  row[6]  = String(parsed.education          || '').trim();               // Education
+  row[7]  = String(parsed.positionApplied    || '').trim();               // Position Applied
+  row[8]  = String(parsed.trade              || '').trim();               // Trade
+  row[9]  = String(parsed.industry           || '').trim();               // Industry
+  row[10] = parseFloat(parsed.experience)    || 0;                        // Experience
+  row[11] = String(parsed.gulfExp            || '').trim();               // Gulf Experience
+  row[12] = String(parsed.dob               || '').trim();               // Date of Birth
+  row[13] = age;                                                          // Age
+  row[14] = scoreResult.verdict;                                          // Verdict
+  row[15] = 'MANUAL_UPLOAD';                                             // FLAGS
+  row[16] = scoreResult.score;                                            // Score
+  row[17] = '';                                                           // Score Breakdown
+  row[18] = String(parsed.recommendedRoles  || '').trim();               // Recommended Roles
+  row[19] = String(parsed.kaiAssessment     || '').trim();               // KAI Assessment
+  row[20] = String(parsed.recruiterAction   || '').trim();               // Recruiter Action
+  row[21] = driveUrl;                                                     // CV Link
+  row[22] = 'Uploaded by: ' + recruiter;                                  // Notes
+  row[23] = '';                                                           // _Active (blank = active)
+
+  // ── Cols 25-38 (extCol v2) ────────────────────────────────────────
+  row[24] = kaiNo;                                                        // KAI No
+  row[25] = String(parsed.currentLocation   || '').trim();               // Current Location
+  row[26] = String(parsed.empStatus         || '').trim();               // Employment Status
+  row[27] = '';                                                           // Candidate State
+  row[28] = '';                                                           // Mobility
+  row[29] = ppExp;                                                        // Passport Expiry
+  row[30] = String(parsed.ecrStatus         || '').trim();               // ECR Status
+  row[31] = parseInt(parsed.noticeDays)     || 0;                        // Notice Days
+  row[32] = '';                                                           // Medical Status
+  row[33] = 0;                                                            // Deploy Score
+  row[34] = String(parsed.missingFields     || '').trim();               // Missing Fields
+  row[35] = '';                                                           // Last Contact
+  row[36] = '';                                                           // Req Match
+  row[37] = '';                                                           // Timeline
+
+  // ── Cols 39-42 (extCol2 v282) ─────────────────────────────────────
+  row[38] = edu.level;                                                    // Education Enum
+  row[39] = '';                                                           // Tech Review
+  row[40] = recruiter;                                                    // Reviewed By
+  row[41] = String(parsed.top3Positions     || '').trim();               // Top 3 Positions
+
+  return row;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1551,4 +1861,48 @@ function testBridgeEndpoints() {
   }
 
   Logger.log('=== Test complete ===');
+}
+
+// ── TEST: Upload CV parse pipeline ───────────────────────────────────
+// Run this standalone to verify the manual upload → parse → candidate flow.
+// Uses a tiny 1x1 white PNG as the "CV" so no real file is needed.
+function testUploadCV_() {
+  Logger.log('=== testUploadCV_ ===');
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) {
+    Logger.log('STOP: GEMINI_API_KEY not set. Add it to Bridge Script Properties first.');
+    Logger.log('  Project Settings → Script Properties → Add: GEMINI_API_KEY = AIzaSy...');
+    return;
+  }
+  Logger.log('GEMINI_API_KEY: found (length ' + apiKey.length + ')');
+
+  // Test generateKaiNumber_
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var kaiNo = generateKaiNumber_(ss);
+  Logger.log('Next KAI No would be: ' + kaiNo);
+
+  // Test parseCV_ with a minimal text prompt (no file attached)
+  // We pass empty fileB64 so the inline_data part is skipped;
+  // Gemini will return a placeholder parse from the prompt alone.
+  var sampleText = 'Name: Test Candidate\nNationality: Indian\n' +
+                   'Trade: Pipe Fitter\nExperience: 8 years\n' +
+                   'Gulf Experience: 5 years in Saudi Arabia (SABIC, current)\n' +
+                   'Mobile: 9876543210\nEmail: test@example.com';
+
+  // Encode sample text as a PDF mime (Gemini will treat as text if can't decode)
+  var fakeB64 = Utilities.base64Encode(sampleText);
+  var parsed  = parseCV_(fakeB64, 'text/plain', 'Test Candidate', 'test@example.com');
+
+  if (!parsed) {
+    Logger.log('parseCV_: returned null — check GEMINI_API_KEY validity and quota');
+    return;
+  }
+  Logger.log('parseCV_: OK');
+  Logger.log('  name:       ' + parsed.name);
+  Logger.log('  trade:      ' + parsed.trade);
+  Logger.log('  experience: ' + parsed.experience);
+  Logger.log('  verdict:    ' + computeBasicScore_(parsed).verdict);
+  Logger.log('  score:      ' + computeBasicScore_(parsed).score);
+  Logger.log('=== testUploadCV_ complete ===');
 }
