@@ -1886,7 +1886,8 @@ function extractEmailFromHeader_(h) {
 
 var SLOTS_HEADERS = [
   'SlotId','ReqId','KaiNo','RowIndex','CandidateName','Trade',
-  'SourceOwner','AddedBy','AddedAt','SlotStatus','Notes','UpdatedAt'
+  'SourceOwner','AddedBy','AddedAt','SlotStatus','Notes','UpdatedAt',
+  'BatchNo','SrNo','RecruiterRemark','ClientRemark','SubmissionDate'
 ];
 
 function ensureSlotsSheet_(ss) {
@@ -1897,6 +1898,15 @@ function ensureSlotsSheet_(ss) {
     s.getRange(1,1,1,SLOTS_HEADERS.length)
      .setFontWeight('bold').setBackground('#1F4E79').setFontColor('#FFFFFF');
     s.setFrozenRows(1);
+  } else {
+    // Migrate: add missing columns if sheet was created before this version
+    var existingCols = s.getLastColumn();
+    if (existingCols < SLOTS_HEADERS.length) {
+      for (var c = existingCols + 1; c <= SLOTS_HEADERS.length; c++) {
+        s.getRange(1, c).setValue(SLOTS_HEADERS[c-1])
+         .setFontWeight('bold').setBackground('#1F4E79').setFontColor('#FFFFFF');
+      }
+    }
   }
   return s;
 }
@@ -1927,18 +1937,23 @@ function getCandidateSlots_(params) {
                 (rowIndex && parseInt(row[3]) === rowIndex);
     if (!match) continue;
     slots.push({
-      slotId:        String(row[0]),
-      reqId:         String(row[1]),
-      kaiNo:         String(row[2]),
-      rowIndex:      parseInt(row[3])||0,
-      candidateName: String(row[4]),
-      trade:         String(row[5]),
-      sourceOwner:   String(row[6]),
-      addedBy:       String(row[7]),
-      addedAt:       String(row[8]),
-      slotStatus:    String(row[9]),
-      notes:         String(row[10]),
-      updatedAt:     String(row[11]),
+      slotId:          String(row[0]),
+      reqId:           String(row[1]),
+      kaiNo:           String(row[2]),
+      rowIndex:        parseInt(row[3])||0,
+      candidateName:   String(row[4]),
+      trade:           String(row[5]),
+      sourceOwner:     String(row[6]),
+      addedBy:         String(row[7]),
+      addedAt:         String(row[8]),
+      slotStatus:      String(row[9]),
+      notes:           String(row[10]),
+      updatedAt:       String(row[11]),
+      batchNo:         String(row[12]||'1'),
+      srNo:            parseInt(row[13])||0,
+      recruiterRemark: String(row[14]||''),
+      clientRemark:    String(row[15]||''),
+      submissionDate:  String(row[16]||''),
     });
   }
   return { ok:true, slots:slots, count:slots.length };
@@ -1971,7 +1986,17 @@ function addCandidateToSlot_(body) {
                '-' + String(Math.floor(Math.random()*900)+100);
   var now    = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm');
 
-  ensureSlotsSheet_(ss).appendRow([
+  // Auto-assign SrNo: count existing active slots for this reqId
+  var sheet = ensureSlotsSheet_(ss);
+  var srNo  = 1;
+  if (sheet.getLastRow() > 1) {
+    var eRows = sheet.getDataRange().getValues();
+    for (var j = 1; j < eRows.length; j++) {
+      if (String(eRows[j][1]) === reqId && String(eRows[j][9]) !== 'REJECTED') srNo++;
+    }
+  }
+
+  sheet.appendRow([
     slotId,
     reqId,
     kaiNo,
@@ -1983,7 +2008,12 @@ function addCandidateToSlot_(body) {
     now,
     'ADDED',
     String(body.notes         ||'').trim(),
-    now
+    now,
+    String(body.batchNo       ||'1').trim(),
+    srNo,
+    '',  // recruiterRemark
+    '',  // clientRemark
+    ''   // submissionDate
   ]);
 
   logActivity_(ss, {
@@ -1997,14 +2027,21 @@ function addCandidateToSlot_(body) {
   return { ok:true, slotId:slotId, reqId:reqId, kaiNo:kaiNo||('ROW:'+rowIndex) };
 }
 
-// POST body: { action:'updateSlot', token, slotId, newStatus, notes, actor }
-// Valid newStatus: ADDED | SHORTLISTED | SUBMITTED | INTERVIEWED | SELECTED | REJECTED | DEPLOYED
+// POST body: { action:'updateSlot', token, slotId, actor,
+//   newStatus?,        — optional: ADDED|SHORTLISTED|SUBMITTED|INTERVIEWED|SELECTED|REJECTED|DEPLOYED
+//   recruiterRemark?,  — optional: free text recruiter internal note
+//   clientRemark?,     — optional: free text for client
+//   notes?             — optional: general notes (legacy)
+// }
+// Any combination of the optional fields can be sent in one call.
 function updateSlotStatus_(body) {
   var slotId    = String(body.slotId    ||'').trim();
-  var newStatus = String(body.newStatus ||'').trim().toUpperCase();
   var actor     = String(body.actor     ||'system').trim();
-  if (!slotId)                                        return { ok:false, error:'slotId required' };
-  if (VALID_SLOT_STATUSES.indexOf(newStatus) < 0)     return { ok:false, error:'Invalid status: '+newStatus };
+  if (!slotId) return { ok:false, error:'slotId required' };
+
+  var newStatus = body.newStatus ? String(body.newStatus).trim().toUpperCase() : '';
+  if (newStatus && VALID_SLOT_STATUSES.indexOf(newStatus) < 0)
+    return { ok:false, error:'Invalid status: '+newStatus };
 
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('_CandidateSlots');
@@ -2015,19 +2052,33 @@ function updateSlotStatus_(body) {
     if (String(data[i][0]).trim() !== slotId) continue;
     var r    = i + 1;
     var prev = String(data[i][9]);
-    sheet.getRange(r, 10).setValue(newStatus);
-    if (body.notes) sheet.getRange(r, 11).setValue(String(body.notes));
-    sheet.getRange(r, 12).setValue(Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm'));
+    var now  = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm');
 
+    if (newStatus) {
+      sheet.getRange(r, 10).setValue(newStatus);
+      // Set SubmissionDate when first moved to SUBMITTED
+      if (newStatus === 'SUBMITTED' && !String(data[i][16]||'').trim()) {
+        sheet.getRange(r, 17).setValue(now);
+      }
+    }
+    if (body.notes           !== undefined) sheet.getRange(r, 11).setValue(String(body.notes));
+    if (body.recruiterRemark !== undefined) sheet.getRange(r, 15).setValue(String(body.recruiterRemark));
+    if (body.clientRemark    !== undefined) sheet.getRange(r, 16).setValue(String(body.clientRemark));
+    sheet.getRange(r, 12).setValue(now);
+
+    var logDetail = newStatus ? (prev + ' → ' + newStatus) : 'REMARKS_UPDATE';
     logActivity_(ss, {
       kaiNo:    String(data[i][2]),
       rowIndex: parseInt(data[i][3])||0,
-      action:   'SLOT_STATUS',
-      detail:   prev + ' → ' + newStatus + ' | Req: ' + data[i][1],
+      action:   newStatus ? 'SLOT_STATUS' : 'SLOT_REMARK',
+      detail:   logDetail + ' | Req: ' + data[i][1],
       actor:    actor
     });
 
-    return { ok:true, slotId:slotId, prevStatus:prev, newStatus:newStatus };
+    return { ok:true, slotId:slotId, prevStatus:prev,
+             newStatus: newStatus || prev,
+             recruiterRemark: body.recruiterRemark !== undefined ? String(body.recruiterRemark) : String(data[i][14]||''),
+             clientRemark:    body.clientRemark    !== undefined ? String(body.clientRemark)    : String(data[i][15]||'') };
   }
   return { ok:false, error:'Slot not found: '+slotId };
 }

@@ -1,76 +1,64 @@
-KAI RECRUITMENT OS — TASK 07: Submission List
+KAI RECRUITMENT OS — TASK 07: Submission List (P1)
 ═══════════════════════════════════════════════════════════════════════════════
 
 OBJECTIVE
 ─────────
-Build one new screen: Requirement Submission List.
+Build one screen: Requirement Submission List.
 
-A recruiter must be able to:
-  1. Open a requirement
-  2. See all candidates assigned to it
-  3. Change each candidate's status
-  4. Remove a candidate from the list
-  5. Open a candidate's drawer from within the list
+Recruiter workflow this screen must complete:
 
-No PDF. No Excel. No email. No export. Prove the list works first.
+  Create Requirement → Match Candidate → Assign Candidate
+  → Open Submission List → Update Recruiter Remark
+  → Update Client Remark → Update Status → Save
 
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART A — ENTRY POINT: "View Submission List" button on Requirements screen
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-On the Requirements screen (Campaigns page), each requirement row has an
-action menu. Add one new action:
-
-  [View Submission List]
-
-Clicking it navigates to the Submission List screen for that requirement,
-passing the reqId.
-
-Also add a counter badge on each requirement row showing how many candidates
-are currently assigned (slot status ≠ REJECTED):
-  "12 assigned"
+No PDF. No Excel. No email. No export. Build only this list.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART B — ASSIGN CANDIDATE button (wire up existing GAS endpoint)
+PART A — ASSIGN BUTTON on Matching Screen
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-In the Matching screen (where STRONG / GOOD / POSSIBLE candidates are shown
-for a requirement), each candidate card/row must have an:
+On the Matching screen (where STRONG / GOOD / POSSIBLE candidates show),
+each candidate row/card must have an [+ Assign] button.
 
-  [+ Assign] button
+On click:
+  - Confirm dialog: "Assign [Name] to [Requirement Name]?"
+  - POST to GAS:
 
-When clicked:
-  - Show a confirm dialog: "Assign [Name] to [Requirement Name]?"
-  - On confirm: POST to GAS (see API spec below)
-  - On success: button changes to "✓ Assigned" (disabled), show toast
-    "Candidate added to submission list"
-  - On error "already added": show "Already assigned" (disabled)
-  - On any other error: show error toast, keep button active
-
-POST spec:
-  const res = await fetch(GAS_URL, {
-    method: 'POST',
-    redirect: 'follow',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({
-      action: 'addSlot',
-      token: sessionToken,
-      reqId: requirement.reqId,
-      kaiNo: candidate.kaiNo,
-      rowIndex: candidate.rowIndex,
-      candidateName: candidate.name,
-      trade: candidate.trade,
-      sourceOwner: candidate.gccMobility || '',
-      addedBy: currentUser.email || 'recruiter',
-      notes: ''
+    fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'addSlot',
+        token: sessionToken,
+        reqId: requirement.reqId,
+        kaiNo: candidate.kaiNo,
+        rowIndex: candidate.rowIndex,
+        candidateName: candidate.name,
+        trade: candidate.trade,
+        sourceOwner: candidate.gccMobility || '',
+        addedBy: currentUser.email || 'recruiter',
+        batchNo: '1'
+      })
     })
-  });
 
-When a recruiter is on the Submission List screen and wants to add more
-candidates, show a button: [+ Add Candidates] → navigates back to the
-matching screen for this requirement.
+  - Success → button becomes "✓ Assigned" (disabled, grey)
+  - Error "already added" → button becomes "Already Assigned" (disabled)
+  - Other error → toast, keep button active
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART B — ENTRY POINT on Requirements Screen
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On each requirement row, add action: [View Submission List]
+Clicking navigates to the Submission List screen passing reqId.
+
+Show a badge on each requirement row: "X assigned"
+Count = slots where status ≠ REJECTED for that reqId.
+(Fetch this from the existing requirements response — the field is
+already returned as matchCounts or fetch separately if not available.)
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -79,230 +67,266 @@ PART C — SUBMISSION LIST SCREEN
 
 HEADER
 ──────
-Show requirement details at the top:
-
   ← Back to Requirements
 
-  [Client Name]
-  [Requirement Title / Trade]          [Counters row]
-  [Deploy Country] · [Qty] positions
+  [Client Name]  ·  [Project / Trade]          [4 counter chips]
+  [Deploy Country]  ·  Qty: [N]
 
-Counters row (4 chips):
-  Assigned [n]   Shortlisted [n]   Submitted [n]   Selected [n]
+Counter chips (recompute on every status change):
+  Assigned [n]  •  Shortlisted [n]  •  Submitted [n]  •  Selected [n]
 
-Count logic:
-  Assigned    = slots where status is ADDED
-  Shortlisted = slots where status is SHORTLISTED
-  Submitted   = slots where status is SUBMITTED
-  Selected    = slots where status is SELECTED
-  (REJECTED slots are hidden from the list by default)
+  Assigned    = slotStatus = ADDED
+  Shortlisted = slotStatus = SHORTLISTED
+  Submitted   = slotStatus = SUBMITTED
+  Selected    = slotStatus = SELECTED
+  (REJECTED hidden by default)
 
 
 DATA FETCH
 ──────────
-On mount, fetch:
+Step 1 — fetch slots:
+  GET {GAS_URL}?action=slots&reqId={reqId}&token={token}
 
-  GET {GAS_URL}?action=slots&reqId={reqId}&token={sessionToken}
+  Response: { ok:true, slots:[...], count:N }
 
-Response:
-  { ok: true, slots: [...], count: N }
+  Each slot:
+    slotId, reqId, kaiNo, rowIndex, candidateName, trade,
+    addedBy, addedAt, slotStatus, notes, updatedAt,
+    batchNo, srNo, recruiterRemark, clientRemark, submissionDate
 
-Each slot object:
-  {
-    slotId, reqId, kaiNo, rowIndex,
-    candidateName, trade, sourceOwner,
-    addedBy, addedAt, slotStatus, notes, updatedAt
-  }
+Step 2 — for each slot, fetch candidate details in parallel:
+  GET {GAS_URL}?action=candidate&rowIndex={slot.rowIndex}&token={token}
 
-After fetching slots, fetch full candidate details for each slot in parallel:
+  Merge into slot row: nationality, age, experience, gulfExp,
+  education, positionApplied, mobile, email, passportNo,
+  currentLocation, kaiSnippet, score
 
-  GET {GAS_URL}?action=candidate&rowIndex={slot.rowIndex}&token={sessionToken}
-
-Use rowIndex from the slot. Merge the candidate data (nationality, age,
-experience, score, kaiSnippet) with the slot data for display.
-
-If the candidate fetch fails for any row, show the slot data only (name,
-trade from slot) — do not fail the whole list.
+  If candidate fetch fails → show slot data only (name, trade from slot).
+  Do NOT fail the whole list.
 
 
-TABLE COLUMNS
-─────────────
-Show a table with these columns:
-
-  Status      | Name / Nationality | Age | Experience | Trade | Assessment | Assigned | Actions
+GRID COLUMNS (in order)
+────────────────────────
+  Batch  |  Sr  |  Status  |  Name / Nationality  |  AYE Ref  |
+  Passport No  |  Position Applied  |  Education  |
+  Total Exp  |  Gulf Exp  |  Location  |
+  AYE Assessment  |  Recruiter Remark  |  Client Remark  |
+  Submission Date  |  Last Updated  |  Actions
 
 Column details:
 
+  Batch:
+    slot.batchNo (default "1")
+
+  Sr:
+    slot.srNo (auto-assigned by GAS on addSlot)
+
   Status:
-    A coloured badge showing the slot status:
+    Coloured badge:
       ADDED        → grey    "Added"
       SHORTLISTED  → blue    "Shortlisted"
       SUBMITTED    → amber   "Submitted"
       SELECTED     → green   "Selected"
-      REJECTED     → red     "Removed"  ← only shown if "Show Removed" is toggled on
+      REJECTED     → red     "Removed"  (only if Show Removed toggle is ON)
 
   Name / Nationality:
-    Line 1 (bold):  candidateName
-    Line 2 (muted): nationality | age + "y"
-    (same format as Candidates grid — skip blank segments, no dashes)
+    Line 1 bold:  slot.candidateName
+    Line 2 muted: nationality | age+"y"  (skip blanks, no dashes)
 
-  Age: from candidate.age (fetched separately)
+  AYE Ref:
+    slot.kaiNo  (show as-is, e.g. AYE-KAI-2026-005933)
 
-  Experience: candidate.experience + "y exp"
+  Passport No:
+    candidate.passportNo (from candidate fetch)
+    Show "—" if blank
 
-  Trade: slot.trade (from slot, always available even if candidate fetch fails)
+  Position Applied:
+    candidate.positionApplied
+    Show "—" if blank
 
-  Assessment:
-    candidate.score + "%" + confidence tier label
-    e.g. "72% Good Match"
-    If score unavailable, show "—"
+  Education:
+    candidate.educationLevel + " " + candidate.educationSubject
+    Truncate to 40 chars
 
-  Assigned:
-    slot.addedAt formatted as "02 Jun 2026"
+  Total Exp:
+    candidate.experience + "y"
+
+  Gulf Exp:
+    candidate.gulfExp (raw text, truncate to 30 chars)
+    Show "—" if blank
+
+  Location:
+    candidate.currentLocation
+    Show "—" if blank
+
+  AYE Assessment:
+    candidate.kaiSnippet (first 100 chars)
+    Show "—" if blank
+
+  Recruiter Remark:
+    Editable inline text field (see edit spec below)
+    Shows slot.recruiterRemark
+    Placeholder: "Add remark..."
+
+  Client Remark:
+    Editable inline text field (see edit spec below)
+    Shows slot.clientRemark
+    Placeholder: "Add client remark..."
+
+  Submission Date:
+    slot.submissionDate
+    Set automatically by GAS when status changes to SUBMITTED
+    Show "—" if blank
+
+  Last Updated:
+    slot.updatedAt formatted as "02 Jun 2026 14:30"
 
   Actions:
-    Three icon buttons in a row:
-      👁  Open Candidate (opens the existing 5-tab drawer)
-      ↕  Change Status  (opens status dropdown — see below)
-      ✕  Remove         (see remove spec below)
+    [👁 Open]  [↕ Status]  [✕ Remove]
+
+
+INLINE REMARK EDITING
+─────────────────────
+Recruiter Remark and Client Remark fields are editable inline in the table.
+
+Behaviour:
+  - Click the field → becomes an input/textarea
+  - Type remark
+  - Press Enter or click away → auto-save
+
+  POST on save:
+    fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'updateSlot',
+        token: sessionToken,
+        slotId: slot.slotId,
+        recruiterRemark: newValue,   // for recruiter remark field
+        // OR
+        clientRemark: newValue,      // for client remark field
+        actor: currentUser.email
+      })
+    })
+
+  On success: update the cell value in state, show brief "Saved ✓" indicator
+  On error: revert to previous value, show error toast
 
 
 CHANGE STATUS
 ─────────────
-Clicking the ↕ icon opens a small dropdown/popover inline:
-
+Clicking ↕ opens an inline dropdown:
   ○ Added
   ○ Shortlisted
   ○ Submitted
   ○ Selected
   ○ Rejected
 
-Current status is pre-selected.
+Current status pre-selected.
 
-On select:
-  POST to GAS:
-    {
-      action: 'updateSlot',
-      token: sessionToken,
-      slotId: slot.slotId,
-      newStatus: selectedStatus,
-      actor: currentUser.email || 'recruiter',
-      notes: ''
-    }
+POST on select:
+  body: { action:'updateSlot', token, slotId, newStatus:'SHORTLISTED', actor }
 
-  Use: fetch(GAS_URL, { method:'POST', redirect:'follow',
-         headers:{'Content-Type':'text/plain;charset=utf-8'},
-         body: JSON.stringify({...}) })
-
-  On success: update the row status badge immediately (optimistic update).
-              Re-compute the 4 counter chips.
-  On error:   revert the badge, show error toast.
+On success:
+  - Update badge immediately
+  - Recompute counter chips
+On error:
+  - Revert badge
+  - Show error toast
 
 
 REMOVE CANDIDATE
 ────────────────
-Clicking ✕ shows a confirm dialog:
-  "Remove [Name] from this requirement?"
-  [Cancel] [Remove]
+Clicking ✕:
+  Confirm dialog: "Remove [Name] from this requirement?"
+  [Cancel]  [Remove]
 
-On confirm: POST updateSlot with newStatus = 'REJECTED'
+On confirm:
+  POST: { action:'updateSlot', token, slotId, newStatus:'REJECTED', actor }
 
 On success:
-  - Hide the row (or show as "Removed" if "Show Removed" toggle is ON)
-  - Re-compute counters
-  - Show toast: "Candidate removed"
+  - Hide row (or show as red "Removed" if Show Removed toggle is ON)
+  - Recompute counters
+  - Toast: "Candidate removed"
 
-Do NOT hard delete. Use REJECTED status as archive.
+"Show Removed" toggle — top right of table, default OFF.
+When ON: show REJECTED rows with red badge. No action buttons on removed rows.
 
-"Show Removed" toggle:
-  A toggle at the top-right of the table: "Show Removed"
-  Default: OFF (REJECTED rows hidden)
-  When ON: show REJECTED rows with red "Removed" badge, no action buttons
+
+OPEN CANDIDATE
+──────────────
+Clicking 👁 opens the existing 5-tab candidate drawer as an overlay.
+Pass candidate.rowIndex to the drawer.
 
 
 EMPTY STATE
 ───────────
-If no slots exist yet:
-
-  [Icon]
+  [icon]
   No candidates assigned yet.
   [+ Add Candidates →]
 
-Button navigates to the matching screen for this requirement.
+Button navigates to Matching screen for this requirement.
 
 
-LOADING STATE
-─────────────
-Show a skeleton table (3–4 rows) while slots are loading.
-Show individual row loading spinners while candidate details are being fetched.
-Do not block the whole table — show slots immediately, fill in candidate
-details as they arrive.
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART D — NAVIGATION FLOW
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Requirements list
-  → [View Submission List] on a row
-    → Submission List screen (reqId in URL or state)
-      → [Open Candidate] → existing 5-tab candidate drawer (overlay)
-      → [+ Add Candidates] → Matching screen for this reqId
-        → [+ Assign] on a candidate → addSlot → back button returns to list
+LOADING
+───────
+Show skeleton rows while slots load.
+Show per-row spinner while candidate details load.
+Table appears immediately with slot data; candidate columns fill in as fetched.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SUCCESS TEST (verify before marking complete)
+SUCCESS TEST — verify all 8 steps before marking complete
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. Open Requirements → find NMDC requirement → click [View Submission List]
+1. Open Requirements → pick any requirement → click [View Submission List]
 2. Empty state shows → click [+ Add Candidates]
-3. Matching screen opens → assign 3 candidates using [+ Assign]
-4. Navigate back to Submission List → all 3 candidates appear, status = Added
-5. Change one candidate to Shortlisted → badge updates, counter updates
-6. Change one to Submitted → counter updates
-7. Remove one candidate → row disappears, counter updates
-8. Toggle "Show Removed" → removed candidate reappears in red
-9. Click [Open Candidate] on any row → 5-tab drawer opens
-10. Refresh the page → all changes persist (data is in GAS, not localStorage)
+3. Matching screen opens → assign 3 candidates via [+ Assign]
+4. Navigate to Submission List → all 3 appear, status = Added
+5. Click Recruiter Remark on row 1 → type text → press Enter → "Saved ✓"
+6. Refresh page → remark persists
+7. Click Client Remark on row 2 → type text → save → persists on refresh
+8. Change row 1 status to Shortlisted → badge updates, counter updates
+9. Change row 2 status to Submitted → Submission Date column fills in
+10. Remove row 3 → row disappears, counter updates
+11. Toggle "Show Removed" → removed candidate reappears in red
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DO NOT BUILD
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-- PDF export
-- Excel export
-- Email to client
-- WhatsApp share
-- Print view
-- Bulk select / bulk status change
-- Candidate ranking within list
-- Comments thread per candidate
-
-Build the list. Prove it works. Everything else comes after recruiters use it.
+PDF · Excel · Email · WhatsApp · Print · Bulk actions · Comments thread
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 API REFERENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
-Token:   localStorage.getItem('kai_session_token')
+GAS URL:
+  https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
 
-All POST calls:
-  fetch(GAS_URL, {
-    method: 'POST',
-    redirect: 'follow',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: '...', token: '...', ...fields })
-  })
+Token:
+  localStorage.getItem('kai_session_token')
 
-Endpoints used by this screen:
-  GET  action=slots&reqId=          → list of slots for a requirement
-  GET  action=candidate&rowIndex=   → full candidate profile
-  POST action=addSlot               → assign candidate to requirement
-  POST action=updateSlot            → change slot status (or remove = REJECTED)
+All POST calls MUST use:
+  method: 'POST'
+  redirect: 'follow'
+  headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+  body: JSON.stringify({...})
 
-Slot statuses (exact strings, uppercase):
-  ADDED  SHORTLISTED  SUBMITTED  SELECTED  REJECTED
+Endpoints this screen uses:
+  GET  action=slots&reqId=         → list of slots for a requirement
+  GET  action=candidate&rowIndex=  → full candidate profile (per slot)
+  POST action=addSlot              → assign candidate
+  POST action=updateSlot           → change status OR update remarks OR both
+
+updateSlot accepts any combination:
+  { action:'updateSlot', token, slotId, actor,
+    newStatus?,        — optional
+    recruiterRemark?,  — optional
+    clientRemark?,     — optional
+  }
+
+Slot statuses (exact uppercase strings):
+  ADDED  SHORTLISTED  SUBMITTED  SELECTED  REJECTED  INTERVIEWED  DEPLOYED
