@@ -372,13 +372,14 @@ function getCandidates_(params) {
   var limit   = Math.min(200, parseInt(params.limit||'100')|| 100);
 
   var records = [];
+  var excludedCount = 0;
 
   data.forEach(function(row, i) {
     var active = String(row[COL.active-1]||'').toUpperCase().trim();
-    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') { excludedCount++; return; }
     var name  = String(row[COL.name-1]||'').trim();
     var email = String(row[COL.email-1]||'').trim();
-    if (!name && !email) return;
+    if (!name && !email) { excludedCount++; return; }
 
     var score    = parseInt(row[COL.score-1])   || 0;
     var stageRaw = String(row[COL.stage-1]||'').trim();
@@ -461,10 +462,24 @@ function getCandidates_(params) {
     });
   });
 
-  var total  = records.length;
-  var paged  = records.slice((page-1)*limit, (page-1)*limit + limit);
-  return { ok:true, records:paged, total:total, page:page,
-           limit:limit, totalPages: Math.ceil(total/limit) };
+  // Sort newest first by applicationDate. Null/empty dates go to end.
+  records.sort(function(a, b) {
+    var da = a.applicationDate ? new Date(a.applicationDate).getTime() : 0;
+    var db = b.applicationDate ? new Date(b.applicationDate).getTime() : 0;
+    return db - da;
+  });
+
+  var activeCount   = records.length;
+  var totalSheetCount = activeCount + excludedCount;
+  var paged = records.slice((page-1)*limit, (page-1)*limit + limit);
+  return {
+    ok:true, records:paged,
+    total:activeCount, page:page, limit:limit,
+    totalPages:    Math.ceil(activeCount/limit),
+    activeCount:   activeCount,
+    excludedCount: excludedCount,
+    totalCount:    totalSheetCount
+  };
 }
 
 // GET ?action=candidate&rowIndex=5
