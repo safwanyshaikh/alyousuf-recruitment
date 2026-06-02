@@ -848,6 +848,84 @@ function auditQAQCMatching() {
   });
 }
 
+// Read-only audit: trade breakdown of all Strong QA/QC matches.
+// Run directly in GAS editor. Does not modify any data.
+function auditQAQCStrong() {
+  var all = getAllCandidatesRaw_();
+  var strongMatches = [];
+
+  all.forEach(function(c) {
+    if (getTradeMatchTier_('QC Inspector', c) === 'STRONG') {
+      strongMatches.push(c.trade || '(blank)');
+    }
+  });
+
+  Logger.log('Total Strong QA/QC matches: ' + strongMatches.length);
+  Logger.log('─────────────────────────────────────────────────');
+
+  // Count by exact trade value
+  var tradeCounts = {};
+  strongMatches.forEach(function(t) {
+    var key = t.trim().toLowerCase();
+    tradeCounts[key] = (tradeCounts[key] || 0) + 1;
+  });
+
+  // Known legitimate QA/QC trades
+  var knownQC = [
+    'qa/qc engineer','qa engineer','qc engineer','qc inspector','qa inspector',
+    'qa/qc inspector','qa/qc supervisor','qc supervisor','qa supervisor',
+    'qa/qc manager','qc manager','quality engineer','quality inspector',
+    'quality control engineer','quality assurance engineer',
+    'welding inspector','piping inspector','mechanical inspector',
+    'electrical inspector','civil inspector','structural inspector',
+    'coating inspector','ndt inspector','ndt technician',
+    'cswip inspector','qc civil','qc mechanical','qc electrical',
+    'qc piping','qc welding','quality control','quality assurance',
+    'quality technician','quality supervisor','quality manager',
+    'qa/qc technician','qc technician','qa technician'
+  ];
+
+  var legitimateCount  = 0;
+  var unexpectedCount  = 0;
+  var knownTotals      = {};
+  var unexpectedTrades = {};
+
+  for (var trade in tradeCounts) {
+    var cnt = tradeCounts[trade];
+    var isKnown = false;
+    for (var i = 0; i < knownQC.length; i++) {
+      if (trade.indexOf(knownQC[i]) >= 0 || knownQC[i].indexOf(trade) >= 0) {
+        isKnown = true;
+        knownTotals[trade] = cnt;
+        legitimateCount += cnt;
+        break;
+      }
+    }
+    if (!isKnown) {
+      unexpectedTrades[trade] = cnt;
+      unexpectedCount += cnt;
+    }
+  }
+
+  Logger.log('LEGITIMATE QA/QC trades: ' + legitimateCount);
+  var knownSorted = Object.keys(knownTotals).sort(function(a,b){
+    return knownTotals[b] - knownTotals[a];
+  });
+  knownSorted.forEach(function(t) {
+    Logger.log('  ' + t + ': ' + knownTotals[t]);
+  });
+
+  Logger.log('─────────────────────────────────────────────────');
+  Logger.log('UNEXPECTED trades (possible leakage): ' + unexpectedCount);
+  var unexpSorted = Object.keys(unexpectedTrades).sort(function(a,b){
+    return unexpectedTrades[b] - unexpectedTrades[a];
+  });
+  // Show top 20
+  unexpSorted.slice(0, 20).forEach(function(t) {
+    Logger.log('  ' + t + ': ' + unexpectedTrades[t]);
+  });
+}
+
 // ════════════════════════════════════════════════════════════════════
 // SECTION 5 — METRICS + SAC
 // FIX: uses getAllCandidatesRaw_ — sees all 4,520+ candidates, not just 200
