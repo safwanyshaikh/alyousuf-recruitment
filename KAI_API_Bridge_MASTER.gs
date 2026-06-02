@@ -920,8 +920,8 @@ function auditQAQCStrong() {
   var unexpSorted = Object.keys(unexpectedTrades).sort(function(a,b){
     return unexpectedTrades[b] - unexpectedTrades[a];
   });
-  // Show top 20
-  unexpSorted.slice(0, 20).forEach(function(t) {
+  // Show top 50
+  unexpSorted.slice(0, 50).forEach(function(t) {
     Logger.log('  ' + t + ': ' + unexpectedTrades[t]);
   });
 }
