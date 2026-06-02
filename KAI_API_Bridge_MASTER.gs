@@ -83,6 +83,7 @@ function doGet(e) {
     else if (action === 'gmailThread')      out = JSON.stringify(getGmailThread_(params));
     else if (action === 'slots')            out = JSON.stringify(getCandidateSlots_(params));
     else if (action === 'clients')          out = JSON.stringify(getClients_(params));
+    else if (action === 'locationAudit')    out = JSON.stringify(getLocationAudit_());
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -561,6 +562,57 @@ function getSingleCandidate_(params) {
 function globalSearch_(params) {
   params.limit = params.limit || '30';
   return getCandidates_(params);
+}
+
+// GET ?action=locationAudit
+// Counts population of every address-related field so Lovable can use the richest one
+function getLocationAudit_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, total:0 };
+
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1,
+             Math.min(sheet.getLastColumn(), 42)).getValues();
+
+  var total = 0;
+  var counts = {
+    currentLocation: 0,   // col 26
+    candidateState:  0,   // col 28
+    kaiAddressHint:  0    // address keyword in kaiAssessment col 20
+  };
+
+  data.forEach(function(row) {
+    var active = String(row[COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+    var name  = String(row[COL.name-1]||'').trim();
+    var email = String(row[COL.email-1]||'').trim();
+    if (!name && !email) return;
+    total++;
+
+    if (String(row[COL.currentLocation-1]||'').trim()) counts.currentLocation++;
+    if (String(row[COL.candidateState-1] ||'').trim()) counts.candidateState++;
+
+    var kai = String(row[COL.kaiAssessment-1]||'').toLowerCase();
+    if (/\b(location|city|resident|address|based in|lives in|staying in|from)\b/.test(kai))
+      counts.kaiAddressHint++;
+  });
+
+  var result = {
+    ok: true,
+    totalActive: total,
+    fields: [
+      { field:'currentLocation', populated:counts.currentLocation,
+        pct: total ? Math.round(counts.currentLocation/total*100)+'%' : '0%', col:26 },
+      { field:'candidateState',  populated:counts.candidateState,
+        pct: total ? Math.round(counts.candidateState/total*100)+'%'  : '0%', col:28 },
+      { field:'kaiAddressHint',  populated:counts.kaiAddressHint,
+        pct: total ? Math.round(counts.kaiAddressHint/total*100)+'%'  : '0%', col:'kaiAssessment (text hint)' }
+    ]
+  };
+  result.recommendation = result.fields.reduce(function(best, f) {
+    return (!best || f.populated > best.populated) ? f : best;
+  }, null);
+  return result;
 }
 
 // ════════════════════════════════════════════════════════════════════
