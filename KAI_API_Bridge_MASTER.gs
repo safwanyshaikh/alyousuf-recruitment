@@ -770,6 +770,7 @@ function getRequirementsEnhanced_() {
         minExperience: parseInt(row[6])||0,
         minAge:        parseInt(row[7])||0,
         maxAge:        parseInt(row[8])||0,
+        projectName:   String(row[9]||'').trim(),
         urgency:       String(row[13]||'Normal').trim(),
         status:        String(row[14]||'Open').trim(),
         sourcedBy:     String(row[15]||'').trim(),
@@ -800,7 +801,8 @@ function createRequirement_(body) {
     parseFloat(body.minExperience||'0')||0,
     parseInt(body.minAge      ||'0')||0,
     parseInt(body.maxAge      ||'0')||0,
-    '', '', '', '',
+    String(body.projectName   ||'').trim(),
+    '', '', '',
     String(body.urgency       ||'Normal').trim(),
     'Active',
     String(body.sourcedBy||body.recruiter||'').trim(),
@@ -823,10 +825,17 @@ function updateRequirement_(body) {
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() !== reqId) continue;
     var r = i + 1;
-    if (body.status)      sheet.getRange(r,15).setValue(body.status);
-    if (body.notes)       sheet.getRange(r,20).setValue(body.notes);
-    if (body.startDate)   sheet.getRange(r,22).setValue(body.startDate);
-    if (body.endDate)     sheet.getRange(r,23).setValue(body.endDate);
+    if (body.clientName)      sheet.getRange(r,3).setValue(body.clientName);
+    if (body.deployCountry)   sheet.getRange(r,4).setValue(body.deployCountry);
+    if (body.trade||body.jobTitle) sheet.getRange(r,5).setValue(body.trade||body.jobTitle);
+    if (body.requiredQty)     sheet.getRange(r,6).setValue(parseInt(body.requiredQty)||0);
+    if (body.minExperience !== undefined) sheet.getRange(r,7).setValue(parseFloat(body.minExperience)||0);
+    if (body.projectName !== undefined)   sheet.getRange(r,10).setValue(body.projectName);
+    if (body.urgency)         sheet.getRange(r,14).setValue(body.urgency);
+    if (body.status)          sheet.getRange(r,15).setValue(body.status);
+    if (body.notes)           sheet.getRange(r,20).setValue(body.notes);
+    if (body.startDate)       sheet.getRange(r,22).setValue(body.startDate);
+    if (body.endDate)         sheet.getRange(r,23).setValue(body.endDate);
     if (body.shortlistCount !== undefined)
       sheet.getRange(r,18).setValue(parseInt(body.shortlistCount)||0);
     return { ok:true, reqId:reqId, updated:true };
