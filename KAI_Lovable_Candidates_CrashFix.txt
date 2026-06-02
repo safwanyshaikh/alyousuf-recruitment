@@ -42,7 +42,7 @@ Fix the Candidates page crash:
    — If candidates.map() fails, show an error message instead of crashing
 
 6. The GAS URL and fetch logic is correct — do NOT change it:
-   const GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec";
+   const GAS_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec";
    fetch(url, { method: 'GET', redirect: 'follow' })
 
 7. The token key is localStorage.getItem('kai_session_token') — do NOT change it.

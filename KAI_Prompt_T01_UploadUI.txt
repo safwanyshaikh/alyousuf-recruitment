@@ -14,7 +14,7 @@ No changes to the grid rows or drawer.
 API
 ================================================================
 
-GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec"
 
 POST uploadCV:
   fetch(GAS_URL, {

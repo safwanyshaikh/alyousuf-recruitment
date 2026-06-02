@@ -479,7 +479,7 @@ Empty state (no candidates match filters):
   [Clear all filters] button
 
 GAS URL:
-  https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec
+  https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
 ```
 
 ---
@@ -944,7 +944,7 @@ Do NOT change any other screen. Only the Candidates page.
 DATA SOURCE
 ================================================================
 
-GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec"
 
 Token: localStorage.getItem('kai_session_token')
 If token is null: show error "Not logged in" — do NOT redirect.

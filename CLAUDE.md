@@ -67,7 +67,7 @@ Use historical performance to recommend sourcing locations.
 
 ## GAS Bridge (Current Backend)
 - SS_ID: `101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE`
-- Bridge URL: `https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec`
+- Bridge URL: `https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec`
 - Master file: `KAI_API_Bridge_MASTER.gs` (1134 lines, all Sprints 1–7)
 - Token key in localStorage: `kai_session_token`
 - Stage computed from verdict when col1 is blank/"Pending action"

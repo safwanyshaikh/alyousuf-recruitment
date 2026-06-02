@@ -8,7 +8,7 @@ CONTEXT
 This is the KAI Recruitment OS dashboard.
 Backend is Google Apps Script (GAS) serving JSON via this URL:
 
-  GAS_BRIDGE_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec"
+  GAS_BRIDGE_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec"
 
 Update gasApi.ts to use this URL for all API calls.
 The API accepts: ?action=candidates&token=TOKEN&page=1&limit=100
@@ -21,7 +21,7 @@ If GasDataContext and gasApi.ts already exist and are wired:
 If they do not exist, create them as follows:
 
 gasApi.ts:
-  const BASE_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec";
+  const BASE_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec";
 
   export async function fetchCandidates(token: string, params?: Record<string,string>) {
     const q = new URLSearchParams({ action: 'candidates', token, ...params }).toString();
@@ -235,7 +235,7 @@ DATA SOURCE
 ===========
 
 API URL:
-  https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec
+  https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
 
 Call on load:
   GET ?action=candidates&token={kai_session_token}&page=1&limit=100

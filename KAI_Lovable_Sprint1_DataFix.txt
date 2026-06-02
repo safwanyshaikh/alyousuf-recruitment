@@ -9,7 +9,7 @@ Do these 3 things:
 
 2. In the Candidates page, replace the entire data fetch logic with this:
 
-const GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec";
 
 async function loadCandidates(filters = {}) {
   setIsLoading(true);
