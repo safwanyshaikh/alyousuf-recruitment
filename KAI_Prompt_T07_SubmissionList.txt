@@ -1,0 +1,308 @@
+KAI RECRUITMENT OS — TASK 07: Submission List
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+Build one new screen: Requirement Submission List.
+
+A recruiter must be able to:
+  1. Open a requirement
+  2. See all candidates assigned to it
+  3. Change each candidate's status
+  4. Remove a candidate from the list
+  5. Open a candidate's drawer from within the list
+
+No PDF. No Excel. No email. No export. Prove the list works first.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART A — ENTRY POINT: "View Submission List" button on Requirements screen
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On the Requirements screen (Campaigns page), each requirement row has an
+action menu. Add one new action:
+
+  [View Submission List]
+
+Clicking it navigates to the Submission List screen for that requirement,
+passing the reqId.
+
+Also add a counter badge on each requirement row showing how many candidates
+are currently assigned (slot status ≠ REJECTED):
+  "12 assigned"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART B — ASSIGN CANDIDATE button (wire up existing GAS endpoint)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In the Matching screen (where STRONG / GOOD / POSSIBLE candidates are shown
+for a requirement), each candidate card/row must have an:
+
+  [+ Assign] button
+
+When clicked:
+  - Show a confirm dialog: "Assign [Name] to [Requirement Name]?"
+  - On confirm: POST to GAS (see API spec below)
+  - On success: button changes to "✓ Assigned" (disabled), show toast
+    "Candidate added to submission list"
+  - On error "already added": show "Already assigned" (disabled)
+  - On any other error: show error toast, keep button active
+
+POST spec:
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      action: 'addSlot',
+      token: sessionToken,
+      reqId: requirement.reqId,
+      kaiNo: candidate.kaiNo,
+      rowIndex: candidate.rowIndex,
+      candidateName: candidate.name,
+      trade: candidate.trade,
+      sourceOwner: candidate.gccMobility || '',
+      addedBy: currentUser.email || 'recruiter',
+      notes: ''
+    })
+  });
+
+When a recruiter is on the Submission List screen and wants to add more
+candidates, show a button: [+ Add Candidates] → navigates back to the
+matching screen for this requirement.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART C — SUBMISSION LIST SCREEN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HEADER
+──────
+Show requirement details at the top:
+
+  ← Back to Requirements
+
+  [Client Name]
+  [Requirement Title / Trade]          [Counters row]
+  [Deploy Country] · [Qty] positions
+
+Counters row (4 chips):
+  Assigned [n]   Shortlisted [n]   Submitted [n]   Selected [n]
+
+Count logic:
+  Assigned    = slots where status is ADDED
+  Shortlisted = slots where status is SHORTLISTED
+  Submitted   = slots where status is SUBMITTED
+  Selected    = slots where status is SELECTED
+  (REJECTED slots are hidden from the list by default)
+
+
+DATA FETCH
+──────────
+On mount, fetch:
+
+  GET {GAS_URL}?action=slots&reqId={reqId}&token={sessionToken}
+
+Response:
+  { ok: true, slots: [...], count: N }
+
+Each slot object:
+  {
+    slotId, reqId, kaiNo, rowIndex,
+    candidateName, trade, sourceOwner,
+    addedBy, addedAt, slotStatus, notes, updatedAt
+  }
+
+After fetching slots, fetch full candidate details for each slot in parallel:
+
+  GET {GAS_URL}?action=candidate&rowIndex={slot.rowIndex}&token={sessionToken}
+
+Use rowIndex from the slot. Merge the candidate data (nationality, age,
+experience, score, kaiSnippet) with the slot data for display.
+
+If the candidate fetch fails for any row, show the slot data only (name,
+trade from slot) — do not fail the whole list.
+
+
+TABLE COLUMNS
+─────────────
+Show a table with these columns:
+
+  Status      | Name / Nationality | Age | Experience | Trade | Assessment | Assigned | Actions
+
+Column details:
+
+  Status:
+    A coloured badge showing the slot status:
+      ADDED        → grey    "Added"
+      SHORTLISTED  → blue    "Shortlisted"
+      SUBMITTED    → amber   "Submitted"
+      SELECTED     → green   "Selected"
+      REJECTED     → red     "Removed"  ← only shown if "Show Removed" is toggled on
+
+  Name / Nationality:
+    Line 1 (bold):  candidateName
+    Line 2 (muted): nationality | age + "y"
+    (same format as Candidates grid — skip blank segments, no dashes)
+
+  Age: from candidate.age (fetched separately)
+
+  Experience: candidate.experience + "y exp"
+
+  Trade: slot.trade (from slot, always available even if candidate fetch fails)
+
+  Assessment:
+    candidate.score + "%" + confidence tier label
+    e.g. "72% Good Match"
+    If score unavailable, show "—"
+
+  Assigned:
+    slot.addedAt formatted as "02 Jun 2026"
+
+  Actions:
+    Three icon buttons in a row:
+      👁  Open Candidate (opens the existing 5-tab drawer)
+      ↕  Change Status  (opens status dropdown — see below)
+      ✕  Remove         (see remove spec below)
+
+
+CHANGE STATUS
+─────────────
+Clicking the ↕ icon opens a small dropdown/popover inline:
+
+  ○ Added
+  ○ Shortlisted
+  ○ Submitted
+  ○ Selected
+  ○ Rejected
+
+Current status is pre-selected.
+
+On select:
+  POST to GAS:
+    {
+      action: 'updateSlot',
+      token: sessionToken,
+      slotId: slot.slotId,
+      newStatus: selectedStatus,
+      actor: currentUser.email || 'recruiter',
+      notes: ''
+    }
+
+  Use: fetch(GAS_URL, { method:'POST', redirect:'follow',
+         headers:{'Content-Type':'text/plain;charset=utf-8'},
+         body: JSON.stringify({...}) })
+
+  On success: update the row status badge immediately (optimistic update).
+              Re-compute the 4 counter chips.
+  On error:   revert the badge, show error toast.
+
+
+REMOVE CANDIDATE
+────────────────
+Clicking ✕ shows a confirm dialog:
+  "Remove [Name] from this requirement?"
+  [Cancel] [Remove]
+
+On confirm: POST updateSlot with newStatus = 'REJECTED'
+
+On success:
+  - Hide the row (or show as "Removed" if "Show Removed" toggle is ON)
+  - Re-compute counters
+  - Show toast: "Candidate removed"
+
+Do NOT hard delete. Use REJECTED status as archive.
+
+"Show Removed" toggle:
+  A toggle at the top-right of the table: "Show Removed"
+  Default: OFF (REJECTED rows hidden)
+  When ON: show REJECTED rows with red "Removed" badge, no action buttons
+
+
+EMPTY STATE
+───────────
+If no slots exist yet:
+
+  [Icon]
+  No candidates assigned yet.
+  [+ Add Candidates →]
+
+Button navigates to the matching screen for this requirement.
+
+
+LOADING STATE
+─────────────
+Show a skeleton table (3–4 rows) while slots are loading.
+Show individual row loading spinners while candidate details are being fetched.
+Do not block the whole table — show slots immediately, fill in candidate
+details as they arrive.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART D — NAVIGATION FLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Requirements list
+  → [View Submission List] on a row
+    → Submission List screen (reqId in URL or state)
+      → [Open Candidate] → existing 5-tab candidate drawer (overlay)
+      → [+ Add Candidates] → Matching screen for this reqId
+        → [+ Assign] on a candidate → addSlot → back button returns to list
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUCCESS TEST (verify before marking complete)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Open Requirements → find NMDC requirement → click [View Submission List]
+2. Empty state shows → click [+ Add Candidates]
+3. Matching screen opens → assign 3 candidates using [+ Assign]
+4. Navigate back to Submission List → all 3 candidates appear, status = Added
+5. Change one candidate to Shortlisted → badge updates, counter updates
+6. Change one to Submitted → counter updates
+7. Remove one candidate → row disappears, counter updates
+8. Toggle "Show Removed" → removed candidate reappears in red
+9. Click [Open Candidate] on any row → 5-tab drawer opens
+10. Refresh the page → all changes persist (data is in GAS, not localStorage)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT BUILD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- PDF export
+- Excel export
+- Email to client
+- WhatsApp share
+- Print view
+- Bulk select / bulk status change
+- Candidate ranking within list
+- Comments thread per candidate
+
+Build the list. Prove it works. Everything else comes after recruiters use it.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+API REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
+Token:   localStorage.getItem('kai_session_token')
+
+All POST calls:
+  fetch(GAS_URL, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: '...', token: '...', ...fields })
+  })
+
+Endpoints used by this screen:
+  GET  action=slots&reqId=          → list of slots for a requirement
+  GET  action=candidate&rowIndex=   → full candidate profile
+  POST action=addSlot               → assign candidate to requirement
+  POST action=updateSlot            → change slot status (or remove = REJECTED)
+
+Slot statuses (exact strings, uppercase):
+  ADDED  SHORTLISTED  SUBMITTED  SELECTED  REJECTED
