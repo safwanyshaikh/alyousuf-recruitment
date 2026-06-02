@@ -548,8 +548,155 @@ function globalSearch_(params) {
   return getCandidates_(params);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// TRADE NORMALIZATION — GCC Oil & Gas trade family dictionary
+// Used by getMatchedCandidates_ and getRequirementsEnhanced_ counts
+// ════════════════════════════════════════════════════════════════════
+
+var TRADE_FAMILIES = {
+  WELDER: [
+    'welder','welding','tig','arc welder','mig','pipe welder','structural welder',
+    '6g','smaw','gtaw','gmaw','fcaw','coded welder','tig/mig','tig & arc',
+    'stick welder','pressure welder','aluminium welder','ss welder','stainless welder',
+    'weld','argon welder','co2 welder','combo welder','multi-process welder'
+  ],
+  PIPEFITTER: [
+    'pipe fitter','pipefitter','pipe layer','pipe erector','piping',
+    'pipe fabricator','piping erector','pipe mechanic','pipeline','pipe fitting',
+    'piping fitter','pipe work','mechanical fitter'
+  ],
+  HVAC: [
+    'hvac','air conditioning','refrigeration','chiller','ac technician',
+    'hvac engineer','hvac/r','hvac technician','ductwork','ventilation',
+    'heating cooling','air handling','vrf','vrv'
+  ],
+  ELECTRICIAN: [
+    'electrician','electrical technician','electrical engineer','electrical fitter',
+    'instrumentation electrician','hv electrician','lv electrician',
+    'electrical & instrumentation','e&i','ei technician','mv electrician',
+    'power electrician','industrial electrician','auto electrician'
+  ],
+  INSTRUMENTATION: [
+    'instrumentation','instrument technician','instrument engineer',
+    'control & instrumentation','process control','dcs','plc','scada',
+    'instrumentation & control','i&c','field instrument','instrument fitter',
+    'calibration','metering','telemetry','bms','ems'
+  ],
+  QA_QC: [
+    'qa','qc','quality','qa/qc','quality control','quality assurance',
+    'ndt','inspection','inspector','qc inspector','welding inspector',
+    'piping inspector','mechanical inspector','coating inspector','cswip','aws',
+    'asnt','rt','ut','mt','pt','visual inspection','dimensional inspection'
+  ],
+  HSE: [
+    'hse','safety','health safety','safety officer','safety engineer',
+    'fire safety','environmental','ehs','ohs','occupational health',
+    'safety supervisor','nebosh','iosh','fire warden','safety inspector',
+    'loss prevention','safety coordinator','ems coordinator'
+  ],
+  RIGGER: [
+    'rigger','rigging','lifting','banksman','slinger','rigger banksman',
+    'lift supervisor','lifting supervisor','crane banksman'
+  ],
+  CRANE_OPERATOR: [
+    'crane operator','mobile crane','tower crane','overhead crane',
+    'crawler crane','rough terrain crane','all terrain crane','lattice crane'
+  ],
+  SCAFFOLDER: [
+    'scaffolder','scaffolding','scaffold erector','scaffold inspector',
+    'scaffold supervisor','tube and fitting','system scaffold'
+  ],
+  MECHANICAL: [
+    'mechanical','mechanical technician','mechanical engineer','rotating equipment',
+    'static equipment','mechanical supervisor','maintenance technician',
+    'machinery','pump','compressor','turbine','heat exchanger','vessel'
+  ],
+  CIVIL: [
+    'civil','civil engineer','structural','mason','carpenter','formwork',
+    'civil technician','surveyor','civil supervisor','shuttering','concrete',
+    'reinforced concrete','piling','foundation','civil works'
+  ],
+  REBARMAN: [
+    'rebar','rebarman','bar bender','steel fixer','iron worker','rebaring',
+    'bar bending','reinforcement','rod buster'
+  ],
+  PAINTER: [
+    'painter','painting','coating','blaster','sandblaster','surface treatment',
+    'industrial painter','coating applicator','abrasive blasting',
+    'spray painter','protective coating','anti-corrosion'
+  ],
+  HEAVY_EQUIPMENT: [
+    'heavy equipment','equipment operator','forklift','excavator','bulldozer',
+    'grader','loader','backhoe','crane','compactor','roller',
+    'heavy plant','plant operator','machinery operator'
+  ],
+  SUPERVISOR: [
+    'supervisor','foreman','site supervisor','construction supervisor',
+    'mechanical supervisor','electrical supervisor','piping supervisor',
+    'welding supervisor','civil supervisor','project supervisor','gang leader'
+  ],
+  MANAGER: [
+    'manager','project manager','construction manager','site manager',
+    'operations manager','maintenance manager','procurement manager',
+    'contracts manager','project engineer','site engineer'
+  ]
+};
+
+// Returns array of keywords for the family that best matches reqTrade.
+// Also returns family name. Returns null if no family found.
+function getTradeFamily_(reqTrade) {
+  if (!reqTrade) return null;
+  var norm = reqTrade.toLowerCase().trim();
+  var bestFamily = null;
+  var bestLen = 0;
+  for (var fam in TRADE_FAMILIES) {
+    var kws = TRADE_FAMILIES[fam];
+    for (var k = 0; k < kws.length; k++) {
+      var kw = kws[k];
+      if (norm.indexOf(kw) >= 0 || kw.indexOf(norm) >= 0) {
+        if (kw.length > bestLen) { bestLen = kw.length; bestFamily = fam; }
+      }
+    }
+  }
+  return bestFamily ? { family: bestFamily, keywords: TRADE_FAMILIES[bestFamily] } : null;
+}
+
+// Returns 'STRONG', 'GOOD', 'POSSIBLE', or null (no match).
+// STRONG  = candidate.trade matches req family keywords
+// GOOD    = candidate.positionApplied or top3Positions matches family keywords
+// POSSIBLE = candidate.kaiAssessment text mentions family keywords
+function getTradeMatchTier_(reqTrade, cand) {
+  if (!reqTrade) return 'POSSIBLE'; // no trade filter = all candidates possible
+
+  var famInfo = getTradeFamily_(reqTrade);
+  var keywords = famInfo ? famInfo.keywords : [reqTrade.toLowerCase().trim()];
+
+  var candTrade = (cand.trade || '').toLowerCase();
+  var candPos   = (cand.positionApplied || '').toLowerCase();
+  var candTop3  = '';
+  if (cand.top3Positions && cand.top3Positions.full) {
+    candTop3 = cand.top3Positions.full.join(' ').toLowerCase();
+  }
+  var candText  = (cand.kaiAssessment || '').toLowerCase().slice(0, 800);
+
+  for (var k = 0; k < keywords.length; k++) {
+    var kw = keywords[k];
+    if (candTrade.indexOf(kw) >= 0 || (candTrade && kw.indexOf(candTrade) >= 0 && candTrade.length > 3)) {
+      return 'STRONG';
+    }
+  }
+  for (var k = 0; k < keywords.length; k++) {
+    var kw = keywords[k];
+    if (candPos.indexOf(kw) >= 0 || candTop3.indexOf(kw) >= 0) return 'GOOD';
+  }
+  for (var k = 0; k < keywords.length; k++) {
+    if (candText.indexOf(keywords[k]) >= 0) return 'POSSIBLE';
+  }
+  return null;
+}
+
 // GET ?action=match&reqId=AYE-REQ-2026-0001&tier=STRONG
-// FIX: uses getAllCandidatesRaw_ — sees all 4,520+ candidates, not just 200
+// Uses normalized trade family matching — no exact string equality
 function getMatchedCandidates_(params) {
   var reqId = String(params.reqId||'').trim();
   var tier  = String(params.tier ||'').trim().toUpperCase();
@@ -566,19 +713,26 @@ function getMatchedCandidates_(params) {
   }
   if (!reqRow) return { ok:false, error:'Requirement not found: ' + reqId };
 
-  var reqTrade = String(reqRow[4]||'').toLowerCase();
+  var reqTrade = String(reqRow[4]||'').trim();
   var minExp   = parseFloat(reqRow[6]) || 0;
 
   var all = getAllCandidatesRaw_();
-  var matched = all.filter(function(r) {
-    if (reqTrade && r.trade.toLowerCase().indexOf(reqTrade) < 0 &&
-        r.positionApplied.toLowerCase().indexOf(reqTrade) < 0) return false;
-    if (minExp > 0 && r.experience < minExp) return false;
-    return true;
-  }).sort(function(a,b){ return b.score - a.score; });
-
   var result = { STRONG:[], GOOD:[], POSSIBLE:[], REVIEW:[] };
-  matched.forEach(function(r){ result[r.confidenceTier].push(r); });
+
+  all.forEach(function(r) {
+    if (minExp > 0 && r.experience < minExp) return;
+    var matchTier = getTradeMatchTier_(reqTrade, r);
+    if (!matchTier) return;
+    // Use trade match tier as bucket; sort within bucket by score
+    result[matchTier].push(r);
+  });
+
+  // Sort each tier by score descending
+  ['STRONG','GOOD','POSSIBLE','REVIEW'].forEach(function(t) {
+    result[t].sort(function(a,b){ return b.score - a.score; });
+  });
+
+  var matched = result.STRONG.concat(result.GOOD).concat(result.POSSIBLE).concat(result.REVIEW);
 
   if (tier && tier !== 'ALL') {
     return { ok:true, reqId:reqId, tier:tier,
@@ -751,14 +905,14 @@ function getRequirementsEnhanced_() {
 
   var reqs = data.filter(function(r){ return String(r[0]||'').trim(); })
     .map(function(row) {
-      var trade  = String(row[4]||'').toLowerCase();
+      var trade  = String(row[4]||'').trim();
       var minExp = parseFloat(row[6])||0;
       var counts = { STRONG:0, GOOD:0, POSSIBLE:0, REVIEW:0 };
       cands.forEach(function(c) {
-        if (trade && c.trade.toLowerCase().indexOf(trade)<0 &&
-            c.positionApplied.toLowerCase().indexOf(trade)<0) return;
         if (minExp > 0 && c.experience < minExp) return;
-        counts[c.confidenceTier] = (counts[c.confidenceTier]||0)+1;
+        var mt = getTradeMatchTier_(trade, c);
+        if (!mt) return;
+        counts[mt] = (counts[mt]||0)+1;
       });
       return {
         reqId:         String(row[0]||'').trim(),
