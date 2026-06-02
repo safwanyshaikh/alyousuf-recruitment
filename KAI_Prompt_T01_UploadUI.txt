@@ -1,0 +1,174 @@
+================================================================
+KAI — Task 01 (Frontend): CV Upload UI
+Paste into Lovable AFTER the Drawer is built.
+Add a manual CV upload flow accessible from the Candidates screen.
+================================================================
+
+SCOPE
+-----
+Add a "Upload CV" button to the Candidates screen toolbar.
+The flow: select file → convert to base64 → POST to GAS → show result.
+No changes to the grid rows or drawer.
+
+================================================================
+API
+================================================================
+
+GAS_URL = "https://script.google.com/macros/s/AKfycbykwLnVJW8ukP_ibPZ36cfsKrUxZJ7uIcWh5Eksz4JMLtlxG73UBazJ6T1HV_KleNLrEQ/exec"
+
+POST uploadCV:
+  fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'uploadCV',
+      token: localStorage.getItem('kai_session_token'),
+      fileName: file.name,
+      fileBase64: base64String,   // full base64, no data: prefix
+      mimeType: file.type,
+      senderName: nameInput,
+      senderEmail: emailInput,
+      recruiter: 'recruiter'
+    })
+  })
+
+Response success:
+  {
+    ok: true,
+    kaiNo: "AYE-KAI-2026-004521",
+    status: "PARSED",
+    score: 72,
+    verdict: "NEEDS_REVIEW",
+    name: "Candidate Name",
+    trade: "Pipe Fitter",
+    message: "CV parsed and candidate record created."
+  }
+
+Response (no Gemini key):
+  { ok: true, status: "PENDING_PARSE", message: "CV saved to Drive. ..." }
+
+Response error:
+  { ok: false, error: "..." }
+
+================================================================
+WHERE THE BUTTON LIVES
+================================================================
+
+Add [📎 Upload CV] button to the Candidates screen toolbar.
+Place it in the filter bar row, right side, next to existing filter chips.
+Style: outlined, small, blue. Icon: 📎 or upload arrow icon.
+
+================================================================
+UPLOAD MODAL
+================================================================
+
+On button click: open a modal (centred, 480px wide, 90vh max).
+
+HEADER
+  Title: "Upload CV"
+  [X] close button
+
+BODY
+  Step 1 — Candidate Info (optional fields)
+
+  Name input:
+    Label: "Candidate Name (optional)"
+    Placeholder: "Leave blank to auto-detect from CV"
+
+  Email input:
+    Label: "Email (optional)"
+    Placeholder: "Leave blank to auto-detect from CV"
+
+  Step 2 — File
+
+  File drop zone:
+    Dashed border, rounded, centred text:
+    "Drag & drop CV here  or  [Browse files]"
+    Accepted: .pdf, .jpg, .jpeg, .png
+    Click anywhere in zone: opens file picker
+    After file selected: show filename + size below zone
+    e.g. "📄 Bibin_Raju_CV.pdf  (245 KB)"
+
+  Max size warning (show if file > 10MB):
+    "⚠ File too large. Maximum 10MB."
+
+  [Upload & Parse] button — full width, blue, disabled until file selected.
+
+UPLOAD FLOW
+
+  1. User selects file.
+  2. User clicks [Upload & Parse].
+  3. Button shows spinner: "Parsing CV..."
+  4. Convert file to base64 using FileReader:
+       reader.readAsDataURL(file)
+       strip the "data:...;base64," prefix — send only the base64 data portion
+  5. POST to GAS (see API above).
+  6. Show progress text: "Uploading to Drive... Analysing with AI..."
+  7. On success (status = PARSED):
+       Show green success panel:
+       ────────────────────────────────────────
+       ✅ Candidate Created
+       Name:      {name}
+       KI Number: {kaiNo}
+       Trade:     {trade}
+       Score:     {score}% — {verdict display label}
+       ────────────────────────────────────────
+       [View Candidate] button → opens Candidate Drawer for this candidate
+         (pass rowIndex from response.candidateRowIndex if available,
+          or search by kaiNo)
+       [Upload Another] button → resets modal to empty state
+
+  8. On success (status = PENDING_PARSE):
+       Show amber info panel:
+       ────────────────────────────────────────
+       📁 CV Saved
+       File uploaded to Drive.
+       AI parsing will complete on the next pipeline run.
+       ────────────────────────────────────────
+       [Upload Another] button
+
+  9. On error (ok = false):
+       Show red error panel:
+       ────────────────────────────────────────
+       ❌ Upload failed
+       {error message}
+       ────────────────────────────────────────
+       [Try Again] button → resets to file picker, keeps name/email
+
+AFTER SUCCESSFUL PARSE
+  Refresh the candidates list (re-fetch page 1) so the new
+  candidate appears in the grid without manual reload.
+  Show toast: "New candidate added: {name} ({kaiNo})"
+
+================================================================
+VERDICT DISPLAY LABELS
+================================================================
+
+  SHORTLISTED  → "Shortlisted"  (green)
+  NEEDS_REVIEW → "Needs Review" (amber)
+  NEEDS_CALL   → "Needs Call"   (orange)
+  (other)      → verdict value  (grey)
+
+================================================================
+MOBILE
+================================================================
+
+Modal: full screen (100vw, 100vh).
+Drop zone: smaller, still functional.
+All other behaviour identical.
+
+================================================================
+RULES
+================================================================
+
+1. FileReader base64: strip the data URL prefix before sending.
+   Correct:   fileB64 = dataUrl.split(',')[1]
+   Wrong:     fileB64 = dataUrl  (includes "data:application/pdf;base64,")
+
+2. No mock data. Real API call every time.
+3. 10MB client-side size check before even calling the API.
+4. Do NOT change the grid columns, drawer, or any other screen.
+5. Modal closes on X or Escape key.
+6. After close: modal state resets completely (no stale file).
+
+================================================================
