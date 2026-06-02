@@ -995,21 +995,29 @@ function uploadCV_(body) {
   if (!fileB64) return { ok:false, error:'fileBase64 required' };
 
   try {
-    // STEP 1 — Save file to Drive
-    var bytes    = Utilities.base64Decode(fileB64);
-    var blob     = Utilities.newBlob(bytes, mimeType, fileName);
-    var folder   = getOrCreateUploadFolder_();
-    var file     = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    var driveUrl = 'https://drive.google.com/file/d/' + file.getId() + '/view';
-
     var ss       = SpreadsheetApp.openById(SS_ID);
     var uploadId = 'UPL-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss');
-    var uploadSheet   = ensureUploadSheet_(ss);
+    var driveUrl = '';
+    var driveFileId = '';
+
+    // STEP 1 — Save file to Drive (optional — continues if Drive not authorized)
+    try {
+      var bytes  = Utilities.base64Decode(fileB64);
+      var blob   = Utilities.newBlob(bytes, mimeType, fileName);
+      var folder = getOrCreateUploadFolder_();
+      var file   = folder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      driveFileId = file.getId();
+      driveUrl    = 'https://drive.google.com/file/d/' + driveFileId + '/view';
+    } catch(driveErr) {
+      Logger.log('Drive upload skipped: ' + driveErr.message);
+    }
+
+    var uploadSheet = ensureUploadSheet_(ss);
 
     // STEP 2 — Log row immediately (status PARSING)
     uploadSheet.appendRow([
-      uploadId, new Date(), fileName, file.getId(), driveUrl,
+      uploadId, new Date(), fileName, driveFileId, driveUrl,
       senderName, senderEmail, recruiter, 'PARSING', '', '', ''
     ]);
     var uploadRowNum = uploadSheet.getLastRow();
