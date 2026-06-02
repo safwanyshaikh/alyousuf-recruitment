@@ -107,8 +107,10 @@ function doPost(e) {
 
     if      (action === 'updateStage')       out = JSON.stringify(updateStage_(body));
     else if (action === 'saveNote')          out = JSON.stringify(saveNote_(body));
-    else if (action === 'createRequirement') out = JSON.stringify(createRequirement_(body));
-    else if (action === 'updateRequirement') out = JSON.stringify(updateRequirement_(body));
+    else if (action === 'createRequirement')    out = JSON.stringify(createRequirement_(body));
+    else if (action === 'updateRequirement')    out = JSON.stringify(updateRequirement_(body));
+    else if (action === 'deleteRequirement')    out = JSON.stringify(deleteRequirement_(body));
+    else if (action === 'duplicateRequirement') out = JSON.stringify(duplicateRequirement_(body));
     else if (action === 'createJD')          out = JSON.stringify(createJD_(body));
     else if (action === 'uploadCV')          out = JSON.stringify(uploadCV_(body));
     else if (action === 'gmailReply')        out = JSON.stringify(gmailReply_(body));
@@ -839,6 +841,43 @@ function updateRequirement_(body) {
     if (body.shortlistCount !== undefined)
       sheet.getRange(r,18).setValue(parseInt(body.shortlistCount)||0);
     return { ok:true, reqId:reqId, updated:true };
+  }
+  return { ok:false, error:'Requirement not found: '+reqId };
+}
+
+function deleteRequirement_(body) {
+  var reqId = String(body.reqId||'').trim();
+  if (!reqId) return { ok:false, error:'reqId required' };
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet) return { ok:false, error:'_Requirements sheet not found' };
+  var data  = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() !== reqId) continue;
+    sheet.deleteRow(i + 1);
+    return { ok:true, reqId:reqId, deleted:true };
+  }
+  return { ok:false, error:'Requirement not found: '+reqId };
+}
+
+function duplicateRequirement_(body) {
+  var reqId = String(body.reqId||'').trim();
+  if (!reqId) return { ok:false, error:'reqId required' };
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet) return { ok:false, error:'_Requirements sheet not found' };
+  var data  = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() !== reqId) continue;
+    var newReqId = generateReqId_();
+    var newRow = data[i].slice();
+    newRow[0]  = newReqId;
+    newRow[1]  = new Date();
+    newRow[14] = 'Active';
+    newRow[17] = 0;
+    newRow[18] = 0;
+    sheet.appendRow(newRow);
+    return { ok:true, reqId:newReqId, copiedFrom:reqId };
   }
   return { ok:false, error:'Requirement not found: '+reqId };
 }
