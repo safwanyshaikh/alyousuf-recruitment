@@ -11,7 +11,7 @@
 // ║  4. Save (Ctrl+S)                                               ║
 // ║  5. Run setupAllNewSheets() once                                 ║
 // ║  6. Run testBridgeEndpoints() to verify                         ║
-// ║  7. Deploy → New deployment → Web app → Anyone → Deploy         ║
+// ║  7. Deploy → Manage deployments → pencil → New version → Deploy  ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
 // ── MASTER CONFIG ────────────────────────────────────────────────────
@@ -42,6 +42,11 @@ var VALID_STAGES = [
   'Visa Processing','Deployed','On Hold','Rejected','HOLD'
 ];
 
+var VALID_SLOT_STATUSES = [
+  'ADDED','SHORTLISTED','SUBMITTED','INTERVIEWED',
+  'SELECTED','REJECTED','DEPLOYED'
+];
+
 // ════════════════════════════════════════════════════════════════════
 // SECTION 1 — ROUTING (doGet + doPost)
 // ════════════════════════════════════════════════════════════════════
@@ -64,18 +69,20 @@ function doGet(e) {
       ).setMimeType(ContentService.MimeType.JSON);
     }
 
-    if      (action === 'candidates')    out = JSON.stringify(getCandidates_(params));
-    else if (action === 'candidate')     out = JSON.stringify(getSingleCandidate_(params));
-    else if (action === 'search')        out = JSON.stringify(globalSearch_(params));
-    else if (action === 'requirements')  out = JSON.stringify(getRequirementsEnhanced_());
-    else if (action === 'match')         out = JSON.stringify(getMatchedCandidates_(params));
-    else if (action === 'metrics')       out = JSON.stringify(getMetrics_());
-    else if (action === 'sac')           out = JSON.stringify(getSacPerformance_());
-    else if (action === 'activityLog')   out = JSON.stringify(getActivityLog_(params));
-    else if (action === 'jds')           out = JSON.stringify(getJDs_(params));
-    else if (action === 'jdDetail')      out = JSON.stringify(getJDDetail_(params));
-    else if (action === 'gmailInbox')    out = JSON.stringify(getGmailInbox_(params));
-    else if (action === 'gmailThread')   out = JSON.stringify(getGmailThread_(params));
+    if      (action === 'candidates')       out = JSON.stringify(getCandidates_(params));
+    else if (action === 'candidate')        out = JSON.stringify(getSingleCandidate_(params));
+    else if (action === 'search')           out = JSON.stringify(globalSearch_(params));
+    else if (action === 'requirements')     out = JSON.stringify(getRequirementsEnhanced_());
+    else if (action === 'match')            out = JSON.stringify(getMatchedCandidates_(params));
+    else if (action === 'metrics')          out = JSON.stringify(getMetrics_());
+    else if (action === 'sac')              out = JSON.stringify(getSacPerformance_());
+    else if (action === 'activityLog')      out = JSON.stringify(getActivityLog_(params));
+    else if (action === 'jds')              out = JSON.stringify(getJDs_(params));
+    else if (action === 'jdDetail')         out = JSON.stringify(getJDDetail_(params));
+    else if (action === 'gmailInbox')       out = JSON.stringify(getGmailInbox_(params));
+    else if (action === 'gmailThread')      out = JSON.stringify(getGmailThread_(params));
+    else if (action === 'slots')            out = JSON.stringify(getCandidateSlots_(params));
+    else if (action === 'clients')          out = JSON.stringify(getClients_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -106,6 +113,9 @@ function doPost(e) {
     else if (action === 'uploadCV')          out = JSON.stringify(uploadCV_(body));
     else if (action === 'gmailReply')        out = JSON.stringify(gmailReply_(body));
     else if (action === 'gmailConvert')      out = JSON.stringify(gmailConvert_(body));
+    else if (action === 'addSlot')           out = JSON.stringify(addCandidateToSlot_(body));
+    else if (action === 'updateSlot')        out = JSON.stringify(updateSlotStatus_(body));
+    else if (action === 'createClient')      out = JSON.stringify(createClient_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -138,17 +148,14 @@ function handleLogin_(email, passwordHash) {
         return { ok: false, msg: 'Incorrect password.' };
       }
 
-      // Issue new token
       var token   = Utilities.getUuid();
-      var expiry  = new Date(Date.now() + 24*60*60*1000); // 24 hours
+      var expiry  = new Date(Date.now() + 24*60*60*1000);
       var expiryStr = expiry.toISOString();
 
-      // Store in sheet cols 6 (token) and 7 (expiry)
       sheet.getRange(i + 2, 6).setValue(token);
       sheet.getRange(i + 2, 7).setValue(expiryStr);
 
-      // Cache for fast validation
-      CacheService.getScriptCache().put('KAI_TOK_' + token, '1', 82800); // 23hr cache
+      CacheService.getScriptCache().put('KAI_TOK_' + token, '1', 82800);
 
       return { ok: true, token: token, email: rowEmail, role: rowRole,
                name: rowName, expiry: expiryStr };
@@ -239,6 +246,103 @@ function parseTop3Positions_(raw) {
   return { first: parts[0]||'', rest: parts.slice(1), count: parts.length, full: parts };
 }
 
+// Compute display stage from raw stage + verdict (handles "Pending action" / blank)
+function computeDisplayStage_(stageRaw, verdict) {
+  var PENDING = (!stageRaw || stageRaw === 'Pending action');
+  if (!PENDING) return stageRaw;
+  var v = String(verdict||'').toUpperCase();
+  if (v === 'SHORTLISTED')  return 'Shortlisted';
+  if (v === 'NEEDS_REVIEW') return 'Review';
+  if (v === 'NEEDS_CALL')   return 'Needs Call';
+  if (v === 'SELECTED')     return 'Selected';
+  if (v === 'REJECTED')     return 'Rejected';
+  return 'New';
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 3B — INTERNAL: Read ALL active candidates (no pagination cap)
+// Used by getMetrics_, getSacPerformance_, getMatchedCandidates_
+// Do NOT call this from the public API directly — use getCandidates_ for paginated reads
+// ════════════════════════════════════════════════════════════════════
+
+function getAllCandidatesRaw_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1,
+             Math.min(sheet.getLastColumn(), 42)).getValues();
+  var records = [];
+
+  data.forEach(function(row, i) {
+    var active = String(row[COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+    var name  = String(row[COL.name-1]||'').trim();
+    var email = String(row[COL.email-1]||'').trim();
+    if (!name && !email) return;
+
+    var score    = parseInt(row[COL.score-1])   || 0;
+    var stageRaw = String(row[COL.stage-1]||'').trim();
+    var verdict  = String(row[COL.verdict-1]||'').trim().toUpperCase();
+    var gulfExp  = String(row[COL.gulfExp-1]||'').trim();
+    var loc      = String(row[COL.currentLocation-1]||'').trim();
+    var kaiText  = String(row[COL.kaiAssessment-1]||'').trim();
+    var edu      = parseEducation_(String(row[COL.education-1]||''));
+    var top3     = parseTop3Positions_(String(row[COL.top3Positions-1]||''));
+    var appDt    = row[COL.applicationDate-1];
+    var ppExpR   = row[COL.passportExpiry-1];
+    var ppExp    = ppExpR instanceof Date ? ppExpR : null;
+    var ppStat   = 'Unknown';
+    if (ppExp && !isNaN(ppExp)) {
+      var mLeft = (ppExp - new Date()) / (1000*60*60*24*30);
+      ppStat = mLeft > 6 ? 'Valid' : (mLeft > 0 ? '<6mo' : 'Expired');
+    }
+
+    records.push({
+      rowIndex:         i + 2,
+      kaiNo:            String(row[COL.kaiNo-1]||'').trim(),
+      name:             name,
+      nationality:      String(row[COL.nationality-1]||'').trim(),
+      age:              parseInt(row[COL.age-1]) || 0,
+      stage:            computeDisplayStage_(stageRaw, verdict),
+      trade:            String(row[COL.trade-1]||'').trim(),
+      score:            score,
+      confidenceTier:   getConfidenceTier_(score),
+      verdict:          verdict,
+      positionApplied:  String(row[COL.positionApplied-1]||'').trim(),
+      industry:         String(row[COL.industry-1]||'').trim(),
+      experience:       parseFloat(row[COL.experience-1]) || 0,
+      gulfExp:          gulfExp,
+      gccMobility:      classifyGCCMobility_(gulfExp, loc),
+      currentLocation:  loc,
+      educationRaw:     String(row[COL.education-1]||'').trim(),
+      educationLevel:   edu.level,
+      educationSubject: edu.subject,
+      mobile:           String(row[COL.mobile-1]||'').replace(/^'/,'').trim(),
+      email:            email,
+      cvLink:           String(row[COL.cvLink-1]||'').trim(),
+      kaiAssessment:    kaiText,
+      kaiSnippet:       kaiText.slice(0,150),
+      applicationDate:  appDt instanceof Date ?
+                          Utilities.formatDate(appDt,'Asia/Dubai','yyyy-MM-dd') : '',
+      passportStatus:   ppStat,
+      passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Dubai','yyyy-MM-dd') : '',
+      passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
+      ecrStatus:        String(row[COL.ecrStatus-1]||'').trim(),
+      missingFields:    String(row[COL.missingFields-1]||'').trim(),
+      deployScore:      parseInt(row[COL.deployScore-1]) || 0,
+      top3Positions:    top3,
+      flags:            String(row[COL.flags-1]||'').trim(),
+      recruiterAction:  String(row[COL.recruiterAction-1]||'').trim(),
+      notes:            String(row[COL.notes-1]||'').trim().slice(0,200),
+      scoreBreakdown:   String(row[COL.scoreBreakdown-1]||'').trim(),
+      recommendedRoles: String(row[COL.recommendedRoles-1]||'').trim(),
+    });
+  });
+
+  return records;
+}
+
 // ════════════════════════════════════════════════════════════════════
 // SECTION 4 — CANDIDATES (Read)
 // ════════════════════════════════════════════════════════════════════
@@ -274,25 +378,14 @@ function getCandidates_(params) {
     var email = String(row[COL.email-1]||'').trim();
     if (!name && !email) return;
 
-    var score   = parseInt(row[COL.score-1])   || 0;
-    var stageRaw= String(row[COL.stage-1]||'').trim();
-    var trade   = String(row[COL.trade-1]||'').trim();
-    var nat     = String(row[COL.nationality-1]||'').trim();
-    var verdict = String(row[COL.verdict-1]||'').trim().toUpperCase();
-    var gulfExp = String(row[COL.gulfExp-1]||'').trim();
-    var loc     = String(row[COL.currentLocation-1]||'').trim();
-
-    // Compute display stage: use recruiter-set stage if meaningful,
-    // otherwise derive from AI verdict so chips are never blank
-    var PENDING = (stageRaw === '' || stageRaw === 'Pending action');
-    var stage = PENDING
-      ? (verdict === 'SHORTLISTED' ? 'Shortlisted'
-       : verdict === 'NEEDS_REVIEW' ? 'Review'
-       : verdict === 'NEEDS_CALL'   ? 'Needs Call'
-       : verdict === 'SELECTED'     ? 'Selected'
-       : verdict === 'REJECTED'     ? 'Rejected'
-       : 'New')
-      : stageRaw;
+    var score    = parseInt(row[COL.score-1])   || 0;
+    var stageRaw = String(row[COL.stage-1]||'').trim();
+    var trade    = String(row[COL.trade-1]||'').trim();
+    var nat      = String(row[COL.nationality-1]||'').trim();
+    var verdict  = String(row[COL.verdict-1]||'').trim().toUpperCase();
+    var gulfExp  = String(row[COL.gulfExp-1]||'').trim();
+    var loc      = String(row[COL.currentLocation-1]||'').trim();
+    var stage    = computeDisplayStage_(stageRaw, verdict);
 
     if (fStage   && stage.toLowerCase().indexOf(fStage)   < 0) return;
     if (fTrade   && trade.toLowerCase().indexOf(fTrade)   < 0) return;
@@ -373,6 +466,7 @@ function getCandidates_(params) {
 }
 
 // GET ?action=candidate&rowIndex=5
+// FIX: computes displayStage from verdict (was returning raw "Pending action")
 function getSingleCandidate_(params) {
   var rowIndex = parseInt(params.rowIndex||'0');
   if (!rowIndex) return { ok:false, error:'rowIndex required' };
@@ -391,6 +485,13 @@ function getSingleCandidate_(params) {
   var ppExpR   = row[COL.passportExpiry-1];
   var ppExp    = ppExpR instanceof Date ? ppExpR : null;
   var kaiText  = String(row[COL.kaiAssessment-1]||'').trim();
+  var stageRaw = String(row[COL.stage-1]||'').trim();
+  var verdict  = String(row[COL.verdict-1]||'').trim().toUpperCase();
+  var ppStat   = 'Unknown';
+  if (ppExp && !isNaN(ppExp)) {
+    var mLeft = (ppExp - new Date()) / (1000*60*60*24*30);
+    ppStat = mLeft > 6 ? 'Valid' : (mLeft > 0 ? '<6mo' : 'Expired');
+  }
 
   return {
     ok:true, rowIndex:rowIndex,
@@ -400,17 +501,20 @@ function getSingleCandidate_(params) {
     age:              parseInt(row[COL.age-1]) || 0,
     dob:              row[COL.dob-1] instanceof Date ?
                         Utilities.formatDate(row[COL.dob-1],'Asia/Dubai','yyyy-MM-dd') : '',
-    stage:            String(row[COL.stage-1]||'').trim(),
+    stage:            computeDisplayStage_(stageRaw, verdict),
+    stageRaw:         stageRaw,
     trade:            String(row[COL.trade-1]||'').trim(),
     score:            score,
     confidenceTier:   getConfidenceTier_(score),
-    verdict:          String(row[COL.verdict-1]||'').trim(),
+    verdict:          verdict,
     positionApplied:  String(row[COL.positionApplied-1]||'').trim(),
     industry:         String(row[COL.industry-1]||'').trim(),
     experience:       parseFloat(row[COL.experience-1]) || 0,
     gulfExp:          gulfExp,
     gccMobility:      classifyGCCMobility_(gulfExp, loc),
     currentLocation:  loc,
+    empStatus:        String(row[COL.empStatus-1]||'').trim(),
+    noticeDays:       parseInt(row[COL.noticeDays-1]) || 0,
     educationRaw:     String(row[COL.education-1]||'').trim(),
     educationLevel:   edu.level,
     educationSubject: edu.subject,
@@ -420,10 +524,11 @@ function getSingleCandidate_(params) {
     kaiAssessment:    kaiText,
     applicationDate:  appDt instanceof Date ?
                         Utilities.formatDate(appDt,'Asia/Dubai','yyyy-MM-dd') : '',
-    passportStatus:   ppExp ? ((ppExp-new Date())/(1000*60*60*24*30) > 6 ? 'Valid':'<6mo'):'Unknown',
+    passportStatus:   ppStat,
     passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Dubai','yyyy-MM-dd') : '',
     passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
     ecrStatus:        String(row[COL.ecrStatus-1]||'').trim(),
+    medicalStatus:    String(row[COL.medicalStatus-1]||'').trim(),
     missingFields:    String(row[COL.missingFields-1]||'').trim(),
     deployScore:      parseInt(row[COL.deployScore-1]) || 0,
     top3Positions:    top3,
@@ -441,7 +546,8 @@ function globalSearch_(params) {
   return getCandidates_(params);
 }
 
-// GET ?action=match&reqId=AYE-REQ-2026-0001&tier=STRONG&days=30
+// GET ?action=match&reqId=AYE-REQ-2026-0001&tier=STRONG
+// FIX: uses getAllCandidatesRaw_ — sees all 4,520+ candidates, not just 200
 function getMatchedCandidates_(params) {
   var reqId = String(params.reqId||'').trim();
   var tier  = String(params.tier ||'').trim().toUpperCase();
@@ -461,7 +567,7 @@ function getMatchedCandidates_(params) {
   var reqTrade = String(reqRow[4]||'').toLowerCase();
   var minExp   = parseFloat(reqRow[6]) || 0;
 
-  var all = getCandidates_({ limit:'500' }).records;
+  var all = getAllCandidatesRaw_();
   var matched = all.filter(function(r) {
     if (reqTrade && r.trade.toLowerCase().indexOf(reqTrade) < 0 &&
         r.positionApplied.toLowerCase().indexOf(reqTrade) < 0) return false;
@@ -490,34 +596,39 @@ function getMatchedCandidates_(params) {
 
 // ════════════════════════════════════════════════════════════════════
 // SECTION 5 — METRICS + SAC
+// FIX: uses getAllCandidatesRaw_ — sees all 4,520+ candidates, not just 200
 // ════════════════════════════════════════════════════════════════════
 
 function getMetrics_() {
-  var records = getCandidates_({ limit:'500' }).records || [];
+  var records = getAllCandidatesRaw_();
   var m = { total:0, shortlisted:0, needsReview:0, needsCall:0,
             clientSent:0, selected:0, deployed:0, todayCount:0,
-            strongMatch:0, goodMatch:0 };
+            strongMatch:0, goodMatch:0, possibleMatch:0, reviewMatch:0,
+            unscored:0 };
   var today = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd');
 
   records.forEach(function(r) {
     m.total++;
     var v = (r.verdict||'').toUpperCase();
     var s = (r.stage||'').toLowerCase();
-    if (v === 'SHORTLISTED')                       m.shortlisted++;
-    if (v === 'NEEDS_REVIEW')                      m.needsReview++;
-    if (v === 'NEEDS_CALL')                        m.needsCall++;
-    if (s.indexOf('client sent') >= 0)             m.clientSent++;
-    if (s.indexOf('selected') >= 0)                m.selected++;
-    if (s.indexOf('deployed') >= 0)                m.deployed++;
-    if (r.applicationDate === today)               m.todayCount++;
-    if (r.confidenceTier === 'STRONG')             m.strongMatch++;
-    if (r.confidenceTier === 'GOOD')               m.goodMatch++;
+    if (v === 'SHORTLISTED')                        m.shortlisted++;
+    if (v === 'NEEDS_REVIEW')                       m.needsReview++;
+    if (v === 'NEEDS_CALL')                         m.needsCall++;
+    if (s.indexOf('client sent') >= 0)              m.clientSent++;
+    if (s.indexOf('selected') >= 0)                 m.selected++;
+    if (s.indexOf('deployed') >= 0)                 m.deployed++;
+    if (r.applicationDate === today)                m.todayCount++;
+    if (r.confidenceTier === 'STRONG')              m.strongMatch++;
+    else if (r.confidenceTier === 'GOOD')           m.goodMatch++;
+    else if (r.confidenceTier === 'POSSIBLE')       m.possibleMatch++;
+    else if (r.confidenceTier === 'REVIEW')         m.reviewMatch++;
+    if (!r.score || r.score === 0)                  m.unscored++;
   });
   return { ok:true, metrics:m };
 }
 
 function getSacPerformance_() {
-  var records = getCandidates_({ limit:'500' }).records || [];
+  var records = getAllCandidatesRaw_();
   var groups  = {};
   records.forEach(function(r) {
     var src = r.source || 'Direct';
@@ -634,7 +745,7 @@ function getRequirementsEnhanced_() {
   var sheet = ss.getSheetByName('_Requirements');
   if (!sheet || sheet.getLastRow() < 2) return { ok:true, requirements:[] };
   var data  = sheet.getRange(2, 1, sheet.getLastRow()-1, 25).getValues();
-  var cands = getCandidates_({ limit:'500' }).records || [];
+  var cands = getAllCandidatesRaw_();
 
   var reqs = data.filter(function(r){ return String(r[0]||'').trim(); })
     .map(function(row) {
@@ -1068,77 +1179,372 @@ function extractEmailFromHeader_(h) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// SECTION 12 — CANDIDATE SLOTS (Many-to-many: Candidate ↔ Requirement)
+// ════════════════════════════════════════════════════════════════════
+//
+// SlotStatus flow:  ADDED → SHORTLISTED → SUBMITTED → INTERVIEWED → SELECTED → DEPLOYED
+//                   REJECTED (terminal, can be set from any status)
+//
+// One slot = one candidate linked to one requirement.
+// Duplicate prevention: same reqId + kaiNo cannot be added twice.
+
+var SLOTS_HEADERS = [
+  'SlotId','ReqId','KaiNo','RowIndex','CandidateName','Trade',
+  'SourceOwner','AddedBy','AddedAt','SlotStatus','Notes','UpdatedAt'
+];
+
+function ensureSlotsSheet_(ss) {
+  var s = ss.getSheetByName('_CandidateSlots');
+  if (!s) {
+    s = ss.insertSheet('_CandidateSlots');
+    s.appendRow(SLOTS_HEADERS);
+    s.getRange(1,1,1,SLOTS_HEADERS.length)
+     .setFontWeight('bold').setBackground('#1F4E79').setFontColor('#FFFFFF');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+// GET ?action=slots&reqId=AYE-REQ-2026-0001
+// GET ?action=slots&kaiNo=AYE-KAI-2026-000001
+// GET ?action=slots&rowIndex=5
+function getCandidateSlots_(params) {
+  params = params || {};
+  var reqId    = String(params.reqId    ||'').trim();
+  var kaiNo    = String(params.kaiNo    ||'').trim();
+  var rowIndex = parseInt(params.rowIndex||'0');
+
+  if (!reqId && !kaiNo && !rowIndex)
+    return { ok:false, error:'reqId, kaiNo, or rowIndex required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_CandidateSlots');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, slots:[], count:0 };
+
+  var data  = sheet.getDataRange().getValues();
+  var slots = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!String(row[0]||'').trim()) continue;
+    var match = (reqId    && String(row[1]) === reqId)    ||
+                (kaiNo    && String(row[2]) === kaiNo)    ||
+                (rowIndex && parseInt(row[3]) === rowIndex);
+    if (!match) continue;
+    slots.push({
+      slotId:        String(row[0]),
+      reqId:         String(row[1]),
+      kaiNo:         String(row[2]),
+      rowIndex:      parseInt(row[3])||0,
+      candidateName: String(row[4]),
+      trade:         String(row[5]),
+      sourceOwner:   String(row[6]),
+      addedBy:       String(row[7]),
+      addedAt:       String(row[8]),
+      slotStatus:    String(row[9]),
+      notes:         String(row[10]),
+      updatedAt:     String(row[11]),
+    });
+  }
+  return { ok:true, slots:slots, count:slots.length };
+}
+
+// POST body: { action:'addSlot', token, reqId, kaiNo, rowIndex, candidateName,
+//              trade, sourceOwner, addedBy, notes }
+function addCandidateToSlot_(body) {
+  var reqId    = String(body.reqId         ||'').trim();
+  var kaiNo    = String(body.kaiNo         ||'').trim();
+  var rowIndex = parseInt(body.rowIndex    ||'0');
+  if (!reqId) return { ok:false, error:'reqId required' };
+  if (!kaiNo && !rowIndex) return { ok:false, error:'kaiNo or rowIndex required' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Prevent duplicate: same reqId + kaiNo
+  var existing = ss.getSheetByName('_CandidateSlots');
+  if (existing && existing.getLastRow() > 1) {
+    var eData = existing.getDataRange().getValues();
+    for (var i = 1; i < eData.length; i++) {
+      if (String(eData[i][1]) === reqId && String(eData[i][2]) === kaiNo) {
+        return { ok:false, error:'Candidate already added to this requirement',
+                 existing:true, slotId:String(eData[i][0]) };
+      }
+    }
+  }
+
+  var slotId = 'SLT-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss') +
+               '-' + String(Math.floor(Math.random()*900)+100);
+  var now    = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm');
+
+  ensureSlotsSheet_(ss).appendRow([
+    slotId,
+    reqId,
+    kaiNo,
+    rowIndex || '',
+    String(body.candidateName ||'').trim(),
+    String(body.trade         ||'').trim(),
+    String(body.sourceOwner   ||'SYSTEM').trim(),
+    String(body.addedBy       ||'system').trim(),
+    now,
+    'ADDED',
+    String(body.notes         ||'').trim(),
+    now
+  ]);
+
+  logActivity_(ss, {
+    kaiNo:    kaiNo,
+    rowIndex: rowIndex,
+    action:   'SLOT_ADDED',
+    detail:   'Added to requirement: ' + reqId,
+    actor:    String(body.addedBy||'system')
+  });
+
+  return { ok:true, slotId:slotId, reqId:reqId, kaiNo:kaiNo||('ROW:'+rowIndex) };
+}
+
+// POST body: { action:'updateSlot', token, slotId, newStatus, notes, actor }
+// Valid newStatus: ADDED | SHORTLISTED | SUBMITTED | INTERVIEWED | SELECTED | REJECTED | DEPLOYED
+function updateSlotStatus_(body) {
+  var slotId    = String(body.slotId    ||'').trim();
+  var newStatus = String(body.newStatus ||'').trim().toUpperCase();
+  var actor     = String(body.actor     ||'system').trim();
+  if (!slotId)                                        return { ok:false, error:'slotId required' };
+  if (VALID_SLOT_STATUSES.indexOf(newStatus) < 0)     return { ok:false, error:'Invalid status: '+newStatus };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_CandidateSlots');
+  if (!sheet) return { ok:false, error:'_CandidateSlots sheet not found' };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() !== slotId) continue;
+    var r    = i + 1;
+    var prev = String(data[i][9]);
+    sheet.getRange(r, 10).setValue(newStatus);
+    if (body.notes) sheet.getRange(r, 11).setValue(String(body.notes));
+    sheet.getRange(r, 12).setValue(Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm'));
+
+    logActivity_(ss, {
+      kaiNo:    String(data[i][2]),
+      rowIndex: parseInt(data[i][3])||0,
+      action:   'SLOT_STATUS',
+      detail:   prev + ' → ' + newStatus + ' | Req: ' + data[i][1],
+      actor:    actor
+    });
+
+    return { ok:true, slotId:slotId, prevStatus:prev, newStatus:newStatus };
+  }
+  return { ok:false, error:'Slot not found: '+slotId };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 13 — CLIENT REGISTRY
+// ════════════════════════════════════════════════════════════════════
+//
+// Client codes: CL0001, CL0002, CL0003 ... auto-incremented.
+// ClientName is internal — external submissions use clientCode only.
+
+var CLIENTS_HEADERS = [
+  'ClientCode','ClientName','Country','Sector',
+  'ContactName','ContactEmail','Active','CreatedAt','Notes'
+];
+
+function ensureClientsSheet_(ss) {
+  var s = ss.getSheetByName('_Clients');
+  if (!s) {
+    s = ss.insertSheet('_Clients');
+    s.appendRow(CLIENTS_HEADERS);
+    s.getRange(1,1,1,CLIENTS_HEADERS.length)
+     .setFontWeight('bold').setBackground('#2C3E50').setFontColor('#FFFFFF');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+// GET ?action=clients  (returns all clients)
+// GET ?action=clients&active=YES  (active only)
+function getClients_(params) {
+  params = params || {};
+  var fActive = String(params.active||'').trim().toUpperCase();
+  var ss      = SpreadsheetApp.openById(SS_ID);
+  var sheet   = ss.getSheetByName('_Clients');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, clients:[], count:0 };
+  var data    = sheet.getDataRange().getValues();
+  var clients = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!String(row[0]||'').trim()) continue;
+    if (fActive && String(row[6]||'').toUpperCase() !== fActive) continue;
+    clients.push({
+      clientCode:   String(row[0]).trim(),
+      clientName:   String(row[1]).trim(),
+      country:      String(row[2]).trim(),
+      sector:       String(row[3]).trim(),
+      contactName:  String(row[4]).trim(),
+      contactEmail: String(row[5]).trim(),
+      active:       String(row[6]).trim().toUpperCase() === 'YES',
+      createdAt:    row[7] instanceof Date ?
+                      Utilities.formatDate(row[7],'Asia/Dubai','yyyy-MM-dd') : String(row[7]||''),
+      notes:        String(row[8]).trim(),
+    });
+  }
+  return { ok:true, clients:clients, count:clients.length };
+}
+
+// POST body: { action:'createClient', token, clientName, country, sector,
+//              contactName, contactEmail, notes }
+function createClient_(body) {
+  var clientName = String(body.clientName||'').trim();
+  if (!clientName) return { ok:false, error:'clientName required' };
+
+  var ss         = SpreadsheetApp.openById(SS_ID);
+  var clientCode = generateClientCode_(ss);
+  var sheet      = ensureClientsSheet_(ss);
+
+  sheet.appendRow([
+    clientCode,
+    clientName,
+    String(body.country      ||'').trim(),
+    String(body.sector       ||'').trim(),
+    String(body.contactName  ||'').trim(),
+    String(body.contactEmail ||'').trim(),
+    'YES',
+    new Date(),
+    String(body.notes        ||'').trim(),
+  ]);
+
+  return { ok:true, clientCode:clientCode, clientName:clientName };
+}
+
+// Auto-increment: finds max existing CL#### and increments by 1
+function generateClientCode_(ss) {
+  var sheet = ss.getSheetByName('_Clients');
+  if (!sheet || sheet.getLastRow() < 2) return 'CL0001';
+  var data  = sheet.getDataRange().getValues();
+  var max   = 0;
+  for (var i = 1; i < data.length; i++) {
+    var code = String(data[i][0]||'').trim();
+    var num  = parseInt(code.replace(/^CL/i,'')) || 0;
+    if (num > max) max = num;
+  }
+  return 'CL' + String(max + 1).padStart(4,'0');
+}
+
+// ════════════════════════════════════════════════════════════════════
 // SECTION 11 — SETUP + TEST (Run from GAS editor, not from web)
 // ════════════════════════════════════════════════════════════════════
 
-// Run ONCE after pasting this file
+// Run ONCE after pasting this file (or after any new section is added)
 function setupAllNewSheets() {
   var ss = SpreadsheetApp.openById(SS_ID);
-  Logger.log('_ActivityLog: '    + (ensureActivitySheet_(ss) ? 'OK' : 'FAILED'));
-  Logger.log('_JD_Repository: '  + (ensureJDSheet_(ss)       ? 'OK' : 'FAILED'));
-  Logger.log('_ManualUpload: '   + (ensureUploadSheet_(ss)   ? 'OK' : 'FAILED'));
 
+  // Core auxiliary sheets
+  Logger.log('_ActivityLog:    ' + (ensureActivitySheet_(ss) ? 'OK' : 'FAILED'));
+  Logger.log('_JD_Repository:  ' + (ensureJDSheet_(ss)       ? 'OK' : 'FAILED'));
+  Logger.log('_ManualUpload:   ' + (ensureUploadSheet_(ss)   ? 'OK' : 'FAILED'));
+
+  // New sheets (Sections 12 + 13)
+  Logger.log('_CandidateSlots: ' + (ensureSlotsSheet_(ss)    ? 'OK' : 'FAILED'));
+  Logger.log('_Clients:        ' + (ensureClientsSheet_(ss)   ? 'OK' : 'FAILED'));
+
+  // _Requirements column extension
   var req = ss.getSheetByName('_Requirements');
   if (req) {
     var lc = req.getLastColumn();
     if (lc < 21) req.getRange(1,21).setValue('JD_ID');
     if (lc < 22) req.getRange(1,22).setValue('Start_Date');
     if (lc < 23) req.getRange(1,23).setValue('End_Date');
-    Logger.log('_Requirements: extended to 23 cols');
+    Logger.log('_Requirements: cols OK (' + req.getLastColumn() + ' cols)');
   } else {
-    Logger.log('_Requirements: sheet not found (will be created when first req is added)');
+    Logger.log('_Requirements: sheet not found (created when first req is added)');
   }
 
+  // Script properties init
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('jd_id_counter'))  props.setProperty('jd_id_counter',  '0');
   if (!props.getProperty('req_id_counter')) props.setProperty('req_id_counter', '0');
   Logger.log('Setup complete.');
 }
 
-// Run to verify all endpoints are working
+// Run after every deployment to verify all endpoints
 function testBridgeEndpoints() {
   Logger.log('=== KAI Bridge Endpoint Test ===');
 
-  // Candidates list
+  // 1. Candidates list (paginated)
   var cands = getCandidates_({});
-  Logger.log('Candidates: ' + (cands.ok ? cands.total+' total, page 1 of '+cands.totalPages : 'FAILED — '+cands.error));
+  Logger.log('Candidates: ' + (cands.ok
+    ? cands.total+' total, page 1 of '+cands.totalPages+' ('+cands.records.length+' returned)'
+    : 'FAILED — '+cands.error));
 
-  // Single candidate (first row from sheet)
-  if (cands.ok && cands.records && cands.records.length > 0) {
+  // 2. getAllCandidatesRaw_ (internal no-limit read)
+  var all = getAllCandidatesRaw_();
+  Logger.log('AllCandidatesRaw: ' + all.length + ' records (should match total above)');
+
+  // 3. Single candidate
+  if (cands.ok && cands.records.length > 0) {
     var firstRow = cands.records[0].rowIndex;
-    var single = getSingleCandidate_({ rowIndex: String(firstRow) });
-    Logger.log('SingleCandidate: ' + (single.ok ? 'OK — ' + single.name : 'FAILED — '+single.error));
+    var single   = getSingleCandidate_({ rowIndex: String(firstRow) });
+    Logger.log('SingleCandidate: ' + (single.ok
+      ? 'OK — ' + single.name + ' | stage: ' + single.stage + ' | score: ' + single.score
+      : 'FAILED — '+single.error));
   }
 
-  // Global search (returns same shape as getCandidates_ — uses .total)
+  // 4. Global search
   var search = globalSearch_({ q: 'welder' });
-  Logger.log('GlobalSearch "welder": ' + (search.ok ? search.total+' results' : 'FAILED — '+search.error));
+  Logger.log('GlobalSearch "welder": ' + (search.ok
+    ? search.total+' results' : 'FAILED — '+search.error));
 
-  // Requirements
+  // 5. Requirements + match counts
   var reqs = getRequirementsEnhanced_();
   Logger.log('Requirements: ' + (reqs.ok ? reqs.count+' found' : 'FAILED — '+reqs.error));
 
-  // JDs
+  // 6. Match (first requirement)
+  if (reqs.ok && reqs.requirements.length > 0) {
+    var firstReqId = reqs.requirements[0].reqId;
+    var match      = getMatchedCandidates_({ reqId: firstReqId });
+    Logger.log('Match for '+firstReqId+': ' + (match.ok
+      ? JSON.stringify(match.counts) : 'FAILED — '+match.error));
+  }
+
+  // 7. JDs
   var jds = getJDs_({});
   Logger.log('JDs: ' + (jds.ok ? jds.count+' found' : 'FAILED — '+jds.error));
 
-  // Metrics
+  // 8. Metrics (uses getAllCandidatesRaw_ — should see all candidates)
   var metrics = getMetrics_();
-  Logger.log('Metrics: ' + (metrics.ok ? JSON.stringify(metrics.metrics) : 'FAILED — '+metrics.error));
+  Logger.log('Metrics: ' + (metrics.ok
+    ? 'total='+metrics.metrics.total+' strong='+metrics.metrics.strongMatch
+      +' good='+metrics.metrics.goodMatch+' unscored='+metrics.metrics.unscored
+    : 'FAILED — '+metrics.error));
 
-  // SAC performance (returns { sacPerformance: [...] })
+  // 9. SAC Performance
   var sac = getSacPerformance_();
-  Logger.log('SAC Performance: ' + (sac.ok ? sac.sacPerformance.length+' source groups' : 'FAILED — '+sac.error));
+  Logger.log('SAC Performance: ' + (sac.ok
+    ? sac.sacPerformance.length+' source groups' : 'FAILED — '+sac.error));
 
-  // Activity log — requires rowIndex or kaiNo; use first candidate's rowIndex
-  if (cands.ok && cands.records && cands.records.length > 0) {
+  // 10. Activity log
+  if (cands.ok && cands.records.length > 0) {
     var actLog = getActivityLog_({ rowIndex: String(cands.records[0].rowIndex) });
-    Logger.log('ActivityLog: ' + (actLog.ok ? actLog.count+' entries for row '+cands.records[0].rowIndex : 'FAILED — '+actLog.error));
+    Logger.log('ActivityLog: ' + (actLog.ok
+      ? actLog.count+' entries for row '+cands.records[0].rowIndex
+      : 'FAILED — '+actLog.error));
   }
 
-  // Gmail inbox (may need Gmail scope — OK if fails with scope error)
+  // 11. Slots (should return empty on fresh setup)
+  if (reqs.ok && reqs.requirements.length > 0) {
+    var slots = getCandidateSlots_({ reqId: reqs.requirements[0].reqId });
+    Logger.log('CandidateSlots: ' + (slots.ok
+      ? slots.count+' slots for '+reqs.requirements[0].reqId
+      : 'FAILED — '+slots.error));
+  }
+
+  // 12. Clients (may be empty on fresh setup)
+  var clients = getClients_({});
+  Logger.log('Clients: ' + (clients.ok
+    ? clients.count+' clients' : 'FAILED — '+clients.error));
+
+  // 13. Gmail inbox (requires Gmail scope)
   try {
-    var inbox = getGmailInbox_({ tab: 'all', limit: '3' });
+    var inbox = getGmailInbox_({ tab: 'inbox', max: '3' });
     Logger.log('GmailInbox: ' + (inbox.ok ? inbox.count+' threads' : 'FAILED — '+inbox.error));
   } catch(e) {
     Logger.log('GmailInbox: SCOPE ERROR (add Gmail scope in manifest) — ' + e.message);
