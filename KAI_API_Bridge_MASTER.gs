@@ -650,10 +650,18 @@ var TRADE_FAMILIES = {
     'calibration','metering','telemetry','bms','ems'
   ],
   QA_QC: [
-    'qa','qc','quality','qa/qc','quality control','quality assurance',
-    'ndt','inspection','inspector','qc inspector','welding inspector',
-    'piping inspector','mechanical inspector','coating inspector','cswip','aws',
-    'asnt','rt','ut','mt','pt','visual inspection','dimensional inspection'
+    'qa/qc','quality control','quality assurance','quality inspector',
+    'qc inspector','qa inspector','qc engineer','qa engineer',
+    'qc supervisor','qa supervisor','qa/qc engineer','qa/qc supervisor',
+    'qc civil','qc mechanical','qc electrical','qc piping','qc welding',
+    'welding inspector','piping inspector','mechanical inspector',
+    'coating inspector','civil inspector','structural inspector',
+    'dimensional inspection','visual inspection',
+    'ndt','ndt technician','ndt inspector','cswip','asnt',
+    'radiographic testing','ultrasonic testing',
+    'magnetic particle testing','dye penetrant testing',
+    'rt technician','ut technician','mt technician','pt technician',
+    'quality','inspector','inspection','aws'
   ],
   HSE: [
     'hse','safety','health safety','safety officer','safety engineer',
@@ -757,6 +765,9 @@ function getTradeMatchTier_(reqTrade, cand) {
     if (candPos.indexOf(kw) >= 0 || candTop3.indexOf(kw) >= 0) return 'GOOD';
   }
   for (var k = 0; k < keywords.length; k++) {
+    // Skip short keywords in assessment text — 2-3 char strings cause false positives
+    // in normal English words (e.g. 'rt' in 'report', 'ut' in 'about')
+    if (keywords[k].length < 4) continue;
     if (candText.indexOf(keywords[k]) >= 0) return 'POSSIBLE';
   }
   return null;
@@ -815,6 +826,26 @@ function getMatchedCandidates_(params) {
       total:matched.length
     }
   };
+}
+
+// Run this directly in GAS editor (Run button) to audit QA_QC match counts.
+// Read-only. Does not modify any data.
+function auditQAQCMatching() {
+  var tradesToAudit = ['QC Inspector','QA/QC','Welder','Pipe Fitter','Electrician','Rigger','HSE Officer'];
+  var all = getAllCandidatesRaw_();
+  Logger.log('Total active candidates: ' + all.length);
+  Logger.log('─────────────────────────────────────────────────');
+  tradesToAudit.forEach(function(trade) {
+    var strong=0, good=0, possible=0;
+    all.forEach(function(c) {
+      var tier = getTradeMatchTier_(trade, c);
+      if      (tier === 'STRONG')   strong++;
+      else if (tier === 'GOOD')     good++;
+      else if (tier === 'POSSIBLE') possible++;
+    });
+    Logger.log(trade + ':  Total=' + (strong+good+possible) +
+      '  Strong=' + strong + '  Good=' + good + '  Possible=' + possible);
+  });
 }
 
 // ════════════════════════════════════════════════════════════════════
