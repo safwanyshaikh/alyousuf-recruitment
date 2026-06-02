@@ -84,6 +84,7 @@ function doGet(e) {
     else if (action === 'slots')            out = JSON.stringify(getCandidateSlots_(params));
     else if (action === 'clients')          out = JSON.stringify(getClients_(params));
     else if (action === 'locationAudit')    out = JSON.stringify(getLocationAudit_());
+    else if (action === 'associates')       out = JSON.stringify(getAssociates_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -119,6 +120,8 @@ function doPost(e) {
     else if (action === 'addSlot')           out = JSON.stringify(addCandidateToSlot_(body));
     else if (action === 'updateSlot')        out = JSON.stringify(updateSlotStatus_(body));
     else if (action === 'createClient')      out = JSON.stringify(createClient_(body));
+    else if (action === 'importAssociates')  out = JSON.stringify(importAssociates_(body));
+    else if (action === 'createJDAndReq')    out = JSON.stringify(createJDAndRequirement_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -773,11 +776,23 @@ function getTradeMatchTier_(reqTrade, cand) {
   return null;
 }
 
-// GET ?action=match&reqId=AYE-REQ-2026-0001&tier=STRONG
-// Uses normalized trade family matching — no exact string equality
+// GET ?action=match&reqId=AYE-REQ-2026-0001
+//     &tier=STRONG          — filter to one tier (STRONG|GOOD|POSSIBLE|ALL)
+//     &nationality=Indian   — filter by nationality (substring)
+//     &hideAssigned=true    — exclude candidates already slotted to this req
+//     &minGulfExp=1         — require at least N years gulf experience
+//     &sort=score|latest    — sort within tier (default: score desc)
+//     &page=1&limit=100     — pagination
 function getMatchedCandidates_(params) {
-  var reqId = String(params.reqId||'').trim();
-  var tier  = String(params.tier ||'').trim().toUpperCase();
+  var reqId        = String(params.reqId        ||'').trim();
+  var tier         = String(params.tier         ||'ALL').trim().toUpperCase();
+  var fNat         = String(params.nationality  ||'').trim().toLowerCase();
+  var hideAssigned = String(params.hideAssigned ||'').toLowerCase() === 'true';
+  var minGulfExp   = parseInt(params.minGulfExp ||'0') || 0;
+  var sortBy       = String(params.sort         ||'score').trim().toLowerCase();
+  var page         = Math.max(1, parseInt(params.page  ||'1')  || 1);
+  var limit        = Math.min(200, parseInt(params.limit||'100')|| 100);
+
   if (!reqId) return { ok:false, error:'reqId required' };
 
   var ss = SpreadsheetApp.openById(SS_ID);
@@ -794,37 +809,67 @@ function getMatchedCandidates_(params) {
   var reqTrade = String(reqRow[4]||'').trim();
   var minExp   = parseFloat(reqRow[6]) || 0;
 
+  // Build set of already-assigned kaiNos for this requirement
+  var assignedSet = {};
+  if (hideAssigned) {
+    var slotSheet = ss.getSheetByName('_CandidateSlots');
+    if (slotSheet && slotSheet.getLastRow() > 1) {
+      var slotData = slotSheet.getDataRange().getValues();
+      for (var s = 1; s < slotData.length; s++) {
+        if (String(slotData[s][1]) === reqId && String(slotData[s][9]) !== 'REJECTED') {
+          assignedSet[String(slotData[s][2])] = true;
+        }
+      }
+    }
+  }
+
   var all = getAllCandidatesRaw_();
   var result = { STRONG:[], GOOD:[], POSSIBLE:[], REVIEW:[] };
 
   all.forEach(function(r) {
     if (minExp > 0 && r.experience < minExp) return;
+    if (fNat && r.nationality.toLowerCase().indexOf(fNat) < 0) return;
+    if (hideAssigned && assignedSet[r.kaiNo]) return;
+    if (minGulfExp > 0) {
+      var gye = parseFloat(String(r.gulfExp||'').match(/(\d+\.?\d*)/)||[0,0])[1] || 0;
+      if (gye < minGulfExp) return;
+    }
     var matchTier = getTradeMatchTier_(reqTrade, r);
     if (!matchTier) return;
-    // Use trade match tier as bucket; sort within bucket by score
     result[matchTier].push(r);
   });
 
-  // Sort each tier by score descending
-  ['STRONG','GOOD','POSSIBLE','REVIEW'].forEach(function(t) {
-    result[t].sort(function(a,b){ return b.score - a.score; });
-  });
+  // Sort within each tier
+  var sortFn = sortBy === 'latest'
+    ? function(a,b){ return (b.applicationDate||'').localeCompare(a.applicationDate||''); }
+    : function(a,b){ return b.score - a.score; };
+  ['STRONG','GOOD','POSSIBLE','REVIEW'].forEach(function(t) { result[t].sort(sortFn); });
 
   var matched = result.STRONG.concat(result.GOOD).concat(result.POSSIBLE).concat(result.REVIEW);
+  var counts  = {
+    STRONG:result.STRONG.length, GOOD:result.GOOD.length,
+    POSSIBLE:result.POSSIBLE.length, REVIEW:result.REVIEW.length,
+    total:matched.length
+  };
 
+  // Single-tier response with pagination
   if (tier && tier !== 'ALL') {
+    var tierList  = result[tier] || [];
+    var paged     = tierList.slice((page-1)*limit, (page-1)*limit+limit);
     return { ok:true, reqId:reqId, tier:tier,
-             records: result[tier]||[], total:(result[tier]||[]).length };
+             records:paged, total:tierList.length,
+             page:page, limit:limit,
+             totalPages:Math.ceil(tierList.length/limit),
+             counts:counts };
   }
+
+  // All-tiers response (no pagination — caller picks tier)
   return {
-    ok:true, reqId:reqId,
-    STRONG:result.STRONG, GOOD:result.GOOD,
-    POSSIBLE:result.POSSIBLE, REVIEW:result.REVIEW,
-    counts: {
-      STRONG:result.STRONG.length, GOOD:result.GOOD.length,
-      POSSIBLE:result.POSSIBLE.length, REVIEW:result.REVIEW.length,
-      total:matched.length
-    }
+    ok:true, reqId:reqId, trade:reqTrade,
+    STRONG:result.STRONG.slice(0,100),
+    GOOD:result.GOOD.slice(0,100),
+    POSSIBLE:result.POSSIBLE.slice(0,100),
+    counts:counts
   };
 }
 
@@ -2177,6 +2222,269 @@ function generateClientCode_(ss) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// SECTION 14 — DEPARTMENT CLASSIFIER
+// Maps any trade/role string to one of 6 standard departments
+// ════════════════════════════════════════════════════════════════════
+
+function classifyDepartment_(trade) {
+  if (!trade) return 'General';
+  var t = trade.toLowerCase();
+  if (/mechanical|rotating|static|pump|compressor|turbine|heat exchanger|piping|pipe fitter|pipefitter/.test(t)) return 'Mechanical';
+  if (/electrical|electrician|e&i|ei |lv |hv |mv |power|motor|cable|switchgear/.test(t)) return 'Electrical';
+  if (/instrument|instrumentation|plc|dcs|scada|control|calibr|metering|telemetry/.test(t)) return 'Instrumentation';
+  if (/civil|structural|mason|carpenter|formwork|rebar|concrete|survey|shuttering|foundation/.test(t)) return 'Civil';
+  if (/qa|qc|quality|ndt|inspector|inspection|cswip|asnt|welding inspector/.test(t)) return 'QAQC';
+  if (/hse|safety|health|fire|environmental|nebosh|iosh|loss prevention/.test(t)) return 'HSE';
+  if (/welder|welding|tig|mig|arc/.test(t)) return 'Mechanical';
+  if (/scaffold|rigger|rigging|lifting|crane/.test(t)) return 'Mechanical';
+  if (/painter|coating|blaster/.test(t)) return 'Mechanical';
+  return 'General';
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 15 — JD → REQUIREMENT BRIDGE
+// POST action=createJDAndReq: parse JD text, save to _JD_Repository,
+// auto-create requirement in _Requirements, return both IDs
+// ════════════════════════════════════════════════════════════════════
+
+function createJDAndRequirement_(body) {
+  var raw       = String(body.rawText    ||'').trim();
+  var clientName= String(body.clientName ||'').trim();
+  var recruiter = String(body.recruiter  ||'system').trim();
+  if (!raw) return { ok:false, error:'rawText required' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Step 1: Parse JD using Gemini
+  var parsed = parseJDWithGemini_(raw, clientName);
+
+  // Step 2: Save to JD Repository
+  var jdSheet = ensureJDSheet_(ss);
+  var jdId    = generateJDId_();
+  jdSheet.appendRow([
+    jdId, new Date(),
+    String(body.source||'MANUAL').trim(),
+    clientName || parsed.client,
+    parsed.title || parsed.trade,
+    parsed.trade,
+    parsed.country,
+    raw, parsed.requirements,
+    parsed.minExp,
+    parsed.certifications,
+    'ACTIVE', '', '',
+    recruiter, ''
+  ]);
+
+  // Step 3: Auto-create Requirement
+  var reqSheet = ss.getSheetByName('_Requirements');
+  if (!reqSheet) {
+    reqSheet = ss.insertSheet('_Requirements');
+    reqSheet.appendRow([
+      'ReqId','Title','ClientName','DeployCountry','Trade',
+      'RequiredQty','MinExperience','CreatedAt','CreatedBy',
+      'ProjectName','Nationality','MinAge','MaxAge','Urgency',
+      'Status','Department','JD_ID','Start_Date','End_Date'
+    ]);
+    reqSheet.getRange(1,1,1,19).setFontWeight('bold')
+      .setBackground('#1e3a5f').setFontColor('#FFFFFF');
+    reqSheet.setFrozenRows(1);
+  }
+  var reqId   = generateReqId_();
+  var dept    = classifyDepartment_(parsed.trade);
+  reqSheet.appendRow([
+    reqId,
+    parsed.title || parsed.trade,
+    clientName || parsed.client || '',
+    parsed.country || '',
+    parsed.trade   || '',
+    parseInt(body.qty||parsed.qty||'1') || 1,
+    parsed.minExp  || 0,
+    new Date(),
+    recruiter,
+    String(body.projectName||parsed.project||'').trim(),
+    String(body.nationality||'Indian').trim(),
+    0, 0,
+    String(body.urgency||'NORMAL').trim(),
+    'OPEN',
+    dept,
+    jdId,
+    '', ''
+  ]);
+
+  return {
+    ok:true, jdId:jdId, reqId:reqId,
+    trade:parsed.trade, department:dept,
+    title:parsed.title||parsed.trade,
+    clientName:clientName||parsed.client,
+    country:parsed.country,
+    minExp:parsed.minExp,
+    certifications:parsed.certifications,
+    summary:parsed.summary
+  };
+}
+
+// Parse JD with Gemini — falls back to regex parser on failure
+function parseJDWithGemini_(text, clientHint) {
+  try {
+    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    if (!apiKey) throw new Error('No API key');
+
+    var prompt = 'Extract the following from this Job Description. Reply ONLY with valid JSON, no markdown.\n' +
+      'Fields: title (job title), trade (primary trade/role), client (company name), ' +
+      'project (project name if mentioned), country (deployment country), ' +
+      'qty (number of positions, integer), minExp (minimum years experience, integer), ' +
+      'education (required education), certifications (comma-separated), ' +
+      'nationality (required nationality if specified), ' +
+      'summary (3-5 key responsibilities, semicolon-separated, no essay).\n\n' +
+      'Ignore: email signatures, service charges, legal text, confidentiality clauses, company footers.\n\n' +
+      'JD TEXT:\n' + text.slice(0, 3000);
+
+    if (clientHint) prompt += '\n\nClient hint: ' + clientHint;
+
+    var resp = UrlFetchApp.fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+      { method:'POST', contentType:'application/json', muteHttpExceptions:true,
+        payload: JSON.stringify({
+          contents:[{ parts:[{ text: prompt }] }],
+          generationConfig:{ temperature:0.1, maxOutputTokens:512 }
+        })
+      }
+    );
+    var json   = JSON.parse(resp.getContentText());
+    var raw    = json.candidates[0].content.parts[0].text.trim();
+    raw        = raw.replace(/^```json\s*/,'').replace(/```$/,'').trim();
+    var parsed = JSON.parse(raw);
+    parsed.requirements = text.slice(0,500);
+    return parsed;
+  } catch(e) {
+    Logger.log('Gemini JD parse failed, using regex: ' + e.message);
+    return parseJDText_(text);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 16 — ASSOCIATES (Sub-Agents / SAC Network)
+// ════════════════════════════════════════════════════════════════════
+
+var ASSOCIATES_HEADERS = [
+  'AssocId','CompanyName','ContactName','Email','Mobile',
+  'State','City','LicenseType','LicenseNo','Specialization',
+  'Capacity','NumRecruiters','LinkedInUrl','WebsiteUrl',
+  'Address','Active','CreatedAt','Notes','Source'
+];
+
+function ensureAssociatesSheet_(ss) {
+  var s = ss.getSheetByName('_Associates');
+  if (!s) {
+    s = ss.insertSheet('_Associates');
+    s.appendRow(ASSOCIATES_HEADERS);
+    s.getRange(1,1,1,ASSOCIATES_HEADERS.length)
+     .setFontWeight('bold').setBackground('#2C3E50').setFontColor('#FFFFFF');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+// GET ?action=associates&state=Maharashtra&active=YES
+function getAssociates_(params) {
+  params = params || {};
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var sheet  = ss.getSheetByName('_Associates');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, associates:[], count:0 };
+
+  var fState  = String(params.state  ||'').trim().toLowerCase();
+  var fActive = String(params.active ||'').trim().toUpperCase();
+  var data    = sheet.getDataRange().getValues();
+  var list    = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!String(row[0]||'').trim()) continue;
+    if (fActive && String(row[15]||'').toUpperCase() !== fActive) continue;
+    if (fState  && String(row[5] ||'').toLowerCase().indexOf(fState) < 0) continue;
+    list.push({
+      assocId:       String(row[0]),
+      companyName:   String(row[1]),
+      contactName:   String(row[2]),
+      email:         String(row[3]),
+      mobile:        String(row[4]),
+      state:         String(row[5]),
+      city:          String(row[6]),
+      licenseType:   String(row[7]),
+      licenseNo:     String(row[8]),
+      specialization:String(row[9]),
+      capacity:      String(row[10]),
+      numRecruiters: parseInt(row[11])||0,
+      linkedInUrl:   String(row[12]),
+      websiteUrl:    String(row[13]),
+      address:       String(row[14]),
+      active:        String(row[15]).toUpperCase() === 'YES',
+      createdAt:     row[16] instanceof Date ?
+                       Utilities.formatDate(row[16],'Asia/Dubai','yyyy-MM-dd') : String(row[16]||''),
+      notes:         String(row[17]),
+      source:        String(row[18]),
+    });
+  }
+  return { ok:true, associates:list, count:list.length };
+}
+
+// POST body: { action:'importAssociates', token, associates:[...], source:'FORM' }
+// Each associate: { companyName, contactName, email, mobile, state, city,
+//   licenseType, licenseNo, specialization, capacity, numRecruiters,
+//   linkedInUrl, websiteUrl, address, notes }
+function importAssociates_(body) {
+  var rows = body.associates;
+  if (!Array.isArray(rows) || !rows.length) return { ok:false, error:'associates array required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ensureAssociatesSheet_(ss);
+  var source= String(body.source||'IMPORT').trim();
+  var now   = new Date();
+
+  // Build existing email set to prevent duplicates
+  var existing = {};
+  if (sheet.getLastRow() > 1) {
+    sheet.getDataRange().getValues().slice(1).forEach(function(r) {
+      var e = String(r[3]||'').trim().toLowerCase();
+      if (e) existing[e] = true;
+    });
+  }
+
+  var added = 0; var skipped = 0;
+  rows.forEach(function(a) {
+    var email = String(a.email||'').trim().toLowerCase();
+    if (email && existing[email]) { skipped++; return; }
+    if (email) existing[email] = true;
+
+    var assocId = 'ASC-' + Utilities.formatDate(now,'Asia/Dubai','yyyyMMdd') +
+                  '-' + String(Math.floor(Math.random()*9000)+1000);
+    sheet.appendRow([
+      assocId,
+      String(a.companyName   ||'').trim(),
+      String(a.contactName   ||'').trim(),
+      email,
+      String(a.mobile        ||'').trim(),
+      String(a.state         ||'').trim(),
+      String(a.city          ||'').trim(),
+      String(a.licenseType   ||'').trim(),
+      String(a.licenseNo     ||'').trim(),
+      String(a.specialization||'').trim(),
+      String(a.capacity      ||'').trim(),
+      parseInt(a.numRecruiters)||0,
+      String(a.linkedInUrl   ||'').trim(),
+      String(a.websiteUrl    ||'').trim(),
+      String(a.address       ||'').trim(),
+      'YES', now,
+      String(a.notes         ||'').trim(),
+      source
+    ]);
+    added++;
+  });
+
+  return { ok:true, added:added, skipped:skipped, total:rows.length };
+}
+
+// ════════════════════════════════════════════════════════════════════
 // SECTION 11 — SETUP + TEST (Run from GAS editor, not from web)
 // ════════════════════════════════════════════════════════════════════
 
@@ -2189,9 +2497,10 @@ function setupAllNewSheets() {
   Logger.log('_JD_Repository:  ' + (ensureJDSheet_(ss)       ? 'OK' : 'FAILED'));
   Logger.log('_ManualUpload:   ' + (ensureUploadSheet_(ss)   ? 'OK' : 'FAILED'));
 
-  // New sheets (Sections 12 + 13)
-  Logger.log('_CandidateSlots: ' + (ensureSlotsSheet_(ss)    ? 'OK' : 'FAILED'));
-  Logger.log('_Clients:        ' + (ensureClientsSheet_(ss)   ? 'OK' : 'FAILED'));
+  // New sheets (Sections 12 + 13 + 16)
+  Logger.log('_CandidateSlots: ' + (ensureSlotsSheet_(ss)     ? 'OK' : 'FAILED'));
+  Logger.log('_Clients:        ' + (ensureClientsSheet_(ss)    ? 'OK' : 'FAILED'));
+  Logger.log('_Associates:     ' + (ensureAssociatesSheet_(ss) ? 'OK' : 'FAILED'));
 
   // _Requirements column extension
   var req = ss.getSheetByName('_Requirements');

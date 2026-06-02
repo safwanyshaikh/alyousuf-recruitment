@@ -1,0 +1,61 @@
+KAI RECRUITMENT OS — TASK 10: Activity History in Candidate Drawer (P4)
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+The candidate drawer has 5 tabs. The History tab must show a real activity
+timeline for every candidate — every action that has ever been taken on them.
+
+GAS already has the endpoint. This is a Lovable wiring task only.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HISTORY TAB — Candidate Drawer
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When the History tab is opened, fetch:
+
+  GET {GAS_URL}?action=activityLog&rowIndex={candidate.rowIndex}&token={token}
+
+Response:
+  {
+    ok: true,
+    logs: [
+      { timestamp, action, detail, actor },
+      ...
+    ]
+  }
+
+Display as a vertical timeline (newest first):
+
+  ┌─────────────────────────────────────────────┐
+  │  ●  STAGE_CHANGE                             │
+  │     New → Shortlisted                        │
+  │     recruiter@alyousuf.com · 02 Jun 14:30   │
+  │                                              │
+  │  ●  SLOT_ADDED                               │
+  │     Added to requirement: AYE-REQ-2026-0001  │
+  │     recruiter@alyousuf.com · 01 Jun 10:15   │
+  │                                              │
+  │  ●  NOTE_SAVED                               │
+  │     "Candidate has 6G certification"         │
+  │     recruiter@alyousuf.com · 01 Jun 09:45   │
+  └─────────────────────────────────────────────┘
+
+Action type → icon/colour mapping:
+  STAGE_CHANGE   → blue dot   "Stage Changed"
+  SLOT_ADDED     → green dot  "Assigned to Requirement"
+  SLOT_STATUS    → amber dot  "Submission Status Updated"
+  SLOT_REMARK    → grey dot   "Remark Updated"
+  NOTE_SAVED     → purple dot "Note Added"
+  CV_UPLOADED    → teal dot   "CV Uploaded"
+
+If no activity: show "No activity recorded yet."
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT CHANGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Other 4 tabs of the drawer. Profile, Assessment, Documents, Notes tabs unchanged.
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
