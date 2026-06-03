@@ -98,6 +98,8 @@ function doGet(e) {
     else if (action === 'clients')          out = JSON.stringify(getClients_(params));
     else if (action === 'locationAudit')    out = JSON.stringify(getLocationAudit_());
     else if (action === 'associates')       out = JSON.stringify(getAssociates_(params));
+    else if (action === 'matchAudit')       out = JSON.stringify(getMatchAudit_(params));
+    else if (action === 'tradeAffinity')    out = JSON.stringify(getTradeAffinity_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -2228,6 +2230,17 @@ function addCandidateToSlot_(body) {
     actor:    String(body.addedBy||'system')
   });
 
+  // T13 Phase 2 — record ASSIGNED feedback for Learning Engine
+  var reqTrade = '';
+  var rs = ss.getSheetByName('_Requirements');
+  if (rs) {
+    var rd = rs.getDataRange().getValues();
+    for (var ri = 1; ri < rd.length; ri++) {
+      if (String(rd[ri][0]) === reqId) { reqTrade = String(rd[ri][4]||''); break; }
+    }
+  }
+  recordFeedback_(ss, reqId, reqTrade, kaiNo, String(body.trade||''), 'ASSIGNED', String(body.addedBy||'system'));
+
   return { ok:true, slotId:slotId, reqId:reqId, kaiNo:kaiNo||('ROW:'+rowIndex) };
 }
 
@@ -2279,12 +2292,182 @@ function updateSlotStatus_(body) {
       actor:    actor
     });
 
+    // T13 Phase 2 — record feedback for Learning Engine on meaningful status changes
+    if (newStatus && ['SHORTLISTED','SUBMITTED','SELECTED','REJECTED','DEPLOYED'].indexOf(newStatus) >= 0) {
+      var reqTrd  = '';
+      var candTrd = String(data[i][5]||'');
+      var rs2     = ss.getSheetByName('_Requirements');
+      if (rs2) {
+        var rd2 = rs2.getDataRange().getValues();
+        for (var ri2 = 1; ri2 < rd2.length; ri2++) {
+          if (String(rd2[ri2][0]) === String(data[i][1])) { reqTrd = String(rd2[ri2][4]||''); break; }
+        }
+      }
+      recordFeedback_(ss, String(data[i][1]), reqTrd, String(data[i][2]), candTrd, newStatus, actor);
+    }
+
     return { ok:true, slotId:slotId, prevStatus:prev,
              newStatus: newStatus || prev,
              recruiterRemark: body.recruiterRemark !== undefined ? String(body.recruiterRemark) : String(data[i][14]||''),
              clientRemark:    body.clientRemark    !== undefined ? String(body.clientRemark)    : String(data[i][15]||'') };
   }
   return { ok:false, error:'Slot not found: '+slotId };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// T13 PHASE 2 — RECRUITER LEARNING ENGINE
+// ════════════════════════════════════════════════════════════════════
+//
+// Every time a recruiter REJECTS or SHORTLISTS a slot, we write a row
+// to _MatchFeedback. Over time this builds a trade-pair affinity table
+// the system can query to tune scoring.
+//
+// Sheet: _MatchFeedback
+// Cols: FeedbackId | Timestamp | ReqId | ReqTrade | ReqLevel |
+//       KaiNo | CandTrade | CandLevel | Action | Actor
+//
+// Actions stored: ASSIGNED | SHORTLISTED | REJECTED | SUBMITTED |
+//                 SELECTED | DEPLOYED
+
+var FEEDBACK_HEADERS = [
+  'FeedbackId','Timestamp','ReqId','ReqTrade','ReqLevel',
+  'KaiNo','CandTrade','CandLevel','Action','Actor'
+];
+
+function ensureFeedbackSheet_(ss) {
+  var s = ss.getSheetByName('_MatchFeedback');
+  if (!s) {
+    s = ss.insertSheet('_MatchFeedback');
+    s.appendRow(FEEDBACK_HEADERS);
+    s.getRange(1,1,1,FEEDBACK_HEADERS.length)
+     .setFontWeight('bold').setBackground('#4A235A').setFontColor('#FFFFFF');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+// Record one feedback event. Called internally by addCandidateToSlot_
+// and updateSlotStatus_ — never called directly from the API.
+function recordFeedback_(ss, reqId, reqTrade, kaiNo, candTrade, action, actor) {
+  try {
+    var sheet    = ensureFeedbackSheet_(ss);
+    var now      = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm');
+    var fbId     = 'FB-' + now.replace(/[^0-9]/g,'') + '-' + String(Math.floor(Math.random()*900)+100);
+    var reqLevel  = getPositionLevel_(reqTrade);
+    var candLevel = getPositionLevel_(candTrade);
+    sheet.appendRow([fbId, now, reqId, reqTrade, reqLevel, kaiNo, candTrade, candLevel, action, actor]);
+  } catch(e) {
+    // feedback write must never break the main operation
+    Logger.log('recordFeedback_ error: ' + e.message);
+  }
+}
+
+// GET ?action=tradeAffinity&token={token}
+// Returns the learned affinity table: for each (reqTrade, candTrade) pair
+// show assign count, shortlist count, reject count, and derived affinity 0-100.
+// High assign+shortlist + low reject → high affinity (recruiters like this pair).
+// High reject + low assign → low affinity (recruiters reject it).
+function getTradeAffinity_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_MatchFeedback');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, pairs:[], message:'No feedback data yet' };
+
+  var data = sheet.getDataRange().getValues();
+  var pairs = {};
+  for (var i = 1; i < data.length; i++) {
+    var reqTrade  = String(data[i][3]||'').trim();
+    var candTrade = String(data[i][6]||'').trim();
+    var action    = String(data[i][8]||'').trim();
+    if (!reqTrade || !candTrade) continue;
+    var key = reqTrade + ' ↔ ' + candTrade;
+    if (!pairs[key]) pairs[key] = { reqTrade:reqTrade, candTrade:candTrade,
+                                    assigned:0, shortlisted:0, submitted:0,
+                                    selected:0, rejected:0, deployed:0, total:0 };
+    pairs[key].total++;
+    if      (action === 'ASSIGNED')    pairs[key].assigned++;
+    else if (action === 'SHORTLISTED') pairs[key].shortlisted++;
+    else if (action === 'SUBMITTED')   pairs[key].submitted++;
+    else if (action === 'SELECTED')    pairs[key].selected++;
+    else if (action === 'REJECTED')    pairs[key].rejected++;
+    else if (action === 'DEPLOYED')    pairs[key].deployed++;
+  }
+
+  // Derive affinity score:
+  //   positive signals: shortlisted(×3) + submitted(×4) + selected(×5) + deployed(×6)
+  //   negative signal:  rejected(×3)
+  //   affinity = clamp(50 + (pos - neg) / total × 50, 0, 100)
+  var result = Object.keys(pairs).map(function(k) {
+    var p   = pairs[k];
+    var pos = p.shortlisted*3 + p.submitted*4 + p.selected*5 + p.deployed*6;
+    var neg = p.rejected*3;
+    var aff = p.total > 0 ? Math.round(Math.min(100, Math.max(0, 50 + (pos-neg)/p.total*50))) : 50;
+    return {
+      pair:        k,
+      reqTrade:    p.reqTrade,
+      candTrade:   p.candTrade,
+      affinity:    aff,
+      assigned:    p.assigned,
+      shortlisted: p.shortlisted,
+      submitted:   p.submitted,
+      selected:    p.selected,
+      rejected:    p.rejected,
+      deployed:    p.deployed,
+      total:       p.total
+    };
+  }).sort(function(a,b){ return a.affinity - b.affinity; }); // lowest first (shows problems)
+
+  return { ok:true, pairs:result, count:result.length };
+}
+
+// GET ?action=matchAudit&token={token}
+// Returns per-requirement Strong/Good/Possible counts with the current
+// eligibility gate active. Use to identify Critical requirements
+// (low Strong after gate) vs healthy ones.
+function getMatchAudit_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var rs    = ss.getSheetByName('_Requirements');
+  if (!rs || rs.getLastRow() < 2) return { ok:true, audit:[] };
+
+  var rData = rs.getRange(2,1,rs.getLastRow()-1,25).getValues();
+  var cands = getAllCandidatesRaw_();
+
+  var audit = rData
+    .filter(function(r){ return String(r[0]||'').trim() && String(r[14]||'Active') !== 'Closed'; })
+    .map(function(row) {
+      var reqId    = String(row[0]).trim();
+      var trade    = String(row[4]||'').trim();
+      var qty      = parseInt(row[5])||1;
+      var reqLevel = getPositionLevel_(trade);
+      var counts   = { STRONG:0, GOOD:0, POSSIBLE:0, BLOCKED:0 };
+      cands.forEach(function(c) {
+        var candLevel = getPositionLevel_(c.trade || c.positionApplied || '');
+        if (getEligibility_(reqLevel, candLevel) < ELIGIBILITY_FLOOR) {
+          counts.BLOCKED++;
+          return;
+        }
+        var mt = getTradeMatchTier_(trade, c);
+        if (!mt) return;
+        counts[mt] = (counts[mt]||0)+1;
+      });
+      var health = counts.STRONG >= qty ? 'Healthy' :
+                   counts.STRONG >= Math.ceil(qty*0.5) ? 'Low' : 'Critical';
+      return {
+        reqId:    reqId,
+        trade:    trade,
+        qty:      qty,
+        reqLevel: reqLevel,
+        collar:   getCollarType_(reqLevel),
+        strong:   counts.STRONG,
+        good:     counts.GOOD,
+        possible: counts.POSSIBLE,
+        blocked:  counts.BLOCKED,
+        health:   health,
+        coverage: counts.STRONG + '/' + qty
+      };
+    });
+
+  audit.sort(function(a,b){ return a.strong - b.strong; }); // most critical first
+  return { ok:true, audit:audit, count:audit.length };
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2660,6 +2843,7 @@ function setupAllNewSheets() {
   Logger.log('_CandidateSlots: ' + (ensureSlotsSheet_(ss)     ? 'OK' : 'FAILED'));
   Logger.log('_Clients:        ' + (ensureClientsSheet_(ss)    ? 'OK' : 'FAILED'));
   Logger.log('_Associates:     ' + (ensureAssociatesSheet_(ss) ? 'OK' : 'FAILED'));
+  Logger.log('_MatchFeedback:  ' + (ensureFeedbackSheet_(ss)   ? 'OK' : 'FAILED'));
 
   // _Requirements column extension
   var req = ss.getSheetByName('_Requirements');
@@ -2810,4 +2994,95 @@ function testUploadCV_() {
   Logger.log('  verdict:    ' + computeBasicScore_(parsed).verdict);
   Logger.log('  score:      ' + computeBasicScore_(parsed).score);
   Logger.log('=== testUploadCV_ complete ===');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// NMDC SHUTDOWN 2026 — SEED REQUIREMENTS
+// ════════════════════════════════════════════════════════════════════
+// Run ONCE from GAS editor (Run button) to create all 16 NMDC positions.
+// Does NOT re-create existing ones (checks reqId counter before adding).
+// After running, open Requirements screen in KAI to verify all 16 appear.
+function seedNMDCRequirements() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet) {
+    Logger.log('ERROR: _Requirements sheet not found — run setupAllNewSheets first');
+    return;
+  }
+
+  var positions = [
+    // [trade, qty, minExp, country, notes]
+    ['Welder',               49, 5, 'UAE', 'FCAW/SMAW/6G mandatory. Offshore. 150ON/43OFF. AED 3510-4095/day.'],
+    ['TIG Welder',           39, 5, 'UAE', 'TIG 6G mandatory. High-pressure piping. Offshore. AED 4000-4600/day.'],
+    ['Scaffolder',           42, 3, 'UAE', 'CISRS preferred. Offshore scaffolding mandatory. AED 3200-3500/day.'],
+    ['Structural Fabricator',98, 3, 'UAE', 'Structural steel only (NOT pipe fabricator). Offshore. AED 3510-3800/day.'],
+    ['Pipe Fitter',          89, 3, 'UAE', 'Isometric drawing reading required. Offshore. AED 2340-2630/day.'],
+    ['Rigger',                0, 3, 'UAE', 'Rigging cert required. Crane signalling. Offshore. AED 2340-2630/day.'],
+    ['Painter',               0, 3, 'UAE', 'Anti-corrosion/offshore coatings. Blasting. Offshore. AED 2340-2630/day.'],
+    ['Rigging Foreman',       8, 7, 'UAE', 'Rigger Level 3. Lifting plan review. Offshore. AED 6400-7300/day.'],
+    ['Fabrication Foreman',   9, 8, 'UAE', 'Structural fabrication 8yr. Offshore mandatory. AED 6400-7300/day.'],
+    ['Anchor Foreman',       10,10, 'UAE', 'Mooring/anchor handling 10yr. BOSIET/HUET mandatory. AED 11500-14500/day.'],
+    ['Painting Foreman',     10, 8, 'UAE', 'NACE CIP preferred. Marine coatings. Offshore. AED 6400-7300/day.'],
+    ['Scaffolding Foreman',  10, 8, 'UAE', 'CISRS Foreman mandatory. Offshore mandatory. AED 6400-7300/day.'],
+    ['Welding Foreman',      10,10, 'UAE', 'Aramco JCC MANDATORY. CSWIP 3.1 preferred. Offshore. AED 6400-7300/day.'],
+    ['Radio Operator',       10, 3, 'UAE', 'GMDSS certificate required. Satellite/VHF/UHF. Offshore.'],
+    ['Winch Operator',        1, 5, 'UAE', 'Anchor handling / tugger winch. Hydraulic systems. Offshore.'],
+    ['Anchor Operator',      15, 5, 'UAE', 'Anchor spread operations. Works under Anchor Foreman. Offshore.']
+  ];
+
+  var added = 0;
+  positions.forEach(function(p) {
+    var trade = p[0], qty = p[1], minExp = p[2], country = p[3], notes = p[4];
+    var reqId = generateReqId_();
+    sheet.appendRow([
+      reqId,
+      new Date(),
+      'NMDC',
+      country,
+      trade,
+      qty,
+      minExp,
+      0, 0,
+      'NMDC Offshore Maintenance Shutdown 2026',
+      '', '', '',
+      'URGENT',
+      'Active',
+      'system',
+      '', 0, 0,
+      notes,
+      '', '', ''
+    ]);
+    added++;
+    Logger.log('Created: ' + reqId + ' — ' + trade + ' (Qty ' + qty + ')');
+  });
+
+  Logger.log('=== seedNMDCRequirements complete: ' + added + ' requirements created ===');
+  Logger.log('Open the Requirements screen in KAI to verify all 16 appear.');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// T13 AUDIT — Run from GAS editor to see per-requirement match health
+// ════════════════════════════════════════════════════════════════════
+// Shows which requirements are Critical (few Strong) after the
+// eligibility gate, and how many candidates were blocked per req.
+function runMatchAudit() {
+  var result = getMatchAudit_({});
+  if (!result.ok || !result.audit.length) {
+    Logger.log('No active requirements found.');
+    return;
+  }
+  Logger.log('═══ MATCH AUDIT — STRONG COUNTS AFTER T13 GATE ═══');
+  Logger.log(pad_('ReqId',18) + pad_('Trade',26) + pad_('Level',12) + pad_('Collar',8) +
+             pad_('Strong',8) + pad_('Good',7) + pad_('Poss',7) + pad_('Blocked',9) + 'Health');
+  result.audit.forEach(function(a) {
+    Logger.log(
+      pad_(a.reqId,18) + pad_(a.trade,26) + pad_(a.reqLevel,12) + pad_(a.collar,8) +
+      pad_(String(a.strong),8) + pad_(String(a.good),7) + pad_(String(a.possible),7) +
+      pad_(String(a.blocked),9) + a.health
+    );
+  });
+  var critical = result.audit.filter(function(a){ return a.health === 'Critical'; });
+  Logger.log('');
+  Logger.log('SUMMARY: ' + result.count + ' active requirements | ' +
+             critical.length + ' Critical (real sourcing gap)');
 }
