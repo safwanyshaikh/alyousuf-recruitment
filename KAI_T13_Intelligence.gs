@@ -8,6 +8,25 @@
 //     across up to 100 requirements BEFORE replacing production matching.
 //   • BLS taxonomy is SEED DATA ONLY. Final authority = GCC recruitment reality.
 //
+
+// ── PUBLIC ENTRY POINTS (no trailing underscore = visible in GAS dropdown) ──
+// Run these in order from the GAS editor function selector.
+// Step 0: seed taxonomy first
+function seedTaxonomyGCC()          { return seedTaxonomyGCC_(); }
+// Step 0b: verify T13 logic is clean (must show 0 leaks)
+// testT13SuccessCase — already public, defined below
+// Step 1: full evidence suite (all 7 steps)
+function runT13EvidenceSuite()      { return runT13EvidenceSuite_(); }
+// Or run individual steps:
+function compareEnginesT13()        { return compareEnginesT13_(); }
+function falsePositiveReport()      { return falsePositiveReportT13_(); }
+function falseNegativeReport()      { return falseNegativeReportT13_(); }
+function dualTradeAnalysis()        { return dualTradeAnalysisT13_(); }
+function governanceQueue()          { return governanceQueueT13_(); }
+function recruiterValidationSet()   { return recruiterValidationDatasetT13_(10); }
+function tradeFamilyAudit()         { return tradeFamilyAuditT13_(); }
+// ────────────────────────────────────────────────────────────────────────────
+
 // PIPELINE (Decisions 2,3,7,10):
 //   Industry → Department → Trade Family → Trade → Specialization
 //   Raw CV Trade → Trade Resolver → Taxonomy Trade → Trade Family
