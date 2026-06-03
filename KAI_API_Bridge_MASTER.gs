@@ -720,6 +720,80 @@ var TRADE_FAMILIES = {
   ]
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// T13 — KAI RECRUITMENT INTELLIGENCE LAYER (Phase 1: Eligibility Blocking)
+// ───────────────────────────────────────────────────────────────────────────
+// PROBLEM: TradeFamily alone treats "Welder", "Welding Inspector" and
+//          "Welding Engineer" as the same family (all contain "weld").
+//          Semantic similarity = HIGH, recruitment similarity = LOW.
+//          A Welder requirement was returning Welding Inspectors at 94% STRONG.
+//
+// FIX: A POSITION CLASSIFICATION layer sits ABOVE the trade family. Every trade
+//      is classified into a recruitment level, and an ELIGIBILITY MATRIX decides
+//      whether a candidate of one level may even be SHOWN for a requirement of
+//      another. Anything below ELIGIBILITY_FLOOR is BLOCKED — invisible. The
+//      trade-family scoring never runs on a blocked candidate.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// LAYER 2 — POSITION CLASSIFICATION ENGINE
+// Classifies any trade / position string into a recruitment position level.
+// First match wins; order is by seniority / specificity. Genuine blue-collar
+// tradesmen (welder, fitter, rigger, mason, operator) fall through to WORKER —
+// only explicitly senior titles are promoted, so we never demote a tradesman.
+function getPositionLevel_(text) {
+  if (!text) return 'WORKER';
+  var t = String(text).toLowerCase();
+
+  // MANAGER — top management
+  if (/\bmanager\b|\bmanagement\b|\bdirector\b|\bchief\b|\bhead of\b|\bsuperintendent\b/.test(t)) return 'MANAGER';
+
+  // ENGINEER — degree-level engineering / design office
+  if (/\bengineer\b|\bengineering\b|\bdesigner\b|\bdraughtsman\b|\bdraftsman\b/.test(t)) return 'ENGINEER';
+
+  // INSPECTOR — QA / QC / NDT / inspection (white collar)
+  if (/inspector|inspection|qa\/qc|\bqaqc\b|\bqa\b|\bqc\b|\bndt\b|cswip|\bbgas\b|\bcwi\b|\bnace\b|\basnt\b|quality control|quality assurance/.test(t)) return 'INSPECTOR';
+
+  // SUPERVISOR
+  if (/supervisor|\bin\s?charge\b/.test(t)) return 'SUPERVISOR';
+
+  // FOREMAN / chargehand / leadman
+  if (/foreman|charge\s?hand|\blead\s?man\b|\blead\s?hand\b|gang leader/.test(t)) return 'FOREMAN';
+
+  // TECHNICIAN — only when explicitly named (keeps trade workers as WORKER)
+  if (/technician/.test(t)) return 'TECHNICIAN';
+
+  // Default — blue-collar trade worker
+  return 'WORKER';
+}
+
+// Collar type derived from level — for audit/display only (gating uses the matrix).
+function getCollarType_(level) {
+  return (level === 'WORKER' || level === 'TECHNICIAN' || level === 'FOREMAN')
+    ? 'BLUE' : 'WHITE';
+}
+
+// LAYER 3 — ELIGIBILITY MATRIX
+// matrix[REQUIREMENT_LEVEL][CANDIDATE_LEVEL] = affinity 0-100.
+// Below ELIGIBILITY_FLOOR the candidate is BLOCKED and never scored or shown.
+var ELIGIBILITY_FLOOR = 50;
+var LEVEL_MATRIX = {
+  WORKER:     { WORKER:100, TECHNICIAN:70,  FOREMAN:0,   SUPERVISOR:0,   INSPECTOR:0,   ENGINEER:0,   MANAGER:0   },
+  TECHNICIAN: { WORKER:70,  TECHNICIAN:100, FOREMAN:50,  SUPERVISOR:0,   INSPECTOR:0,   ENGINEER:0,   MANAGER:0   },
+  FOREMAN:    { WORKER:0,   TECHNICIAN:50,  FOREMAN:100, SUPERVISOR:70,  INSPECTOR:0,   ENGINEER:0,   MANAGER:0   },
+  SUPERVISOR: { WORKER:0,   TECHNICIAN:0,   FOREMAN:70,  SUPERVISOR:100, INSPECTOR:0,   ENGINEER:0,   MANAGER:0   },
+  INSPECTOR:  { WORKER:0,   TECHNICIAN:0,   FOREMAN:0,   SUPERVISOR:0,   INSPECTOR:100, ENGINEER:40,  MANAGER:0   },
+  ENGINEER:   { WORKER:0,   TECHNICIAN:0,   FOREMAN:0,   SUPERVISOR:0,   INSPECTOR:40,  ENGINEER:100, MANAGER:50  },
+  MANAGER:    { WORKER:0,   TECHNICIAN:0,   FOREMAN:0,   SUPERVISOR:0,   INSPECTOR:0,   ENGINEER:50,  MANAGER:100 }
+};
+
+// Returns 0-100 affinity. Unknown requirement level → 100 (never block on unknown).
+function getEligibility_(reqLevel, candLevel) {
+  var row = LEVEL_MATRIX[reqLevel];
+  if (!row) return 100;
+  var v = row[candLevel];
+  return (typeof v === 'number') ? v : 0;
+}
+
 // Returns array of keywords for the family that best matches reqTrade.
 // Also returns family name. Returns null if no family found.
 function getTradeFamily_(reqTrade) {
@@ -745,6 +819,13 @@ function getTradeFamily_(reqTrade) {
 // POSSIBLE = candidate.kaiAssessment text mentions family keywords
 function getTradeMatchTier_(reqTrade, cand) {
   if (!reqTrade) return 'POSSIBLE'; // no trade filter = all candidates possible
+
+  // ── T13 LAYER 3 ELIGIBILITY GATE — runs BEFORE trade-family scoring ──────
+  // Block position-level mismatches (e.g. Welder req vs Welding Inspector).
+  // Blocked candidates are invisible: not STRONG, not GOOD, not POSSIBLE.
+  var reqLevel  = getPositionLevel_(reqTrade);
+  var candLevel = getPositionLevel_(cand.trade || cand.positionApplied || '');
+  if (getEligibility_(reqLevel, candLevel) < ELIGIBILITY_FLOOR) return null;
 
   var famInfo = getTradeFamily_(reqTrade);
   var keywords = famInfo ? famInfo.keywords : [reqTrade.toLowerCase().trim()];
@@ -809,6 +890,10 @@ function getMatchedCandidates_(params) {
   var reqTrade = String(reqRow[4]||'').trim();
   var minExp   = parseFloat(reqRow[6]) || 0;
 
+  // T13 — classify the requirement's position level once (audit + transparency)
+  var reqLevel  = getPositionLevel_(reqTrade);
+  var reqFamily = (getTradeFamily_(reqTrade) || {}).family || null;
+
   // Build set of already-assigned kaiNos for this requirement
   var assignedSet = {};
   if (hideAssigned) {
@@ -836,6 +921,16 @@ function getMatchedCandidates_(params) {
     }
     var matchTier = getTradeMatchTier_(reqTrade, r);
     if (!matchTier) return;
+    // T13 — audit trail: WHY this candidate matched (level + family + tier)
+    var cLevel = getPositionLevel_(r.trade || r.positionApplied || '');
+    r.matchReason = {
+      reqLevel:   reqLevel,
+      candLevel:  cLevel,
+      eligibility: getEligibility_(reqLevel, cLevel),
+      collar:     getCollarType_(cLevel),
+      family:     reqFamily,
+      tier:       matchTier
+    };
     result[matchTier].push(r);
   });
 
@@ -857,6 +952,7 @@ function getMatchedCandidates_(params) {
     var tierList  = result[tier] || [];
     var paged     = tierList.slice((page-1)*limit, (page-1)*limit+limit);
     return { ok:true, reqId:reqId, tier:tier,
+             reqLevel:reqLevel, reqCollar:getCollarType_(reqLevel), reqFamily:reqFamily,
              records:paged, total:tierList.length,
              page:page, limit:limit,
              totalPages:Math.ceil(tierList.length/limit),
@@ -866,11 +962,61 @@ function getMatchedCandidates_(params) {
   // All-tiers response (no pagination — caller picks tier)
   return {
     ok:true, reqId:reqId, trade:reqTrade,
+    reqLevel:reqLevel, reqCollar:getCollarType_(reqLevel), reqFamily:reqFamily,
     STRONG:result.STRONG.slice(0,100),
     GOOD:result.GOOD.slice(0,100),
     POSSIBLE:result.POSSIBLE.slice(0,100),
     counts:counts
   };
+}
+
+// ── T13 SELF-TEST ──────────────────────────────────────────────────────────
+// Run this in the GAS editor (Run button) to verify the eligibility gate
+// BEFORE deploying. Read-only. Logs position-level classification and the
+// pass/BLOCK decision for representative requirement↔candidate pairs.
+function testT13EligibilityGate() {
+  // 1) Classifier sanity
+  var samples = [
+    'Tig & Arc Welders','Welder','TIG Welder','Welding Inspection',
+    'Welding Inspector','Welding Engineer','Welding Foreman','Welding Supervisor',
+    'QA/QC Inspector','NDT Technician','Pipe Fitter','Rigger','Scaffolder',
+    'Crane Operator','Site Manager','Project Engineer','HVAC Technician'
+  ];
+  Logger.log('── POSITION LEVEL CLASSIFICATION ──');
+  samples.forEach(function(s){
+    var lvl = getPositionLevel_(s);
+    Logger.log(pad_(s,24) + ' → ' + pad_(lvl,11) + ' [' + getCollarType_(lvl) + ']');
+  });
+
+  // 2) The exact failing case from the screenshot + key pairs
+  var pairs = [
+    ['Tig & Arc Welders','Welding Inspection'],   // MUST block
+    ['Tig & Arc Welders','Welding Inspector'],    // MUST block
+    ['Tig & Arc Welders','TIG Welder'],           // MUST pass
+    ['Tig & Arc Welders','Welder'],               // MUST pass
+    ['Tig & Arc Welders','Welding Engineer'],     // MUST block
+    ['Tig & Arc Welders','Welding Foreman'],      // MUST block
+    ['QC Inspector','Welder'],                     // MUST block
+    ['QC Inspector','Welding Inspector'],          // MUST pass
+    ['Welding Foreman','Welder'],                  // MUST block
+    ['Welding Foreman','Welding Supervisor']       // MUST pass (70)
+  ];
+  Logger.log('── ELIGIBILITY DECISIONS (req ↔ candidate) ──');
+  pairs.forEach(function(p){
+    var rl = getPositionLevel_(p[0]);
+    var cl = getPositionLevel_(p[1]);
+    var e  = getEligibility_(rl, cl);
+    var decision = e < ELIGIBILITY_FLOOR ? 'BLOCK ✗' : 'PASS  ✓';
+    Logger.log(decision + '  ' + pad_(p[0],20) + '(' + pad_(rl,10) + ') ↔ ' +
+               pad_(p[1],22) + '(' + pad_(cl,10) + ')  score=' + e);
+  });
+  return 'T13 self-test complete — check Logs (View → Logs).';
+}
+
+function pad_(s, n) {
+  s = String(s);
+  while (s.length < n) s += ' ';
+  return s;
 }
 
 // Run this directly in GAS editor (Run button) to audit QA_QC match counts.
