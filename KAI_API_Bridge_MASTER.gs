@@ -100,6 +100,7 @@ function doGet(e) {
     else if (action === 'associates')       out = JSON.stringify(getAssociates_(params));
     else if (action === 'matchAudit')       out = JSON.stringify(getMatchAudit_(params));
     else if (action === 'tradeAffinity')    out = JSON.stringify(getTradeAffinity_(params));
+    else if (action === 'whatsappLink')     out = JSON.stringify(getWhatsAppLink_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -136,7 +137,10 @@ function doPost(e) {
     else if (action === 'updateSlot')        out = JSON.stringify(updateSlotStatus_(body));
     else if (action === 'createClient')      out = JSON.stringify(createClient_(body));
     else if (action === 'importAssociates')  out = JSON.stringify(importAssociates_(body));
-    else if (action === 'createJDAndReq')    out = JSON.stringify(createJDAndRequirement_(body));
+    else if (action === 'createJDAndReq')         out = JSON.stringify(createJDAndRequirement_(body));
+    else if (action === 'updateCandidateFields')  out = JSON.stringify(updateCandidateFields_(body));
+    else if (action === 'splitJDToRequirements')  out = JSON.stringify(splitJDToRequirements_(body));
+    else if (action === 'whatsappIntake')          out = JSON.stringify(whatsappIntake_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -3281,4 +3285,397 @@ function runMatchAudit() {
   Logger.log('');
   Logger.log('SUMMARY: ' + result.count + ' active requirements | ' +
              critical.length + ' Critical (real sourcing gap)');
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// FEATURE A — WHATSAPP MISSING INFO RECOVERY
+// ════════════════════════════════════════════════════════════════════════════
+// GET  ?action=whatsappLink&kaiNo=KAR-XXXX&token=T
+//      → returns { waLink, message, missing[], mobile }
+// POST action=updateCandidateFields body: { kaiNo, fields:{trade,dob,gulfExp,...} }
+//      → updates specific candidate fields, recomputes profile completeness
+// ════════════════════════════════════════════════════════════════════════════
+
+// Which fields are missing for this candidate (returns labeled list)
+function computeMissingFields_(cand) {
+  var has = function(v) { var s = String(v||'').trim(); return s && s !== '—' && s.length > 1; };
+  var missing = [];
+  if (!has(cand.mobile))                           missing.push({ field:'mobile',      label:'Mobile Number' });
+  if (!has(cand.passportNo))                       missing.push({ field:'passport',    label:'Passport Number' });
+  if (!has(cand.dob) && !(cand.age > 0))           missing.push({ field:'dob',         label:'Date of Birth' });
+  if (!has(cand.trade) && !has(cand.positionApplied)) missing.push({ field:'trade',    label:'Trade / Position' });
+  if (!has(cand.nationality))                      missing.push({ field:'nationality', label:'Nationality' });
+  if (!has(cand.gulfExp))                          missing.push({ field:'gulfExp',     label:'Gulf Experience (years)' });
+  if (!has(cand.education))                        missing.push({ field:'education',   label:'Highest Education' });
+  return missing;
+}
+
+// Normalize mobile to E.164 digits only (no +)
+function normalizeMobile_(raw) {
+  if (!raw) return '';
+  var d = String(raw).replace(/[^\d]/g, '');
+  if (d.length === 10) return '91' + d;   // Indian number without country code
+  if (d.length >= 10)  return d;
+  return '';
+}
+
+function getWhatsAppLink_(params) {
+  var kaiNo = String(params.kaiNo || '').trim();
+  if (!kaiNo) return { ok:false, error:'kaiNo required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL.kaiNo-1]).trim() !== kaiNo) continue;
+
+    var cand = {
+      name:           String(data[i][COL.name-1]||'').trim(),
+      mobile:         String(data[i][COL.mobile-1]||'').trim(),
+      trade:          String(data[i][COL.trade-1]||'').trim(),
+      positionApplied:String(data[i][COL.positionApplied-1]||'').trim(),
+      nationality:    String(data[i][COL.nationality-1]||'').trim(),
+      gulfExp:        String(data[i][COL.gulfExp-1]||'').trim(),
+      education:      String(data[i][COL.education-1]||'').trim(),
+      dob:            String(data[i][COL.dob-1]||'').trim(),
+      age:            parseInt(data[i][COL.age-1])||0,
+      passportNo:     extractPassportNo_(data[i][COL.kaiAssessment-1], data[i][COL.notes-1])
+    };
+
+    var missing = computeMissingFields_(cand);
+    if (!missing.length) return { ok:true, kaiNo:kaiNo, allComplete:true, missing:[] };
+
+    var mobile = normalizeMobile_(cand.mobile);
+    if (!mobile) return { ok:false, error:'No valid mobile number — add mobile first before sending WhatsApp' };
+
+    var firstName = (cand.name||'Candidate').split(' ')[0];
+    var lines = [
+      'Hi ' + firstName + ',',
+      '',
+      'This is the recruitment team from Al Yousuf Enterprises LLP.',
+      '',
+      'We received your CV (Ref: ' + kaiNo + ') and would like to move forward with your application.',
+      '',
+      'To complete your profile, please share:',
+    ];
+    missing.forEach(function(m) { lines.push('• ' + m.label); });
+    lines.push('');
+    lines.push('Please reply with these details at your earliest convenience.');
+    lines.push('');
+    lines.push('Thank you,');
+    lines.push('Al Yousuf Enterprises LLP');
+
+    var message = lines.join('\n');
+    var waLink  = 'https://wa.me/' + mobile + '?text=' + encodeURIComponent(message);
+
+    // Log the contact attempt
+    sheet.getRange(i+1, COL.lastContact).setValue(new Date());
+    logActivity_(ss, { kaiNo:kaiNo, rowIndex:i, action:'WHATSAPP_RECOVERY_SENT',
+      detail:'Missing: ' + missing.map(function(m){return m.label;}).join(', '), actor:'system' });
+
+    return { ok:true, kaiNo:kaiNo, waLink:waLink, mobile:mobile,
+             message:message, missing:missing };
+  }
+  return { ok:false, error:'Candidate not found: ' + kaiNo };
+}
+
+// Update specific candidate fields (trade, dob, gulfExp, nationality, education, passport, mobile, location)
+function updateCandidateFields_(body) {
+  var kaiNo  = String(body.kaiNo||'').trim();
+  var fields = body.fields || {};
+  if (!kaiNo)                          return { ok:false, error:'kaiNo required' };
+  if (!Object.keys(fields).length)     return { ok:false, error:'fields required' };
+
+  // field → column number mapping
+  var FIELD_COL = {
+    trade:           COL.trade,
+    nationality:     COL.nationality,
+    dob:             COL.dob,
+    gulfExp:         COL.gulfExp,
+    education:       COL.education,
+    mobile:          COL.mobile,
+    currentLocation: COL.currentLocation
+  };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL.kaiNo-1]).trim() !== kaiNo) continue;
+    var r = i + 1, updated = [];
+
+    Object.keys(fields).forEach(function(f) {
+      var val = String(fields[f]||'').trim();
+      if (!val) return;
+      if (f === 'passport') {
+        // Passport has no dedicated column — prepend to notes
+        var existing = String(data[i][COL.notes-1]||'').trim();
+        var note = 'Passport: ' + val + (existing ? ' | ' + existing : '');
+        sheet.getRange(r, COL.notes).setValue(note);
+      } else if (FIELD_COL[f]) {
+        sheet.getRange(r, FIELD_COL[f]).setValue(val);
+      }
+      updated.push(f);
+    });
+
+    // Re-read row, recompute profile completeness
+    var fresh = sheet.getRange(r, 1, 1, 42).getValues()[0];
+    var pc = computeBasicScore_({
+      name:      fresh[COL.name-1],      mobile: fresh[COL.mobile-1],
+      email:     fresh[COL.email-1],     trade:  fresh[COL.trade-1],
+      education: fresh[COL.education-1], dob:    fresh[COL.dob-1],
+      age:       fresh[COL.age-1]
+    });
+    sheet.getRange(r, COL.score).setValue(pc.score);
+
+    // Recompute missing fields string
+    var stillMissing = computeMissingFields_({
+      mobile:          fresh[COL.mobile-1],
+      passportNo:      extractPassportNo_(fresh[COL.kaiAssessment-1], fresh[COL.notes-1]),
+      dob:             fresh[COL.dob-1],      age:     parseInt(fresh[COL.age-1])||0,
+      trade:           fresh[COL.trade-1],    positionApplied: fresh[COL.positionApplied-1],
+      nationality:     fresh[COL.nationality-1],
+      gulfExp:         fresh[COL.gulfExp-1],  education: fresh[COL.education-1]
+    });
+    sheet.getRange(r, COL.missingFields).setValue(
+      stillMissing.map(function(m){ return m.field; }).join(',')
+    );
+
+    logActivity_(ss, { kaiNo:kaiNo, rowIndex:i, action:'FIELDS_UPDATED',
+      detail:'Updated: ' + updated.join(', '), actor: body.actor||'recruiter' });
+
+    return { ok:true, kaiNo:kaiNo, updated:updated,
+             profileCompleteness: pc.score,
+             stillMissing: stillMissing.map(function(m){ return m.label; }) };
+  }
+  return { ok:false, error:'Candidate not found: ' + kaiNo };
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// FEATURE B — MULTI-POSITION JD SPLITTING
+// ════════════════════════════════════════════════════════════════════════════
+// POST action=splitJDToRequirements
+//      body: { rawText OR jdId, clientName, recruiter, urgency, projectName }
+//      → Gemini extracts ALL positions → creates one _Requirements row each
+//      → returns { positionsFound, requirements:[{reqId,trade,qty,minExp}] }
+// ════════════════════════════════════════════════════════════════════════════
+
+function extractAllPositionsWithGemini_(text, clientHint) {
+  try {
+    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    if (!apiKey) throw new Error('No API key');
+
+    var prompt =
+      'This job description may contain ONE or MULTIPLE positions. Extract ALL positions as a JSON array.\n\n' +
+      'For EACH position return: title (job title), trade (exact trade/role name), ' +
+      'qty (number of openings, integer, default 1), minExp (minimum years experience, integer), ' +
+      'country (deployment country), certifications (comma-separated or empty string), ' +
+      'summary (2-3 responsibilities joined with semicolons).\n\n' +
+      'Reply ONLY with a valid JSON array. No markdown, no explanation.\n\n' +
+      'Example output:\n' +
+      '[{"title":"Pipe Fitter","trade":"Pipe Fitter","qty":10,"minExp":5,"country":"UAE","certifications":"","summary":"Install piping systems; Read isometrics; Fit-up and alignment"}]\n\n' +
+      'JD TEXT:\n' + text.slice(0, 4000);
+    if (clientHint) prompt += '\n\nClient hint: ' + clientHint;
+
+    var resp = UrlFetchApp.fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+      { method:'POST', contentType:'application/json', muteHttpExceptions:true,
+        payload: JSON.stringify({
+          contents:[{ parts:[{ text:prompt }] }],
+          generationConfig:{ temperature:0.1, maxOutputTokens:1024 }
+        })
+      }
+    );
+    var json = JSON.parse(resp.getContentText());
+    var raw  = json.candidates[0].content.parts[0].text.trim();
+    raw      = raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/```$/,'').trim();
+    var arr  = JSON.parse(raw);
+    if (!Array.isArray(arr)) arr = [arr];
+    return arr;
+  } catch(e) {
+    Logger.log('Gemini multi-position parse failed: ' + e.message + ' — falling back to single');
+    return [parseJDText_(text)];
+  }
+}
+
+function splitJDToRequirements_(body) {
+  var raw        = String(body.rawText    ||'').trim();
+  var jdId       = String(body.jdId       ||'').trim();
+  var clientName = String(body.clientName ||'').trim();
+  var recruiter  = String(body.recruiter  ||'system').trim();
+  var urgency    = String(body.urgency    ||'Normal').trim();
+  var project    = String(body.projectName||'').trim();
+  var country    = String(body.country    ||'').trim();
+
+  if (!raw && !jdId) return { ok:false, error:'rawText or jdId required' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Pull raw text from JD repository if jdId given
+  if (jdId && !raw) {
+    var jdSheet = ss.getSheetByName('_JD_Repository');
+    if (jdSheet) {
+      var jdData = jdSheet.getDataRange().getValues();
+      for (var j = 1; j < jdData.length; j++) {
+        if (String(jdData[j][0]).trim() === jdId) {
+          raw        = String(jdData[j][7]||'');   // col 8 = Raw_Text (0-indexed: 7)
+          clientName = clientName || String(jdData[j][3]||'');
+          country    = country    || String(jdData[j][6]||'');
+          break;
+        }
+      }
+    }
+    if (!raw) return { ok:false, error:'JD not found: ' + jdId };
+  }
+
+  var positions = extractAllPositionsWithGemini_(raw, clientName);
+  if (!positions || !positions.length)
+    return { ok:false, error:'No positions could be extracted from the JD' };
+
+  var reqSheet = ss.getSheetByName('_Requirements');
+  if (!reqSheet) return { ok:false, error:'_Requirements sheet not found' };
+
+  var created = [];
+  positions.forEach(function(pos) {
+    var reqId = generateReqId_();
+    reqSheet.appendRow([
+      reqId,
+      new Date(),
+      clientName || pos.client || '',
+      pos.country || country || '',
+      pos.trade   || pos.title || '',
+      parseInt(pos.qty||'1')    || 1,
+      parseFloat(pos.minExp||'0') || 0,
+      0, 0,             // minAge, maxAge
+      project || pos.project || '',
+      '',               // GCC preference
+      'No',             // Local Transfer
+      pos.certifications || '',
+      urgency,
+      'Active',
+      recruiter,
+      pos.summary || '',
+      0, 0,             // shortlistCount, selectedCount
+      '',               // notes
+      jdId || '',
+      '', ''            // startDate, endDate
+    ]);
+    created.push({ reqId:reqId, trade:pos.trade||pos.title||'',
+                   qty:parseInt(pos.qty||'1')||1, minExp:parseFloat(pos.minExp||'0')||0,
+                   certifications:pos.certifications||'' });
+  });
+
+  return { ok:true, jdId:jdId||'', positionsFound:positions.length, requirements:created };
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// FEATURE C — WHATSAPP KAR-W QUICK INTAKE
+// ════════════════════════════════════════════════════════════════════════════
+// POST action=whatsappIntake
+//      body: { name*, mobile*, trade, experience, nationality, gulfExp,
+//              dob, education, currentLocation, email, recruiter }
+//      → creates candidate with KAR-W reference, returns waMessage for recruiter
+// ════════════════════════════════════════════════════════════════════════════
+
+function generateKARW_() {
+  var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var id = 'KAR-W-';
+  for (var i = 0; i < 8; i++) id += chars.charAt(Math.floor(Math.random() * chars.length));
+  return id;
+}
+
+function whatsappIntake_(body) {
+  var name      = String(body.name      ||'').trim();
+  var mobile    = String(body.mobile    ||'').trim();
+  var trade     = String(body.trade     || body.positionApplied ||'').trim();
+  var recruiter = String(body.recruiter ||'system').trim();
+
+  if (!name)   return { ok:false, error:'name required' };
+  if (!mobile) return { ok:false, error:'mobile required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  // Duplicate check by mobile digits
+  var mobileDigits = mobile.replace(/[^\d]/g,'');
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var existDigits = String(data[i][COL.mobile-1]||'').replace(/[^\d]/g,'');
+    if (existDigits && mobileDigits && existDigits === mobileDigits) {
+      return { ok:false, error:'DUPLICATE_MOBILE',
+               existing: String(data[i][COL.kaiNo-1]||''),
+               message:  'Candidate already exists: ' + String(data[i][COL.name-1]||'') };
+    }
+  }
+
+  var parsed = {
+    name:            name,
+    mobile:          mobile,
+    email:           String(body.email           ||'').trim(),
+    trade:           trade,
+    positionApplied: trade,
+    nationality:     String(body.nationality     ||'').trim(),
+    experience:      parseFloat(body.experience  ||'0') || 0,
+    gulfExp:         String(body.gulfExp         ||'').trim(),
+    dob:             String(body.dob             ||'').trim(),
+    age:             parseInt(body.age           ||'0') || 0,
+    education:       String(body.education       ||'').trim(),
+    currentLocation: String(body.currentLocation ||'').trim()
+  };
+
+  var pc    = computeBasicScore_(parsed);
+  var kaiNo = generateKARW_();
+  var now   = new Date();
+
+  var row = new Array(42).fill('');
+  row[COL.stage-1]           = 'Pending action';
+  row[COL.applicationDate-1] = now;
+  row[COL.nationality-1]     = parsed.nationality;
+  row[COL.name-1]            = parsed.name;
+  row[COL.mobile-1]          = parsed.mobile;
+  row[COL.email-1]           = parsed.email;
+  row[COL.education-1]       = parsed.education;
+  row[COL.positionApplied-1] = parsed.positionApplied;
+  row[COL.trade-1]           = parsed.trade;
+  row[COL.experience-1]      = parsed.experience;
+  row[COL.gulfExp-1]         = parsed.gulfExp;
+  row[COL.dob-1]             = parsed.dob;
+  row[COL.age-1]             = parsed.age;
+  row[COL.verdict-1]         = pc.verdict;
+  row[COL.flags-1]           = 'WHATSAPP_INTAKE';
+  row[COL.score-1]           = pc.score;
+  row[COL.kaiAssessment-1]   = 'WhatsApp intake ' + Utilities.formatDate(now,'Asia/Dubai','dd MMM yyyy') +
+                                '. Added by: ' + recruiter;
+  row[COL.recruiterAction-1] = 'Added via WhatsApp';
+  row[COL.notes-1]           = 'WhatsApp intake by: ' + recruiter;
+  row[COL.active-1]          = '';
+  row[COL.kaiNo-1]           = kaiNo;
+  row[COL.currentLocation-1] = parsed.currentLocation;
+  row[COL.missingFields-1]   = (pc.missing||[]).join(',');
+  row[COL.lastContact-1]     = now;
+
+  sheet.appendRow(row);
+
+  logActivity_(ss, { kaiNo:kaiNo, rowIndex:sheet.getLastRow()-1, action:'WHATSAPP_INTAKE',
+    detail:'Added by ' + recruiter + ' | Trade: ' + trade, actor:recruiter });
+
+  var firstName  = name.split(' ')[0];
+  var waMessage  =
+    'Hi ' + firstName + ',\n\n' +
+    'Thank you for your interest in opportunities with Al Yousuf Enterprises LLP.\n\n' +
+    'Your application has been registered.\n' +
+    'Your Reference Number: *' + kaiNo + '*\n\n' +
+    'Please save this reference number. Our team will contact you shortly.\n\n' +
+    'Al Yousuf Enterprises LLP\nRecruitment Team';
+
+  return { ok:true, kaiNo:kaiNo, name:name, profileCompleteness:pc.score,
+           missing:(pc.missing||[]), waMessage:waMessage };
 }
