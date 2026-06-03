@@ -569,49 +569,102 @@ function getMatchedCandidatesT13_(params) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// A/B COMPARISON HARNESS — OLD ENGINE vs T13 (run before replacing production)
+// A/B COMPARISON HARNESS — OLD ENGINE vs T13  (Step 1 of evidence suite)
 // ═══════════════════════════════════════════════════════════════════════════
-// Iterates up to `limit` active requirements, counts STRONG in each engine,
-// and logs where T13 hides candidates the old engine showed (the gain).
+// Runs against ALL active requirements (pass limit=N to cap for a quick test).
+// Writes full breakdown to _T13_CompareReport and logs a summary.
 function compareEnginesT13_(limit) {
-  limit = limit || 100;
-  var ss = SpreadsheetApp.openById(SS_ID);
-  var rs = ss.getSheetByName('_Requirements');
+  limit = limit || 9999;
+  var ss   = SpreadsheetApp.openById(SS_ID);
+  var rs   = ss.getSheetByName('_Requirements');
   if (!rs || rs.getLastRow() < 2) { Logger.log('No requirements.'); return; }
   var rData = rs.getRange(2,1,rs.getLastRow()-1,25).getValues();
   var cands = getAllCandidatesRaw_();
 
-  Logger.log('═══ OLD ENGINE vs T13 — STRONG COUNTS ═══');
-  Logger.log(pad_('ReqId',18)+pad_('Trade',24)+pad_('OldStrong',11)+pad_('T13Strong',11)+pad_('Removed',9)+'T13 Group');
+  // Prepare output sheet (clear and re-write)
+  var reportSheet = ss.getSheetByName('_T13_CompareReport') ||
+                    ss.insertSheet('_T13_CompareReport');
+  reportSheet.clearContents();
+  var headers = ['ReqId','Trade','T13Group','T13Collar',
+                 'OldTotal','OldStrong','OldGood','OldPossible',
+                 'T13Total','T13Strong','T13Good','T13Possible',
+                 'RemovedStrong','NoiseReduction%','RunDate'];
+  reportSheet.appendRow(headers);
+  reportSheet.getRange(1,1,1,headers.length)
+             .setFontWeight('bold').setBackground('#0B3D2E').setFontColor('#FFFFFF');
+  reportSheet.setFrozenRows(1);
 
-  var n = 0, totalOld = 0, totalT13 = 0;
+  Logger.log('═══ OLD ENGINE vs T13 — FULL BREAKDOWN (Step 1) ═══');
+  Logger.log(pad_('ReqId',18)+pad_('Trade',24)+pad_('OldStr',8)+pad_('OldGd',7)+
+             pad_('OldPos',8)+pad_('T13Str',8)+pad_('T13Gd',7)+pad_('T13Pos',8)+
+             pad_('Removed',9)+'Noise%');
+
+  var n = 0, tOldStr = 0, tOldGd = 0, tOldPos = 0;
+  var tT13Str = 0, tT13Gd = 0, tT13Pos = 0;
+  var now = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var rows = [];
+
   for (var i = 0; i < rData.length && n < limit; i++) {
-    var row = rData[i];
+    var row   = rData[i];
     var reqId = String(row[0]||'').trim();
     var trade = String(row[4]||'').trim();
-    if (!reqId || !trade || String(row[14]||'Active') === 'Closed') continue;
+    if (!reqId || !trade) continue;
+    var status = String(row[14]||'Active').trim();
+    if (status === 'Closed' || status === 'Archived') continue;
     n++;
 
-    // OLD engine STRONG count (production getTradeMatchTier_)
-    var oldStrong = 0;
-    cands.forEach(function(c){ if (getTradeMatchTier_(trade, c) === 'STRONG') oldStrong++; });
-
-    // T13 STRONG count
-    var reqClass = classifyTradeT13_(trade);
-    var t13Strong = 0;
-    cands.forEach(function(c){
-      var e = bestEligibilityT13_(reqClass, resolveCandidateTradesT13_(c));
-      if (e.tier === 'STRONG') t13Strong++;
+    // ── OLD engine counts (full three tiers) ─────────────────────────────
+    var oldStr = 0, oldGd = 0, oldPos = 0;
+    cands.forEach(function(c) {
+      var t = getTradeMatchTier_(trade, c);
+      if      (t === 'STRONG')   oldStr++;
+      else if (t === 'GOOD')     oldGd++;
+      else if (t === 'POSSIBLE') oldPos++;
     });
 
-    totalOld += oldStrong; totalT13 += t13Strong;
-    Logger.log(pad_(reqId,18)+pad_(trade,24)+pad_(String(oldStrong),11)+
-               pad_(String(t13Strong),11)+pad_(String(oldStrong-t13Strong),9)+reqClass.group);
+    // ── T13 counts ────────────────────────────────────────────────────────
+    var reqClass = classifyTradeT13_(trade);
+    _t13AffinityCache = null;
+    var t13Str = 0, t13Gd = 0, t13Pos = 0;
+    cands.forEach(function(c) {
+      var e = bestEligibilityT13_(reqClass, resolveCandidateTradesT13_(c));
+      if      (e.tier === 'STRONG')   t13Str++;
+      else if (e.tier === 'GOOD')     t13Gd++;
+      else if (e.tier === 'POSSIBLE') t13Pos++;
+    });
+
+    var oldTotal = oldStr + oldGd + oldPos;
+    var t13Total = t13Str + t13Gd + t13Pos;
+    var removed  = oldStr - t13Str;
+    var noise    = oldStr > 0 ? Math.round(removed / oldStr * 100) : 0;
+
+    tOldStr += oldStr; tOldGd += oldGd; tOldPos += oldPos;
+    tT13Str += t13Str; tT13Gd += t13Gd; tT13Pos += t13Pos;
+
+    Logger.log(pad_(reqId,18)+pad_(trade,24)+pad_(String(oldStr),8)+pad_(String(oldGd),7)+
+               pad_(String(oldPos),8)+pad_(String(t13Str),8)+pad_(String(t13Gd),7)+
+               pad_(String(t13Pos),8)+pad_(String(removed),9)+noise+'%');
+
+    rows.push([reqId, trade, reqClass.group, reqClass.collar,
+               oldTotal, oldStr, oldGd, oldPos,
+               t13Total, t13Str, t13Gd, t13Pos,
+               removed, noise, now]);
   }
+
+  if (rows.length) {
+    reportSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+
+  var totalRemoved = tOldStr - tT13Str;
+  var totalNoise   = tOldStr > 0 ? Math.round(totalRemoved / tOldStr * 100) : 0;
   Logger.log('');
-  Logger.log('TOTALS over '+n+' requirements:  OLD='+totalOld+'  T13='+totalT13+
-             '  removed='+(totalOld-totalT13)+' ('+
-             (totalOld? Math.round((totalOld-totalT13)/totalOld*100):0)+'% noise eliminated)');
+  Logger.log('═══ TOTALS over ' + n + ' requirements ═══');
+  Logger.log('OLD   Strong=' + tOldStr + '  Good=' + tOldGd + '  Possible=' + tOldPos +
+             '  Total=' + (tOldStr+tOldGd+tOldPos));
+  Logger.log('T13   Strong=' + tT13Str + '  Good=' + tT13Gd + '  Possible=' + tT13Pos +
+             '  Total=' + (tT13Str+tT13Gd+tT13Pos));
+  Logger.log('Noise eliminated from STRONG: ' + totalRemoved + ' (' + totalNoise + '%)');
+  Logger.log('Results written → _T13_CompareReport');
 }
 
 
@@ -650,4 +703,459 @@ function testT13SuccessCase() {
   Logger.log('');
   Logger.log('TOP-3 for '+req+' → visible: '+t3.visible.join(', '));
   Logger.log('               blocked: '+t3.blocked.join(', '));
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EVIDENCE SUITE — Steps 2-7  (run after Step 1 compareEnginesT13_)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── STEP 2 — FALSE POSITIVE REPORT ──────────────────────────────────────────
+// OLD engine showed these candidates as STRONG; T13 hides them.
+// These are the noise T13 eliminates. Write top-100 worst offenders per req.
+function falsePositiveReportT13_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var rs    = ss.getSheetByName('_Requirements');
+  if (!rs || rs.getLastRow() < 2) { Logger.log('No requirements.'); return; }
+  var rData = rs.getRange(2,1,rs.getLastRow()-1,25).getValues();
+  var cands = getAllCandidatesRaw_();
+
+  var sheet = ss.getSheetByName('_T13_FalsePositive') ||
+              ss.insertSheet('_T13_FalsePositive');
+  sheet.clearContents();
+  var hdr = ['ReqId','ReqTrade','ReqGroup','CandKaiNo','CandName',
+             'CandTrade','CandGroup','CandCollar','OldTier','T13Tier','BlockReason','RunDate'];
+  sheet.appendRow(hdr);
+  sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#7B0000').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+
+  var now  = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var rows = [];
+  var reqCount = 0;
+
+  for (var i = 0; i < rData.length; i++) {
+    var reqId = String(rData[i][0]||'').trim();
+    var trade = String(rData[i][4]||'').trim();
+    if (!reqId || !trade) continue;
+    var status = String(rData[i][14]||'Active').trim();
+    if (status === 'Closed' || status === 'Archived') continue;
+    reqCount++;
+
+    var reqClass = classifyTradeT13_(trade);
+    _t13AffinityCache = null;
+
+    cands.forEach(function(c) {
+      var oldTier = getTradeMatchTier_(trade, c);
+      if (oldTier !== 'STRONG') return;
+      var candClasses = resolveCandidateTradesT13_(c);
+      var e = bestEligibilityT13_(reqClass, candClasses);
+      if (e.eligible) return; // not a false positive — T13 also shows it
+      var cc = candClasses[0];
+      rows.push([reqId, trade, reqClass.group,
+                 c.kaiNo||'', c.name||'', c.trade||c.positionApplied||'',
+                 cc.group, cc.collar, 'STRONG', e.tier||'HIDDEN',
+                 e.reason||e.blockedBy||'', now]);
+    });
+  }
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, hdr.length).setValues(rows);
+  }
+  Logger.log('Step 2 — False Positives: ' + rows.length + ' records across ' + reqCount +
+             ' requirements → _T13_FalsePositive');
+  return { falsePositives: rows.length, requirements: reqCount };
+}
+
+
+// ── STEP 3 — FALSE NEGATIVE REPORT ──────────────────────────────────────────
+// T13 shows these candidates; old engine missed them entirely.
+// These are hidden matches the old engine could not surface.
+function falseNegativeReportT13_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var rs    = ss.getSheetByName('_Requirements');
+  if (!rs || rs.getLastRow() < 2) { Logger.log('No requirements.'); return; }
+  var rData = rs.getRange(2,1,rs.getLastRow()-1,25).getValues();
+  var cands = getAllCandidatesRaw_();
+
+  var sheet = ss.getSheetByName('_T13_FalseNegative') ||
+              ss.insertSheet('_T13_FalseNegative');
+  sheet.clearContents();
+  var hdr = ['ReqId','ReqTrade','ReqGroup','CandKaiNo','CandName',
+             'CandTrade','CandGroup','T13Score','T13Tier','MatchedVia','OldTier','RunDate'];
+  sheet.appendRow(hdr);
+  sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#003D0B').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+
+  var now  = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var rows = [];
+  var reqCount = 0;
+
+  for (var i = 0; i < rData.length; i++) {
+    var reqId = String(rData[i][0]||'').trim();
+    var trade = String(rData[i][4]||'').trim();
+    if (!reqId || !trade) continue;
+    var status = String(rData[i][14]||'Active').trim();
+    if (status === 'Closed' || status === 'Archived') continue;
+    reqCount++;
+
+    var reqClass = classifyTradeT13_(trade);
+    _t13AffinityCache = null;
+
+    cands.forEach(function(c) {
+      var oldTier = getTradeMatchTier_(trade, c);
+      if (oldTier) return; // old engine already caught it
+      var candClasses = resolveCandidateTradesT13_(c);
+      var e = bestEligibilityT13_(reqClass, candClasses);
+      if (!e.eligible) return;
+      if (e.tier !== 'STRONG' && e.tier !== 'GOOD') return; // only meaningful new finds
+      rows.push([reqId, trade, reqClass.group,
+                 c.kaiNo||'', c.name||'', c.trade||c.positionApplied||'',
+                 e.viaGroup||candClasses[0].group, e.score||0, e.tier, e.via||'',
+                 '(none)', now]);
+    });
+  }
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, hdr.length).setValues(rows);
+  }
+  Logger.log('Step 3 — False Negatives (T13 new finds): ' + rows.length +
+             ' records across ' + reqCount + ' requirements → _T13_FalseNegative');
+  return { falseNegatives: rows.length, requirements: reqCount };
+}
+
+
+// ── STEP 4 — DUAL TRADE ANALYSIS ────────────────────────────────────────────
+// Candidates with secondary/third trades — what trade did they match on?
+// Reveals how many matches are primary vs secondary trade driven.
+function dualTradeAnalysisT13_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var rs    = ss.getSheetByName('_Requirements');
+  if (!rs || rs.getLastRow() < 2) { Logger.log('No requirements.'); return; }
+  var rData = rs.getRange(2,1,rs.getLastRow()-1,25).getValues();
+  var cands = getAllCandidatesRaw_();
+
+  var sheet = ss.getSheetByName('_T13_DualTrade') ||
+              ss.insertSheet('_T13_DualTrade');
+  sheet.clearContents();
+  var hdr = ['ReqId','ReqTrade','ReqGroup','CandKaiNo','CandName',
+             'PrimaryTrade','PrimaryGroup','SecondaryTrade','SecondaryGroup',
+             'MatchedOn','MatchedVia','T13Score','T13Tier','RunDate'];
+  sheet.appendRow(hdr);
+  sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#1A3A5C').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+
+  var now  = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var rows = [];
+  var reqCount = 0;
+
+  // Candidate stats (regardless of requirement — dual-trade prevalence)
+  var totalCands = cands.length, dualCount = 0, tripleCount = 0;
+
+  for (var i = 0; i < rData.length; i++) {
+    var reqId = String(rData[i][0]||'').trim();
+    var trade = String(rData[i][4]||'').trim();
+    if (!reqId || !trade) continue;
+    var status = String(rData[i][14]||'Active').trim();
+    if (status === 'Closed' || status === 'Archived') continue;
+    reqCount++;
+    if (reqCount > 1) continue; // only count dual-trade candidate stats once
+
+    var reqClass = classifyTradeT13_(trade);
+    _t13AffinityCache = null;
+
+    cands.forEach(function(c) {
+      var classes = resolveCandidateTradesT13_(c);
+      if (classes.length === 1) return; // single trade, not interesting here
+      if (classes.length === 2) dualCount++;
+      if (classes.length >= 3) tripleCount++;
+
+      var e = bestEligibilityT13_(reqClass, classes);
+      if (!e.eligible) return;
+      rows.push([reqId, trade, reqClass.group,
+                 c.kaiNo||'', c.name||'',
+                 classes[0].text, classes[0].group,
+                 classes[1] ? classes[1].text : '', classes[1] ? classes[1].group : '',
+                 'trade#' + ((e.rank||0)+1), e.via||classes[0].text,
+                 e.score||0, e.tier, now]);
+    });
+  }
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, hdr.length).setValues(rows);
+  }
+  Logger.log('Step 4 — Dual Trade Analysis:');
+  Logger.log('  Total candidates: ' + totalCands);
+  Logger.log('  Dual-trade candidates: ' + dualCount + ' (' +
+             Math.round(dualCount/totalCands*100) + '%)');
+  Logger.log('  Triple-trade candidates: ' + tripleCount + ' (' +
+             Math.round(tripleCount/totalCands*100) + '%)');
+  Logger.log('  Rows written: ' + rows.length + ' → _T13_DualTrade');
+  return { total: totalCands, dual: dualCount, triple: tripleCount };
+}
+
+
+// ── STEP 5 — GOVERNANCE QUEUE ────────────────────────────────────────────────
+// Scan all candidate trades; any that resolve to GENERAL_WORKER_GROUP with no
+// clear discipline are "unknown trades". Queue them PENDING in _Taxonomy and
+// write a summary sheet so a human can review the approval workload.
+function governanceQueueT13_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var cands = getAllCandidatesRaw_();
+
+  var sheet = ss.getSheetByName('_T13_GovernanceQueue') ||
+              ss.insertSheet('_T13_GovernanceQueue');
+  sheet.clearContents();
+  var hdr = ['RawTrade','DetectedLevel','DetectedDiscipline','SuggestedGroup',
+             'SuggestedCollar','CandidateCount','ApprovalStatus','RunDate'];
+  sheet.appendRow(hdr);
+  sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#5C3A00').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+
+  var now    = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var counts = {};
+
+  cands.forEach(function(c) {
+    var raw = String(c.trade || c.positionApplied || '').trim();
+    if (!raw) return;
+    var cc = classifyTradeT13_(raw);
+    var key = raw.toLowerCase().trim();
+    if (!counts[key]) counts[key] = { raw:raw, cls:cc, n:0 };
+    counts[key].n++;
+  });
+
+  var rows = [], pendingAdded = 0;
+  Object.keys(counts).forEach(function(k) {
+    var rec   = counts[k];
+    // Only queue trades where discipline resolution is weak (GENERAL or discipline unknown)
+    var isWeak = rec.cls.group === 'GENERAL_WORKER_GROUP' && rec.cls.discipline === 'GENERAL';
+    var status = isWeak ? 'PENDING' : 'KNOWN';
+
+    if (isWeak && rec.n >= 3) { // only queue if at least 3 candidates carry this trade
+      var result = suggestClassificationT13_(ss, 'Unknown', 'Unknown', rec.raw, rec.raw);
+      if (result.ok && !result.existing) pendingAdded++;
+    }
+
+    rows.push([rec.raw, rec.cls.level, rec.cls.discipline, rec.cls.group,
+               rec.cls.collar, rec.n, status, now]);
+  });
+
+  // Sort: PENDING first, then by candidate count descending
+  rows.sort(function(a,b) {
+    if (a[6] === 'PENDING' && b[6] !== 'PENDING') return -1;
+    if (b[6] === 'PENDING' && a[6] !== 'PENDING') return 1;
+    return b[5] - a[5];
+  });
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, hdr.length).setValues(rows);
+  }
+  var pendingTotal = rows.filter(function(r){ return r[6]==='PENDING'; }).length;
+  Logger.log('Step 5 — Governance Queue:');
+  Logger.log('  Unique trade strings: ' + rows.length);
+  Logger.log('  PENDING (unknown, ≥3 candidates): ' + pendingTotal);
+  Logger.log('  Queued in _Taxonomy: ' + pendingAdded + ' → _T13_GovernanceQueue');
+  return { uniqueTrades: rows.length, pending: pendingTotal, addedToTaxonomy: pendingAdded };
+}
+
+
+// ── STEP 6 — RECRUITER VALIDATION DATASET ───────────────────────────────────
+// Picks up to maxReqs active requirements, takes top 10 T13 STRONG per req.
+// Export for recruiter to manually score each match Correct / Incorrect.
+function recruiterValidationDatasetT13_(maxReqs) {
+  maxReqs = maxReqs || 10;
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var rs    = ss.getSheetByName('_Requirements');
+  if (!rs || rs.getLastRow() < 2) { Logger.log('No requirements.'); return; }
+  var rData = rs.getRange(2,1,rs.getLastRow()-1,25).getValues();
+  var cands = getAllCandidatesRaw_();
+
+  var sheet = ss.getSheetByName('_T13_ValidationSet') ||
+              ss.insertSheet('_T13_ValidationSet');
+  sheet.clearContents();
+  var hdr = ['ReqId','ReqTrade','ReqGroup','Rank','CandKaiNo','CandName',
+             'CandTrade','CandGroup','T13Score','T13Tier','MatchedVia',
+             'RecruiterVerdict','RunDate'];
+  sheet.appendRow(hdr);
+  sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#1A1A5C').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+
+  var now   = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var rows  = [], reqCount = 0;
+
+  for (var i = 0; i < rData.length && reqCount < maxReqs; i++) {
+    var reqId = String(rData[i][0]||'').trim();
+    var trade = String(rData[i][4]||'').trim();
+    if (!reqId || !trade) continue;
+    var status = String(rData[i][14]||'Active').trim();
+    if (status === 'Closed' || status === 'Archived') continue;
+    reqCount++;
+
+    var reqClass = classifyTradeT13_(trade);
+    _t13AffinityCache = null;
+
+    var matches = [];
+    cands.forEach(function(c) {
+      var candClasses = resolveCandidateTradesT13_(c);
+      var e = bestEligibilityT13_(reqClass, candClasses);
+      if (e.tier === 'STRONG') {
+        matches.push({ c:c, e:e, candGroup:candClasses[0].group });
+      }
+    });
+    matches.sort(function(a,b){ return b.e.score - a.e.score; });
+
+    matches.slice(0,10).forEach(function(m, idx) {
+      rows.push([reqId, trade, reqClass.group,
+                 idx+1, m.c.kaiNo||'', m.c.name||'',
+                 m.c.trade||m.c.positionApplied||'',
+                 m.e.viaGroup||m.candGroup, m.e.score, m.e.tier, m.e.via||'',
+                 '', now]); // RecruiterVerdict left blank for manual fill
+    });
+  }
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, hdr.length).setValues(rows);
+    // Colour the RecruiterVerdict column light yellow to invite input
+    sheet.getRange(2, 12, rows.length, 1).setBackground('#FFFDE7');
+  }
+  Logger.log('Step 6 — Recruiter Validation Dataset: ' + rows.length +
+             ' rows across ' + reqCount + ' requirements → _T13_ValidationSet');
+  Logger.log('  Open _T13_ValidationSet, fill column L (RecruiterVerdict) with Correct/Incorrect.');
+  return { rows: rows.length, requirements: reqCount };
+}
+
+
+// ── STEP 7 — TRADE FAMILY AUDIT ──────────────────────────────────────────────
+// Per eligibility group: how many candidates, how often they appear as STRONG
+// across all active requirements.  Shows group coverage vs demand.
+function tradeFamilyAuditT13_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var rs    = ss.getSheetByName('_Requirements');
+  if (!rs || rs.getLastRow() < 2) { Logger.log('No requirements.'); return; }
+  var rData = rs.getRange(2,1,rs.getLastRow()-1,25).getValues();
+  var cands = getAllCandidatesRaw_();
+
+  var sheet = ss.getSheetByName('_T13_FamilyAudit') ||
+              ss.insertSheet('_T13_FamilyAudit');
+  sheet.clearContents();
+  var hdr = ['EligibilityGroup','Collar','CandidateCount','ActiveReqCount',
+             'TotalStrongHits','AvgStrongPerReq','DemandCoverage','RunDate'];
+  sheet.appendRow(hdr);
+  sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#0B3D2E').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+
+  var now = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+
+  // Count candidates per group
+  var candPerGroup = {};
+  cands.forEach(function(c) {
+    var classes = resolveCandidateTradesT13_(c);
+    var g = classes[0].group;
+    candPerGroup[g] = (candPerGroup[g] || 0) + 1;
+  });
+
+  // Count active requirements per group + STRONG hits across requirements
+  var reqPerGroup    = {};
+  var strongPerGroup = {};
+  var reqCount = 0;
+
+  for (var i = 0; i < rData.length; i++) {
+    var reqId = String(rData[i][0]||'').trim();
+    var trade = String(rData[i][4]||'').trim();
+    if (!reqId || !trade) continue;
+    var status = String(rData[i][14]||'Active').trim();
+    if (status === 'Closed' || status === 'Archived') continue;
+    reqCount++;
+
+    var reqClass = classifyTradeT13_(trade);
+    var rg = reqClass.group;
+    reqPerGroup[rg] = (reqPerGroup[rg] || 0) + 1;
+    _t13AffinityCache = null;
+
+    cands.forEach(function(c) {
+      var e = bestEligibilityT13_(reqClass, resolveCandidateTradesT13_(c));
+      if (e.tier === 'STRONG') {
+        strongPerGroup[rg] = (strongPerGroup[rg] || 0) + 1;
+      }
+    });
+  }
+
+  // Merge all known groups
+  var allGroups = {};
+  Object.keys(T13_ALLOWED).forEach(function(g){ allGroups[g] = true; });
+  Object.keys(candPerGroup).forEach(function(g){ allGroups[g] = true; });
+  Object.keys(reqPerGroup).forEach(function(g){ allGroups[g] = true; });
+
+  var rows = [];
+  Object.keys(allGroups).forEach(function(g) {
+    var cc   = candPerGroup[g] || 0;
+    var rc   = reqPerGroup[g]  || 0;
+    var sh   = strongPerGroup[g] || 0;
+    var avg  = rc > 0 ? Math.round(sh / rc * 10) / 10 : 0;
+    var cov  = rc > 0 ? (cc > 0 ? 'COVERED' : 'NO SUPPLY') : 'NO DEMAND';
+    var GROUP_COLLAR = {
+      WELDER_GROUP:'BLUE', FABRICATOR_GROUP:'BLUE', FITTER_GROUP:'BLUE',
+      RIGGER_GROUP:'BLUE', SCAFFOLDER_GROUP:'BLUE', PAINTER_GROUP:'BLUE',
+      ELECTRICIAN_GROUP:'BLUE', INSTRUMENT_GROUP:'BLUE', MECHANICAL_TECH_GROUP:'BLUE',
+      CIVIL_TRADE_GROUP:'BLUE', HEAVY_EQUIP_GROUP:'BLUE', GENERAL_WORKER_GROUP:'BLUE',
+      WELDING_INSPECTOR_GROUP:'WHITE', NDT_GROUP:'WHITE', QAQC_INSPECTOR_GROUP:'WHITE',
+      ENGINEER_GROUP:'WHITE', HSE_GROUP:'WHITE', MANAGER_GROUP:'WHITE',
+      SUPERVISOR_GROUP:'GREY', PLANNER_GROUP:'GREY'
+    };
+    var col = GROUP_COLLAR[g] || '?';
+    rows.push([g, col, cc, rc, sh, avg, cov, now]);
+  });
+  rows.sort(function(a,b){ return b[2] - a[2]; });
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, hdr.length).setValues(rows);
+  }
+  Logger.log('Step 7 — Trade Family Audit: ' + rows.length + ' groups across ' +
+             reqCount + ' active requirements → _T13_FamilyAudit');
+  return { groups: rows.length, requirements: reqCount };
+}
+
+
+// ── RUN ALL EVIDENCE STEPS IN SEQUENCE ───────────────────────────────────────
+// Helper to run all 7 steps. Call runT13EvidenceSuite_() from the GAS editor.
+function runT13EvidenceSuite_() {
+  Logger.log('▶ Starting T13 Evidence Suite — ' +
+             Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm'));
+  Logger.log('');
+
+  Logger.log('── Step 1: Compare Engines (ALL requirements) ──');
+  compareEnginesT13_();
+  Logger.log('');
+
+  Logger.log('── Step 2: False Positive Report ──');
+  falsePositiveReportT13_();
+  Logger.log('');
+
+  Logger.log('── Step 3: False Negative Report ──');
+  falseNegativeReportT13_();
+  Logger.log('');
+
+  Logger.log('── Step 4: Dual Trade Analysis ──');
+  dualTradeAnalysisT13_();
+  Logger.log('');
+
+  Logger.log('── Step 5: Governance Queue ──');
+  governanceQueueT13_();
+  Logger.log('');
+
+  Logger.log('── Step 6: Recruiter Validation Dataset (10 reqs) ──');
+  recruiterValidationDatasetT13_(10);
+  Logger.log('');
+
+  Logger.log('── Step 7: Trade Family Audit ──');
+  tradeFamilyAuditT13_();
+  Logger.log('');
+
+  Logger.log('▶ Evidence Suite COMPLETE. Review these sheets:');
+  Logger.log('  _T13_CompareReport   → Step 1 (noise elimination %)');
+  Logger.log('  _T13_FalsePositive   → Step 2 (old engine leaks)');
+  Logger.log('  _T13_FalseNegative   → Step 3 (T13 new finds)');
+  Logger.log('  _T13_DualTrade       → Step 4 (multi-trade matching)');
+  Logger.log('  _T13_GovernanceQueue → Step 5 (unknown trades + PENDING queue)');
+  Logger.log('  _T13_ValidationSet   → Step 6 (fill column L Correct/Incorrect)');
+  Logger.log('  _T13_FamilyAudit     → Step 7 (supply vs demand per group)');
 }
