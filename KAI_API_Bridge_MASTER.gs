@@ -902,8 +902,10 @@ function getMatchedCandidates_(params) {
   }
   if (!reqRow) return { ok:false, error:'Requirement not found: ' + reqId };
 
-  var reqTrade = String(reqRow[4]||'').trim();
-  var minExp   = parseFloat(reqRow[6]) || 0;
+  var reqTrade      = String(reqRow[4]||'').trim();
+  var minExp        = parseFloat(reqRow[6]) || 0;
+  var reqCerts      = String(reqRow[12]||'').trim();
+  var campaignType  = String(params.campaignType||'').trim() || inferCampaignType_(reqRow);
 
   // T13 — classify the requirement's position level once (audit + transparency)
   var reqLevel  = getPositionLevel_(reqTrade);
@@ -924,64 +926,76 @@ function getMatchedCandidates_(params) {
   }
 
   var all = getAllCandidatesRaw_();
-  var result = { STRONG:[], GOOD:[], POSSIBLE:[], REVIEW:[] };
+  var result = { EXCELLENT:[], STRONG:[], GOOD:[], POSSIBLE:[], REVIEW:[] };
 
   all.forEach(function(r) {
-    if (minExp > 0 && r.experience < minExp) return;
     if (fNat && r.nationality.toLowerCase().indexOf(fNat) < 0) return;
     if (hideAssigned && assignedSet[r.kaiNo]) return;
     if (minGulfExp > 0) {
       var gye = parseFloat(String(r.gulfExp||'').match(/(\d+\.?\d*)/)||[0,0])[1] || 0;
       if (gye < minGulfExp) return;
     }
-    var matchTier = getTradeMatchTier_(reqTrade, r);
-    if (!matchTier) return;
-    // T13 — audit trail: WHY this candidate matched (level + family + tier)
+
+    // ── GCC RECRUITMENT MATCHING ENGINE V2 ──────────────────────────────
+    var ms = computeMatchScoreGCC_(reqTrade, minExp, reqCerts, campaignType, r);
+    if (ms.score === 0) return; // hard fail: trade mismatch or age reject
+
+    r.gccScore            = ms.score;
+    r.gccTier             = ms.tier;
+    r.profileCompleteness = ms.profileCompleteness;
+    r.matchBreakdown      = ms.breakdown;
+    r.hardFail            = ms.hardFail;
+    r.campaignType        = campaignType;
+    // legacy audit trail (kept for transparency)
     var cLevel = getPositionLevel_(r.trade || r.positionApplied || '');
     r.matchReason = {
-      reqLevel:   reqLevel,
-      candLevel:  cLevel,
-      eligibility: getEligibility_(reqLevel, cLevel),
-      collar:     getCollarType_(cLevel),
-      family:     reqFamily,
-      tier:       matchTier
+      reqLevel: reqLevel, candLevel: cLevel,
+      collar: getCollarType_(cLevel), family: reqFamily,
+      tier: ms.tier, gccScore: ms.score
     };
-    result[matchTier].push(r);
+
+    (result[ms.tier] || result['REVIEW']).push(r);
   });
 
-  // Sort within each tier
+  // Sort by gccScore descending within each tier
   var sortFn = sortBy === 'latest'
     ? function(a,b){ return (b.applicationDate||'').localeCompare(a.applicationDate||''); }
-    : function(a,b){ return b.score - a.score; };
-  ['STRONG','GOOD','POSSIBLE','REVIEW'].forEach(function(t) { result[t].sort(sortFn); });
+    : function(a,b){ return b.gccScore - a.gccScore; };
+  ['EXCELLENT','STRONG','GOOD','POSSIBLE','REVIEW'].forEach(function(t) { result[t].sort(sortFn); });
 
-  var matched = result.STRONG.concat(result.GOOD).concat(result.POSSIBLE).concat(result.REVIEW);
-  var counts  = {
-    STRONG:result.STRONG.length, GOOD:result.GOOD.length,
-    POSSIBLE:result.POSSIBLE.length, REVIEW:result.REVIEW.length,
-    total:matched.length
+  var counts = {
+    EXCELLENT: result.EXCELLENT.length,
+    STRONG:    result.STRONG.length,
+    GOOD:      result.GOOD.length,
+    POSSIBLE:  result.POSSIBLE.length,
+    REVIEW:    result.REVIEW.length,
+    total:     result.EXCELLENT.length + result.STRONG.length + result.GOOD.length +
+               result.POSSIBLE.length  + result.REVIEW.length
   };
 
   // Single-tier response with pagination
   if (tier && tier !== 'ALL') {
-    var tierList  = result[tier] || [];
-    var paged     = tierList.slice((page-1)*limit, (page-1)*limit+limit);
+    var tierList = result[tier] || [];
+    var paged    = tierList.slice((page-1)*limit, (page-1)*limit+limit);
     return { ok:true, reqId:reqId, tier:tier,
              reqLevel:reqLevel, reqCollar:getCollarType_(reqLevel), reqFamily:reqFamily,
+             campaignType:campaignType,
              records:paged, total:tierList.length,
              page:page, limit:limit,
              totalPages:Math.ceil(tierList.length/limit),
              counts:counts };
   }
 
-  // All-tiers response (no pagination — caller picks tier)
+  // All-tiers response
   return {
     ok:true, reqId:reqId, trade:reqTrade,
     reqLevel:reqLevel, reqCollar:getCollarType_(reqLevel), reqFamily:reqFamily,
-    STRONG:result.STRONG.slice(0,100),
-    GOOD:result.GOOD.slice(0,100),
-    POSSIBLE:result.POSSIBLE.slice(0,100),
-    counts:counts
+    campaignType:campaignType,
+    EXCELLENT: result.EXCELLENT.slice(0,100),
+    STRONG:    result.STRONG.slice(0,100),
+    GOOD:      result.GOOD.slice(0,100),
+    POSSIBLE:  result.POSSIBLE.slice(0,100),
+    counts:    counts
   };
 }
 
@@ -1816,45 +1830,224 @@ function generateKaiNumber_(ss) {
 
 // Simplified scoring for manually uploaded CVs.
 // Mirrors the spirit of Code.gs scoring without replicating its full engine.
+// ── PROFILE COMPLETENESS (intake metric — NOT a match score) ─────────────────
+// Stored in the Score column at CV intake. Shows how complete the profile is,
+// not how employable the candidate is.
 function computeBasicScore_(parsed) {
-  var score  = 0;
-  var exp    = parseFloat(parsed.experience) || 0;
-  var gulf   = String(parsed.gulfExp || '').trim().toLowerCase();
-  var hasGulf = gulf.length > 3 && gulf !== 'na' && gulf !== 'nil' && gulf !== 'none';
-  var isCurrentGulf = hasGulf && /current|present|working|employed|ongoing|till date|till now/i.test(parsed.gulfExp||'');
+  var fields = [
+    { key:'name',      w:10, v: parsed.name },
+    { key:'mobile',    w:15, v: parsed.mobile },
+    { key:'email',     w:15, v: parsed.email },
+    { key:'passport',  w:20, v: parsed.passport },
+    { key:'trade',     w:15, v: parsed.trade || parsed.positionApplied },
+    { key:'education', w:15, v: parsed.education },
+    { key:'dob',       w:10, v: parsed.dob || parsed.age }
+  ];
+  var score = 0, missing = [];
+  fields.forEach(function(f) {
+    var v = String(f.v || '').trim();
+    if (v && v !== '—' && v.length > 1) score += f.w;
+    else missing.push(f.key);
+  });
+  var verdict = score >= 75 ? 'NEEDS_REVIEW' : 'NEEDS_CALL';
+  return { score: score, verdict: verdict, missing: missing };
+}
 
-  // Experience (max 30)
-  if      (exp >= 10) score += 30;
-  else if (exp >= 5)  score += 22;
-  else if (exp >= 2)  score += 12;
-  else if (exp >= 1)  score += 5;
 
-  // Gulf experience (max 25)
-  if      (isCurrentGulf) score += 25;
-  else if (hasGulf)        score += 15;
+// ════════════════════════════════════════════════════════════════════════════
+// GCC RECRUITMENT MATCHING ENGINE V2
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Evaluates "Can this candidate fill this requirement?"
+// NOT "How complete is this profile?"
+//
+// Stages (weighted):
+//   1. Trade Relevance     40%  — hard gate, T13 eligibility
+//   2. Experience           25%  — GCC blue-collar bands (5-12 yr ideal)
+//   3. Age                  10%  — hard reject <18 or 51+
+//   4. GCC Experience       10%  — history in Gulf (not current location)
+//   5. Campaign Location    10%  — requirement-context aware
+//   6. Certifications        5%  — only when req explicitly demands
+//
+// Output labels: 85-100 Excellent · 70-84 Strong · 55-69 Good
+//                40-54 Possible · <40 Review
+// ════════════════════════════════════════════════════════════════════════════
 
-  // Trade + position clarity (max 20)
-  if (parsed.trade            && parsed.trade.length > 2)            score += 10;
-  if (parsed.positionApplied  && parsed.positionApplied.length > 2)  score += 10;
+function getMatchTierGCC_(score) {
+  if (score >= 85) return 'EXCELLENT';
+  if (score >= 70) return 'STRONG';
+  if (score >= 55) return 'GOOD';
+  if (score >= 40) return 'POSSIBLE';
+  return 'REVIEW';
+}
 
-  // Contact completeness (max 10)
-  if (parsed.mobile && parsed.mobile.length > 5) score += 5;
-  if (parsed.email  && parsed.email.length  > 5) score += 5;
+// Stage 1 — Trade Relevance (0-100). Uses T13 eligibility when available.
+function tradeRelevanceScoreGCC_(reqTrade, cand) {
+  try {
+    var reqClass    = classifyTradeT13_(reqTrade);
+    var candClasses = resolveCandidateTradesT13_(cand);
+    var e = bestEligibilityT13_(reqClass, candClasses);
+    return e.score; // 0 if blocked, 55-100 if allowed
+  } catch (ex) {
+    // T13 not loaded — fall back to keyword tier
+    var t = getTradeMatchTier_(reqTrade, cand);
+    if (t === 'STRONG') return 85;
+    if (t === 'GOOD')   return 65;
+    if (t === 'POSSIBLE') return 45;
+    return 0;
+  }
+}
 
-  // Education (max 10)
-  if (parsed.education && parsed.education.length > 2) score += 10;
+// Stage 2 — Experience (0-100). GCC ideal = 5-12 yr.
+function experienceScoreGCC_(expYears, reqMinExp) {
+  var exp = parseFloat(expYears) || 0;
+  var score;
+  if      (exp >= 12) score = 88;  // Expert — slightly discounted (age risk)
+  else if (exp >= 8)  score = 100; // Very Strong — GCC sweet spot
+  else if (exp >= 5)  score = 95;  // Strong
+  else if (exp >= 3)  score = 70;  // Average
+  else if (exp >= 1)  score = 40;  // Weak
+  else                score = 15;
+  // Penalty if below stated minimum
+  var minExp = parseFloat(reqMinExp) || 0;
+  if (minExp > 0 && exp < minExp) score = Math.round(score * 0.45);
+  return score;
+}
 
-  // KAI assessment quality (max 5)
-  if (parsed.kaiAssessment && parsed.kaiAssessment.length > 50) score += 5;
+// Stage 3 — Age (0-100 + hardReject flag). Blue-collar bands.
+function ageScoreGCC_(dob, ageField) {
+  var age = 0;
+  if (dob && String(dob).trim() && String(dob) !== '—') {
+    try {
+      var d = new Date(dob);
+      if (!isNaN(d)) age = Math.floor((new Date() - d) / (365.25 * 24 * 3600 * 1000));
+    } catch(e) {}
+  }
+  if (!age && ageField) age = parseInt(String(ageField).match(/\d+/)||[0]) || 0;
 
-  score = Math.min(100, score);
+  if (!age) return { score: 70, hardReject: false }; // no DOB → skip, neutral
+  if (age < 18)       return { score: 0,   hardReject: true  }; // underage
+  if (age > 50)       return { score: 0,   hardReject: true  }; // 51+
+  if (age <= 21)      return { score: 30,  hardReject: false }; // weak
+  if (age <= 24)      return { score: 65,  hardReject: false }; // acceptable
+  if (age <= 45)      return { score: 100, hardReject: false }; // ideal
+  return              { score: 50,  hardReject: false };         // 46-50 moderate
+}
 
-  var verdict;
-  if      (score >= 75) verdict = 'SHORTLISTED';
-  else if (score >= 60) verdict = 'NEEDS_REVIEW';
-  else                  verdict = 'NEEDS_CALL';
+// Stage 4 — GCC Experience (0-100). Duration-weighted. Neutral if none.
+function gccExpScoreGCC_(gulfExp) {
+  var g = String(gulfExp || '').trim().toLowerCase();
+  if (!g || g === 'na' || g === 'nil' || g === 'none' || g === '—' || g.length < 2) return 50;
+  var yrs = parseFloat((g.match(/(\d+\.?\d*)/) || [0, 0])[1]) || 0;
+  if (yrs >= 8) return 100;
+  if (yrs >= 3) return 85;
+  if (yrs >= 1) return 70;
+  return 60; // has Gulf exp, duration unclear
+}
 
-  return { score: score, verdict: verdict };
+// Stage 5 — Campaign Location (0-100). Infers campaign type from req if not passed.
+function inferCampaignType_(reqRow) {
+  var country       = String(reqRow[3] || '').toLowerCase();
+  var localTransfer = String(reqRow[10] || '').toLowerCase();
+  if (localTransfer === 'yes' || localTransfer === 'true') {
+    if (/saudi|ksa/.test(country))            return 'SAUDI_LOCAL';
+    if (/uae|emirates|dubai|abu dhabi/.test(country)) return 'UAE_LOCAL';
+    return 'LOCAL_TRANSFER';
+  }
+  return 'INDIA_OVERSEAS';
+}
+
+function locationScoreGCC_(cand, campaignType) {
+  if (!campaignType) return 70;
+  var loc = String(cand.currentLocation || '').toLowerCase();
+  var ct  = String(campaignType).toUpperCase().replace(/[\s-]+/g,'_');
+
+  if (ct === 'INDIA_OVERSEAS') {
+    return /india|mumbai|delhi|chennai|hyderabad|bangalore|kolkata|pune|ahmedabad|kerala|gujarat/.test(loc)
+      ? 100 : 45;
+  }
+  if (ct === 'SAUDI_LOCAL') {
+    var inSaudi = /saudi|ksa|riyadh|jeddah|dammam|jubail|yanbu|dhahran|khobar/.test(loc);
+    var transferable = /transferable|iqama transfer/.test(String(cand.mobilityStatus || '').toLowerCase());
+    if (inSaudi && transferable) return 100;
+    if (inSaudi)                 return 82;
+    return 25;
+  }
+  if (ct === 'UAE_LOCAL') {
+    return /uae|dubai|abu dhabi|sharjah|ajman|ras al|fujairah|uaq/.test(loc) ? 100 : 35;
+  }
+  return 70; // unknown campaign → neutral
+}
+
+// Stage 6 — Certifications (0-100). Neutral 70 if req has none / unrecognised.
+function certScoreGCC_(reqCerts, cand) {
+  var reqs = String(reqCerts || '').trim().toLowerCase();
+  if (!reqs || reqs.length < 3) return 70;
+
+  var candText = [
+    cand.trade, cand.positionApplied, cand.kaiAssessment, cand.scoreBreakdown, cand.notes
+  ].join(' ').toLowerCase();
+
+  var CERTS = ['6g','aws','asme','cswip','bgas','cwi','nebosh','iosh','ndt',
+               'cswip 3.1','cswip 3.2','nace','asnt','api','aramco','sabic',
+               'adnoc','iso 9001','pmi','pmp','citb','cpcs'];
+  var reqFound = 0, candHas = 0;
+  CERTS.forEach(function(k) {
+    if (reqs.indexOf(k) >= 0) {
+      reqFound++;
+      if (candText.indexOf(k) >= 0) candHas++;
+    }
+  });
+  if (reqFound === 0) return 70; // cert req not parsed → neutral
+  return Math.round((candHas / reqFound) * 100);
+}
+
+// ── MAIN V2 SCORER ──────────────────────────────────────────────────────────
+function computeMatchScoreGCC_(reqTrade, reqMinExp, reqCerts, campaignType, cand) {
+  // Stage 1: Trade Relevance — hard gate
+  var tradeRaw = tradeRelevanceScoreGCC_(reqTrade, cand);
+  if (tradeRaw === 0) {
+    return { score:0, tier:'HIDDEN', hardFail:'TRADE_MISMATCH',
+             profileCompleteness:0, breakdown:{ trade:0 } };
+  }
+
+  // Stage 3: Age — hard gate before spending CPU on other stages
+  var ageRes = ageScoreGCC_(cand.dob, cand.age);
+  if (ageRes.hardReject) {
+    return { score:0, tier:'HIDDEN', hardFail:'AGE_REJECT',
+             profileCompleteness:0, breakdown:{ trade:Math.round(tradeRaw*0.40), age:0 } };
+  }
+
+  var expScore  = experienceScoreGCC_(cand.experience, reqMinExp);
+  var gccScore  = gccExpScoreGCC_(cand.gulfExp);
+  var locScore  = locationScoreGCC_(cand, campaignType);
+  var certScore = certScoreGCC_(reqCerts, cand);
+
+  var final = Math.min(100, Math.round(
+    tradeRaw      * 0.40 +
+    expScore      * 0.25 +
+    ageRes.score  * 0.10 +
+    gccScore      * 0.10 +
+    locScore      * 0.10 +
+    certScore     * 0.05
+  ));
+
+  var pc = computeBasicScore_(cand).score; // profile completeness %
+
+  return {
+    score: final,
+    tier:  getMatchTierGCC_(final),
+    hardFail: null,
+    profileCompleteness: pc,
+    breakdown: {
+      trade:      Math.round(tradeRaw     * 0.40),
+      experience: Math.round(expScore     * 0.25),
+      age:        Math.round(ageRes.score * 0.10),
+      gcc:        Math.round(gccScore     * 0.10),
+      location:   Math.round(locScore     * 0.10),
+      certs:      Math.round(certScore    * 0.05)
+    }
+  };
 }
 
 // Builds a 42-column array matching the Candidates sheet COL map exactly.
