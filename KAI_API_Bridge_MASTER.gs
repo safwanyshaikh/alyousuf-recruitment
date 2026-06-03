@@ -63,6 +63,19 @@ function doGet(e) {
       return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // Unauthenticated build check — open /exec?action=version in a browser to
+    // confirm which deployment is actually live. If `build` is not the value
+    // below, the web app was NOT redeployed after editing the code.
+    if (action === 'version') {
+      return ContentService.createTextOutput(JSON.stringify({
+        ok: true,
+        build: 'T13-eligibility-gate',
+        hasT13: (typeof getPositionLevel_ === 'function' &&
+                 typeof getEligibility_ === 'function'),
+        ts: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (!isTokenValid_(token)) {
       return ContentService.createTextOutput(
         JSON.stringify({ ok: false, error: 'Unauthorized' })
