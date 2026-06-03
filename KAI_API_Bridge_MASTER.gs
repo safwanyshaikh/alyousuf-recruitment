@@ -1959,8 +1959,11 @@ function inferCampaignType_(reqRow) {
 
 function locationScoreGCC_(cand, campaignType) {
   if (!campaignType) return 70;
-  var loc = String(cand.currentLocation || '').toLowerCase();
+  var loc = String(cand.currentLocation || '').toLowerCase().trim();
   var ct  = String(campaignType).toUpperCase().replace(/[\s-]+/g,'_');
+
+  // Unknown location → neutral (not penalised for missing data, only rewarded when confirmed)
+  if (!loc || loc === '—' || loc.length < 2) return 70;
 
   if (ct === 'INDIA_OVERSEAS') {
     return /india|mumbai|delhi|chennai|hyderabad|bangalore|kolkata|pune|ahmedabad|kerala|gujarat/.test(loc)
