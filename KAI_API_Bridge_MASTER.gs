@@ -101,6 +101,7 @@ function doGet(e) {
     else if (action === 'matchAudit')       out = JSON.stringify(getMatchAudit_(params));
     else if (action === 'tradeAffinity')    out = JSON.stringify(getTradeAffinity_(params));
     else if (action === 'whatsappLink')     out = JSON.stringify(getWhatsAppLink_(params));
+    else if (action === 'reEvaluate')       out = JSON.stringify(reEvaluateCandidatesT14_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -908,6 +909,9 @@ function getMatchedCandidates_(params) {
 
   var reqTrade      = String(reqRow[4]||'').trim();
   var minExp        = parseFloat(reqRow[6]) || 0;
+  var reqMinAge     = parseInt(reqRow[7]) || 0;
+  var reqMaxAge     = parseInt(reqRow[8]) || 0;
+  var reqNationality= String(reqRow[11]||'').trim(); // col 12: nationality whitelist (blank = any)
   var reqCerts      = String(reqRow[12]||'').trim();
   var campaignType  = String(params.campaignType||'').trim() || inferCampaignType_(reqRow);
 
@@ -940,17 +944,25 @@ function getMatchedCandidates_(params) {
       if (gye < minGulfExp) return;
     }
 
-    // ── GCC RECRUITMENT MATCHING ENGINE V2 ──────────────────────────────
-    var ms = computeMatchScoreGCC_(reqTrade, minExp, reqCerts, campaignType, r);
-    if (ms.score === 0) return; // hard fail: trade mismatch or age reject
+    // ── GCC RECRUITMENT INTELLIGENCE ENGINE V2 (T14) ────────────────────
+    var ms = computeMatchScoreT14_(reqTrade, minExp, reqCerts, campaignType,
+                                    reqNationality, reqMinAge, reqMaxAge, r);
+
+    // Hard fails: trade mismatch or nationality block → exclude entirely
+    if (ms.hardFail) return;
+    // Archive candidates: age out of range → exclude from results (archive queue)
+    if (ms.archiveReason && ms.score === 0) return;
 
     r.gccScore            = ms.score;
     r.gccTier             = ms.tier;
     r.profileCompleteness = ms.profileCompleteness;
     r.matchBreakdown      = ms.breakdown;
     r.hardFail            = ms.hardFail;
+    r.archiveReason       = ms.archiveReason;
+    r.recruitmentClass    = ms.recruitmentClass;
+    r.educationCapped     = ms.educationCapped;
+    r.compliance          = ms.compliance;
     r.campaignType        = campaignType;
-    // legacy audit trail (kept for transparency)
     var cLevel = getPositionLevel_(r.trade || r.positionApplied || '');
     r.matchReason = {
       reqLevel: reqLevel, candLevel: cLevel,
@@ -1521,19 +1533,28 @@ function createJD_(body) {
   var jdId  = generateJDId_();
   var raw   = String(body.rawText||'').trim();
   var p     = parseJDText_(raw);
+  var trade = String(body.trade||p.trade||'').trim();
+  var country = String(body.country||p.country||'').trim();
   sheet.appendRow([
     jdId, new Date(),
     String(body.source  ||'MANUAL').trim(),
     String(body.client  ||'').trim(),
     String(body.title   ||p.title  ||'').trim(),
-    String(body.trade   ||p.trade  ||'').trim(),
-    String(body.country ||p.country||'').trim(),
+    trade,
+    country,
     raw, p.requirements,
     parseFloat(body.minExperience||p.minExp)||0,
     p.certifications, 'ACTIVE', '',  '',
     String(body.recruiter||'system').trim(),
     String(body.notes   ||'').trim()
   ]);
+
+  // T14: capture JD intelligence for pattern learning
+  try {
+    captureJDIntelligenceT14_(ss, jdId, String(body.client||'').trim(),
+      trade, country, raw, null);
+  } catch(e) { Logger.log('captureJDIntelligenceT14_ error: ' + e.message); }
+
   return { ok:true, jdId:jdId, parsed:p };
 }
 
@@ -1745,7 +1766,10 @@ var CV_PARSE_PROMPT =
   '- passportNo: one capital letter + 7 digits (Indian format, e.g. A1234567)\n' +
   '- passportExpiry: yyyy-MM-dd format, or empty string\n' +
   '- ecrStatus: "ECNR" if stamp mentioned, otherwise "ECR" for Indian nationals\n' +
-  '- kaiAssessment: 2–3 sentences: strengths, GCC suitability, concerns\n' +
+  '- kaiAssessment: Senior technical manager brief — 2–4 sentences. ' +
+  'Focus on: Gulf employer quality (Aramco/SABIC/ADNOC vs local), certs held, ' +
+  'career trajectory, red flags, deployability. ' +
+  'NEVER repeat name, trade, experience years, education, mobile, or email.\n' +
   '- recruiterAction: specific next action for the recruiter\n' +
   '- missingFields: comma-separated list of fields not found in the CV\n';
 
@@ -2853,6 +2877,12 @@ function createJDAndRequirement_(body) {
     '', ''
   ]);
 
+  // T14: capture JD intelligence
+  try {
+    captureJDIntelligenceT14_(ss, jdId, clientName||parsed.client,
+      parsed.trade, parsed.country, raw, null);
+  } catch(e) { Logger.log('captureJDIntelligenceT14_ error: ' + e.message); }
+
   return {
     ok:true, jdId:jdId, reqId:reqId,
     trade:parsed.trade, department:dept,
@@ -3570,6 +3600,12 @@ function splitJDToRequirements_(body) {
                    qty:parseInt(pos.qty||'1')||1, minExp:parseFloat(pos.minExp||'0')||0,
                    certifications:pos.certifications||'' });
   });
+
+  // T14: capture JD intelligence with all extracted positions
+  try {
+    captureJDIntelligenceT14_(ss, jdId, clientName, positions[0] ? (positions[0].trade||'') : '',
+      country, raw, positions);
+  } catch(e) { Logger.log('captureJDIntelligenceT14_ error: ' + e.message); }
 
   return { ok:true, jdId:jdId||'', positionsFound:positions.length, requirements:created };
 }
