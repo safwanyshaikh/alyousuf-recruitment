@@ -142,6 +142,8 @@ function doPost(e) {
     else if (action === 'updateCandidateFields')  out = JSON.stringify(updateCandidateFields_(body));
     else if (action === 'splitJDToRequirements')  out = JSON.stringify(splitJDToRequirements_(body));
     else if (action === 'whatsappIntake')          out = JSON.stringify(whatsappIntake_(body));
+    else if (action === 'parseJDFile')            out = JSON.stringify(parseJDFile_(body));
+    else if (action === 'sendMissingInfoDraft')   out = JSON.stringify(sendMissingInfoDraft_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -1784,6 +1786,8 @@ function parseCV_(fileB64, mimeType, senderName, senderEmail) {
   var parts = [];
   var approxBytes = fileB64.length * 0.75;
   var supported   = (mimeType === 'application/pdf' ||
+                     mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                     mimeType === 'application/msword' ||
                      mimeType.indexOf('image/') === 0);
 
   if (supported && approxBytes < 15 * 1024 * 1024) {
@@ -3714,4 +3718,194 @@ function whatsappIntake_(body) {
 
   return { ok:true, kaiNo:kaiNo, name:name, profileCompleteness:pc.score,
            missing:(pc.missing||[]), waMessage:waMessage };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 20 — FILE-BASED JD PARSER
+// POST action=parseJDFile: accepts PDF/Word file as base64, extracts
+// structured JD fields via Gemini, returns parsed object ready for
+// createJDAndReq flow. Supports PDF, DOCX, DOC, and images.
+// ════════════════════════════════════════════════════════════════════
+
+function parseJDFile_(body) {
+  var fileB64    = String(body.fileBase64 ||'').trim();
+  var mimeType   = String(body.mimeType   ||'application/pdf').trim();
+  var clientHint = String(body.clientName ||body.client||'').trim();
+
+  if (!fileB64) return { ok:false, error:'fileBase64 required' };
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return { ok:false, error:'GEMINI_API_KEY not set' };
+
+  var supported = (mimeType === 'application/pdf' ||
+                   mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                   mimeType === 'application/msword' ||
+                   mimeType.indexOf('image/') === 0);
+
+  var approxBytes = fileB64.length * 0.75;
+  var parts = [];
+
+  if (supported && approxBytes < 15 * 1024 * 1024) {
+    parts.push({ inline_data: { mime_type: mimeType, data: fileB64 } });
+  }
+
+  var prompt =
+    'You are a GCC recruitment JD parser for an oil & gas manpower agency.\n' +
+    'Extract all structured information from this Job Description.\n' +
+    'Return ONLY valid JSON — no markdown, no explanation.\n' +
+    '{\n' +
+    '  "title": "",\n' +
+    '  "trade": "",\n' +
+    '  "country": "",\n' +
+    '  "client": "",\n' +
+    '  "minExp": 0,\n' +
+    '  "certifications": "",\n' +
+    '  "requirements": "",\n' +
+    '  "positions": [\n' +
+    '    { "title":"", "trade":"", "qty":1, "minExp":0, "certifications":"", "summary":"" }\n' +
+    '  ]\n' +
+    '}\n\n' +
+    'Rules:\n' +
+    '- trade: primary technical trade for this JD (e.g. "Welder", "QC Inspector")\n' +
+    '- If JD has multiple positions, list each in positions[]. Otherwise positions has one entry.\n' +
+    '- certifications: comma-separated (e.g. "CSWIP 3.1, NEBOSH, 6G")\n' +
+    '- requirements: 2-3 key technical requirements joined with semicolons\n' +
+    '- client: company name from JD, or empty string\n' +
+    (clientHint ? '- Client hint from uploader: ' + clientHint + '\n' : '');
+
+  parts.push({ text: prompt });
+
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+      { method:'post', contentType:'application/json', muteHttpExceptions:true,
+        payload: JSON.stringify({
+          contents:[{ parts:parts }],
+          generationConfig:{ temperature:0.1, maxOutputTokens:1500 }
+        })
+      }
+    );
+    var result = JSON.parse(resp.getContentText());
+    if (!result.candidates || !result.candidates[0]) {
+      return { ok:false, error:'Gemini returned no candidates', raw:resp.getContentText().slice(0,300) };
+    }
+    var text = String(result.candidates[0].content.parts[0].text||'');
+    text = text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    var parsed = JSON.parse(text);
+    return { ok:true, parsed:parsed, rawText:parsed.requirements||'' };
+  } catch(e) {
+    return { ok:false, error:'parseJDFile_ failed: ' + e.message };
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 21 — MISSING INFO DRAFT (Email + WhatsApp)
+// POST action=sendMissingInfoDraft
+// Finds candidate by kaiNo, computes missing fields,
+// creates Gmail draft OR returns WhatsApp link.
+// body: { kaiNo, channel:'email'|'whatsapp', token }
+// ════════════════════════════════════════════════════════════════════
+
+function sendMissingInfoDraft_(body) {
+  var kaiNo   = String(body.kaiNo   ||'').trim();
+  var channel = String(body.channel ||'email').trim().toLowerCase();
+
+  if (!kaiNo) return { ok:false, error:'kaiNo required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data = sheet.getRange(2, 1, Math.max(1, sheet.getLastRow()-1), 42).getValues();
+  var candRow = null, rowIndex = -1;
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][COL.kaiNo-1]||'').trim() === kaiNo) {
+      candRow = data[i]; rowIndex = i + 2; break;
+    }
+  }
+  if (!candRow) return { ok:false, error:'Candidate not found: ' + kaiNo };
+
+  var cand = {
+    name:       String(candRow[COL.name-1]||'').trim(),
+    mobile:     String(candRow[COL.mobile-1]||'').trim(),
+    email:      String(candRow[COL.email-1]||'').trim(),
+    dob:        String(candRow[COL.dob-1]||'').trim(),
+    age:        parseInt(candRow[COL.age-1])||0,
+    trade:      String(candRow[COL.trade-1]||'').trim(),
+    positionApplied: String(candRow[COL.positionApplied-1]||'').trim(),
+    nationality: String(candRow[COL.nationality-1]||'').trim(),
+    gulfExp:    String(candRow[COL.gulfExp-1]||'').trim(),
+    education:  String(candRow[COL.education-1]||'').trim(),
+    passportNo: extractPassportNo_(String(candRow[COL.kaiAssessment-1]||''),
+                                    String(candRow[COL.notes-1]||''))
+  };
+
+  var missing = computeMissingFields_(cand);
+  if (!missing.length) return { ok:true, kaiNo:kaiNo, allComplete:true, message:'No missing fields' };
+
+  var missingLabels = missing.map(function(m){ return m.label; });
+  var firstName = cand.name.split(' ')[0] || 'Candidate';
+
+  if (channel === 'whatsapp') {
+    var mob = normalizeMobile_(cand.mobile);
+    if (!mob) return { ok:false, error:'No valid mobile number for WhatsApp' };
+
+    var waText =
+      'Dear ' + firstName + ',\n\n' +
+      'Thank you for your application with Al Yousuf Enterprises LLP (Ref: ' + kaiNo + ').\n\n' +
+      'To complete your profile, please share the following:\n' +
+      missingLabels.map(function(l,i){ return (i+1) + '. ' + l; }).join('\n') + '\n\n' +
+      'Please reply to this message with the above details.\n\n' +
+      'Al Yousuf Recruitment Team';
+
+    var waUrl = 'https://wa.me/' + mob + '?text=' + encodeURIComponent(waText);
+    return { ok:true, kaiNo:kaiNo, channel:'whatsapp', waUrl:waUrl,
+             message:waText, missing:missingLabels };
+  }
+
+  // Email channel — create Gmail draft
+  if (!cand.email) return { ok:false, error:'No email address for candidate ' + kaiNo };
+
+  var subject = 'Action Required: Complete Your Application — ' + kaiNo;
+  var emailBody =
+    'Dear ' + firstName + ',\n\n' +
+    'Thank you for applying through Al Yousuf Enterprises LLP.\n\n' +
+    'Your reference number is: ' + kaiNo + '\n\n' +
+    'To process your application, we require the following additional information:\n\n' +
+    missingLabels.map(function(l,i){ return (i+1) + '. ' + l; }).join('\n') + '\n\n' +
+    'Please reply to this email with the requested details at your earliest convenience.\n\n' +
+    'Best regards,\n' +
+    'Recruitment Team\n' +
+    'Al Yousuf Enterprises LLP\n' +
+    'Email: ai@alyousufent.com';
+
+  try {
+    var draft = GmailApp.createDraft(
+      cand.email, subject, emailBody,
+      { from: 'ai@alyousufent.com', name: 'Al Yousuf Recruitment' }
+    );
+    return {
+      ok: true, kaiNo: kaiNo, channel: 'email',
+      draftId:  draft.getId(),
+      to:       cand.email,
+      subject:  subject,
+      preview:  emailBody.slice(0, 200),
+      missing:  missingLabels
+    };
+  } catch(e) {
+    // Alias not configured — create draft from default account
+    try {
+      var draft2 = GmailApp.createDraft(cand.email, subject, emailBody);
+      return {
+        ok: true, kaiNo: kaiNo, channel: 'email',
+        draftId: draft2.getId(), to: cand.email,
+        subject: subject, preview: emailBody.slice(0,200),
+        missing: missingLabels,
+        note: 'Draft created from default account (alias not configured)'
+      };
+    } catch(e2) {
+      return { ok:false, error:'Could not create draft: ' + e2.message };
+    }
+  }
 }
