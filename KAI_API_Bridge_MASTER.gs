@@ -4574,29 +4574,37 @@ function getComplianceRisk_(params) {
   return { ok:false, error:'Candidate not found: ' + kaiNo };
 }
 
-// Build role-specific doc request message (Change H — JD-driven)
-function buildDocRequestMessage_(kaiNo, name, trade, missingWithPriority) {
+// Build requirement-aware doc request message (Correction 4)
+// roleDocs = getRoleDocRequirements_(trade, reqCerts) — always includes CV + Passport
+// missingProfile = generic profile fields still missing (mobile, DOB etc.)
+function buildDocRequestMessage_(kaiNo, name, trade, roleDocs, missingProfile) {
   var firstName = (name||'Candidate').split(' ')[0];
-  var roleDoc   = getRoleDocRequirements_(trade);
+  var roleLabel = trade || 'your applied position';
   var lines = [
     'Hi ' + firstName + ',',
     '',
     'Al Yousuf Enterprises LLP — Recruitment Team.',
     'Your application (Ref: ' + kaiNo + ') is progressing.',
     '',
-    'To proceed with your ' + (trade||'position') + ' application, please share:',
-    ''
+    'To proceed with your ' + roleLabel + ' application, please send us the following documents:'
   ];
-  missingWithPriority
-    .filter(function(m){ return m.priority === 'HIGH' || m.priority === 'MEDIUM'; })
-    .forEach(function(m){ lines.push('  • ' + m.label + (m.priority === 'HIGH' ? ' (required)' : '')); });
-  if (roleDoc.length) {
-    lines.push('');
-    lines.push('Also required for this role:');
-    roleDoc.forEach(function(d){ lines.push('  • ' + d); });
-  }
+
+  // Role-driven doc list (CV, Passport, WQT, Degree, etc.)
   lines.push('');
-  lines.push('Please reply at your earliest convenience.');
+  roleDocs.forEach(function(d, idx) { lines.push((idx+1) + '. ' + d); });
+
+  // Additional profile fields missing (DOB, nationality etc.) — only MEDIUM+HIGH
+  var profileGaps = (missingProfile||[]).filter(function(m){
+    return m.priority === 'HIGH' || m.priority === 'MEDIUM';
+  });
+  if (profileGaps.length) {
+    lines.push('');
+    lines.push('Also provide:');
+    profileGaps.forEach(function(m){ lines.push('  • ' + m.label); });
+  }
+
+  lines.push('');
+  lines.push('Please reply with the above at your earliest convenience.');
   lines.push('');
   lines.push('Thank you,');
   lines.push('Al Yousuf Enterprises LLP');
@@ -4650,11 +4658,12 @@ function getBulkDocStatus_(params) {
       return { field: m.field, label: m.label, priority: computeDocPriority_(m.field, rc) };
     }).sort(function(a,b){ var P={HIGH:0,MEDIUM:1,LOW:2}; return P[a.priority]-P[b.priority]; });
 
-    var mob     = normalizeMobile_(cand.mobile);
-    var message = '';
-    var waLink  = '';
+    var roleDocs = getRoleDocRequirements_(trade, '');
+    var mob      = normalizeMobile_(cand.mobile);
+    var message  = '';
+    var waLink   = '';
     if (mob && missing.length) {
-      message = buildDocRequestMessage_(rowKaiNo, cand.name, trade, missing);
+      message = buildDocRequestMessage_(rowKaiNo, cand.name, trade, roleDocs, missing);
       waLink  = 'https://wa.me/' + mob + '?text=' + encodeURIComponent(message);
     }
 
@@ -4776,18 +4785,94 @@ function inferRecruitmentClass_(trade) {
   return 'SKILLED_TRADESMAN';
 }
 
-// JD-driven role-specific docs beyond the generic missing fields (Change H)
-function getRoleDocRequirements_(trade) {
-  if (!trade) return [];
+// Pull trade + certifications from _Requirements sheet for a given reqId
+function getReqCerts_(ss, reqId) {
+  if (!reqId) return { trade:'', certs:'' };
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet) return { trade:'', certs:'' };
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]||'').trim() === reqId) {
+      return {
+        trade: String(data[i][4]||'').trim(),
+        certs: String(data[i][10]||'').trim()
+      };
+    }
+  }
+  return { trade:'', certs:'' };
+}
+
+// Requirement-Aware Doc Intelligence (Correction 4 — JD + KAI Intelligence)
+// Always starts with CV + Passport, then adds role-specific docs, then req-specific certs
+function getRoleDocRequirements_(trade, reqCerts) {
+  var docs = ['CV / Resume', 'Passport Copy'];
+  if (!trade) {
+    if (reqCerts) reqCerts.split(',').forEach(function(c){ var t=c.trim(); if(t && docs.indexOf(t)<0) docs.push(t); });
+    return docs;
+  }
   var t = trade.toLowerCase();
-  if (/engineer/.test(t))        return ['Degree Certificate','Experience Letter','Professional License'];
-  if (/technician|inspector/.test(t)) return ['Trade Certificate','Experience Letter'];
-  if (/welder/.test(t))          return ['Welder Qualification Test (WQT)','Experience Letter'];
-  if (/electrician/.test(t))     return ['Electrical Trade Certificate','Experience Letter'];
-  if (/hvac/.test(t))            return ['HVAC Certificate','Experience Letter'];
-  if (/driver/.test(t))          return ['Valid Driving License'];
-  if (/nurse|medic/.test(t))     return ['Nursing License / DHA Eligibility','Degree Certificate'];
-  return [];
+
+  // Engineers — degree + registration is blocking (HIGH)
+  if (/mechanical engineer/.test(t))       { docs.push('Degree Certificate (Mechanical Engineering)','SCE / PEC Registration (if applicable)','Experience Letters'); }
+  else if (/civil engineer/.test(t))       { docs.push('Degree Certificate (Civil Engineering)','PEC / IEI Registration (if applicable)','Experience Letters'); }
+  else if (/electrical engineer/.test(t))  { docs.push('Degree Certificate (Electrical Engineering)','PEC / IRSE Registration','Experience Letters'); }
+  else if (/piping engineer/.test(t))      { docs.push('Degree Certificate','Piping Design / PDMS Proficiency','Experience Letters'); }
+  else if (/structural engineer/.test(t))  { docs.push('Degree Certificate','SE Registration','Experience Letters'); }
+  else if (/engineer/.test(t))             { docs.push('Degree Certificate','Professional License / Registration','Experience Letters'); }
+
+  // Inspectors & QC
+  else if (/welding inspector|qc weld/.test(t)) { docs.push('CSWIP 3.1 / AWS CWI Certificate','Experience Letters','NDT Certificates (if applicable)'); }
+  else if (/coating inspector|painting inspect/.test(t)) { docs.push('NACE / FROSIO Certificate','Experience Letters'); }
+  else if (/ndt inspector/.test(t))        { docs.push('PCN / ASNT Level II Certificate','UT / RT / MT / PT Certs','Experience Letters'); }
+  else if (/safety|hse officer/.test(t))   { docs.push('NEBOSH IGC Certificate','IOSH Certificate (if applicable)','Experience Letters'); }
+  else if (/inspector|qc/.test(t))         { docs.push('Trade Certificate','CSWIP / AWS / ASME (if applicable)','Experience Letters'); }
+
+  // Welders — WQT is blocking
+  else if (/tig.*welder|welder.*tig/.test(t)) { docs.push('TIG Welder Qualification Test (WQT)','6G / TUV-3MHAW Certificate','Experience Certificates'); }
+  else if (/arc.*welder|welder.*arc/.test(t)) { docs.push('ARC Welder Qualification Test (WQT)','Experience Certificates'); }
+  else if (/mig.*welder|welder.*mig/.test(t)) { docs.push('MIG Welder Qualification Test (WQT)','Experience Certificates'); }
+  else if (/welder/.test(t))               { docs.push('Welder Qualification Test (WQT)','TUV or 6G Certificate (if applicable)','Experience Certificates'); }
+
+  // MEP Trades
+  else if (/electrician/.test(t))          { docs.push('Electrical Trade Certificate','Experience Certificates'); }
+  else if (/hvac/.test(t))                 { docs.push('HVAC Trade Certificate','Experience Certificates'); }
+  else if (/instrumentation|instrument tech/.test(t)) { docs.push('Instrumentation Trade Certificate','Experience Certificates'); }
+  else if (/plumber/.test(t))              { docs.push('Plumbing Trade Certificate','Experience Certificates'); }
+  else if (/pipefitter|pipe fitter/.test(t)) { docs.push('Trade Certificate','ISO / ASME Fit-Up Experience Letter'); }
+
+  // Rigging & Scaffolding
+  else if (/rigger/.test(t))               { docs.push('Rigger Certificate (LEEA / OPITO)','Experience Letter'); }
+  else if (/scaff/.test(t))                { docs.push('CISRS Scaffolding Certificate','Experience Letter'); }
+
+  // Operators & Drivers
+  else if (/crane operator/.test(t))       { docs.push('Crane Operator License','LEEA / OPITO Certificate','Experience Letter'); }
+  else if (/forklift operator/.test(t))    { docs.push('Forklift Operating License','Experience Letter'); }
+  else if (/heavy driver|truck driver/.test(t)) { docs.push('Heavy Driving License (HMV)','Experience Letter'); }
+  else if (/driver/.test(t))               { docs.push('Valid Driving License (specify category)','Experience Letter'); }
+  else if (/operator/.test(t))             { docs.push('Equipment Operating Certificate','Experience Letter'); }
+
+  // Technicians
+  else if (/technician/.test(t))           { docs.push('Trade / Technical Certificate','Experience Certificates'); }
+
+  // Healthcare
+  else if (/nurse/.test(t))                { docs.push('Nursing Degree / Diploma','DHA / HAAD / MOH Eligibility Letter','Valid Nursing License'); }
+  else if (/doctor|physician/.test(t))     { docs.push('MBBS / MD Degree','Medical License (DHA / HAAD / MOH)'); }
+
+  // Supervisors / Foremen
+  else if (/supervisor|foreman/.test(t))   { docs.push('Trade Certificate (relevant)','Experience Letters (supervisory level)'); }
+
+  // Default trades
+  else { docs.push('Trade Certificate','Experience Letter'); }
+
+  // Merge requirement-specific certs from JD (none already in list)
+  if (reqCerts) {
+    reqCerts.split(',').forEach(function(c) {
+      var cert = c.trim();
+      if (cert && docs.indexOf(cert) < 0) docs.push(cert);
+    });
+  }
+
+  return docs;
 }
 
 // ── _DocRequestQueue CRUD ────────────────────────────────────────────
@@ -4810,6 +4895,10 @@ function createDocRequest_(body) {
   var qSheet    = ensureDocQueueSheet_(ss);
   if (!candSheet) return { ok:false, error:'Candidates sheet not found' };
 
+  // Pull requirement-specific certs if reqId provided (Correction 4)
+  var reqInfo = getReqCerts_(ss, reqId);
+  var reqCerts = reqInfo.certs; // e.g. "CSWIP 3.1, NEBOSH"
+
   var data = candSheet.getDataRange().getValues();
   var lookup = {};
   for (var i = 1; i < data.length; i++) {
@@ -4823,6 +4912,14 @@ function createDocRequest_(body) {
   var noChannel  = 0;
   var errors     = [];
 
+  // Activity: batch-level DOC_REQUEST_CREATED (Correction 3)
+  logActivity_(ss, { kaiNo:'BATCH', rowIndex:0,
+    action: 'DOC_REQUEST_CREATED',
+    detail: 'Batch: ' + kaiNos.length + ' candidates | Channel: ' + channel +
+            (reqId ? ' | Req: ' + reqId : ''),
+    actor:  actor
+  });
+
   kaiNos.forEach(function(kaiNo) {
     kaiNo = String(kaiNo).trim();
     var i = lookup[kaiNo];
@@ -4830,6 +4927,9 @@ function createDocRequest_(body) {
 
     var trade = String(data[i][COL.trade-1]||'').trim() ||
                 String(data[i][COL.positionApplied-1]||'').trim();
+    // If requirement has a more specific trade, use it
+    if (reqInfo.trade && !trade) trade = reqInfo.trade;
+
     var rc    = inferRecruitmentClass_(trade);
     var cand  = {
       name:        String(data[i][COL.name-1]||'').trim(),
@@ -4857,24 +4957,30 @@ function createDocRequest_(body) {
     var now = new Date();
     var reqIdGen = 'DRQ-' + now.getTime() + '-' + kaiNo.replace(/[^A-Z0-9]/g,'');
 
-    var waLink = mob ? 'https://wa.me/' + mob + '?text=' +
-      encodeURIComponent(buildDocRequestMessage_(kaiNo, cand.name, trade, missing)) : '';
+    // Requirement-aware doc list (Correction 4 — CV + Passport + role-specific + req certs)
+    var roleDocs = getRoleDocRequirements_(trade, reqCerts);
+    var waMsg    = buildDocRequestMessage_(kaiNo, cand.name, trade, roleDocs, missing);
+    var waLink   = mob ? 'https://wa.me/' + mob + '?text=' + encodeURIComponent(waMsg) : '';
 
-    // ── Auto-send email (Change A — no drafts, recruiter not bottleneck) ──
+    // ── Auto-send email — full role-aware body (Correction A) ──
     var emailSent = false;
     if ((channel === 'email' || channel === 'both') && cand.email && cand.email.indexOf('@') > 0) {
       try {
-        var subject = 'Documents Required — Al Yousuf Enterprises (Ref: ' + kaiNo + ')';
+        var subject  = 'Documents Required — ' + (trade||'Application') +
+                       ' | Al Yousuf Enterprises (Ref: ' + kaiNo + ')';
         var bodyText =
           'Dear ' + (cand.name||'Candidate') + ',\n\n' +
           'Thank you for your interest in opportunities with Al Yousuf Enterprises LLP.\n\n' +
-          'Your application (Reference: ' + kaiNo + ') is under active review.\n\n' +
-          'To proceed your candidacy for ' + (trade||'this position') + ', we require:\n\n' +
-          missing.map(function(m){
-            return '    • ' + m.label + (m.priority==='HIGH' ? '  ← Required' : '');
-          }).join('\n') +
+          'Your application (Reference: ' + kaiNo + ') for the ' + (trade||'position') +
+          ' role is under active review.\n\n' +
+          'Please send us the following documents to proceed:\n\n' +
+          roleDocs.map(function(d, idx){ return (idx+1) + '. ' + d; }).join('\n') +
+          (missing.filter(function(m){ return m.priority !== 'LOW'; }).length ?
+            '\n\nAdditional information required:\n' +
+            missing.filter(function(m){ return m.priority !== 'LOW'; })
+                   .map(function(m){ return '  • ' + m.label; }).join('\n') : '') +
           (note ? '\n\n' + note : '') + '\n\n' +
-          'Please reply to this email with the details at your earliest convenience.\n\n' +
+          'Please reply to this email with the above documents at your earliest convenience.\n\n' +
           'Best regards,\n' +
           'Recruitment Team\n' +
           'Al Yousuf Enterprises LLP\n' +
@@ -4888,9 +4994,8 @@ function createDocRequest_(body) {
       }
     }
 
-    // ── WA queue entry (Change B — queue architecture, not sequential manual) ──
-    var waStatus = 'PENDING';
-    if (channel === 'email') waStatus = 'N/A'; // email only request
+    // ── WA queue entry (queue architecture, swap in Meta API with zero redesign) ──
+    var waStatus = channel === 'email' ? 'N/A' : 'PENDING';
 
     var qRow = [
       reqIdGen,                                             // RequestID
@@ -4911,16 +5016,17 @@ function createDocRequest_(body) {
       waLink                                               // WaLink
     ];
     qSheet.appendRow(qRow);
-    if (!emailSent) queued++;
+    if (!emailSent && waStatus !== 'N/A') queued++;
 
-    // Update lastContact in Candidates sheet
+    // Update lastContact
     candSheet.getRange(i+1, COL.lastContact).setValue(now);
 
-    // Activity timeline logging (Change F)
+    // Activity timeline — per-candidate events (Correction 3)
     logActivity_(ss, { kaiNo:kaiNo, rowIndex:i,
       action: emailSent ? 'DOC_EMAIL_SENT' : 'DOC_WA_QUEUED',
-      detail: 'Priority:' + topPriority + ' | Missing: ' +
-              missing.map(function(m){return m.label;}).join(', '),
+      detail: 'Priority:' + topPriority + ' | Docs: ' +
+              roleDocs.slice(0,3).join(', ') +
+              (reqId ? ' | Req:' + reqId : ''),
       actor:  actor
     });
   });
@@ -5024,9 +5130,14 @@ function updateDocRequestStatus_(body) {
     if (newStatus === 'COMPLETED') qSheet.getRange(r, col.CompletedAt+1).setValue(now);
 
     var kaiNo = String(data[i][col.KaiNo]||'').trim();
+    // Map status to semantic activity action (Correction 3)
+    var actAction = newStatus === 'SENT'      ? 'DOC_WA_SENT' :
+                    newStatus === 'REPLIED'   ? 'DOC_RESPONSE_RECEIVED' :
+                    newStatus === 'COMPLETED' ? 'DOC_COMPLETED' :
+                    'DOC_REQUEST_' + newStatus;
     logActivity_(ss, { kaiNo:kaiNo, rowIndex:0,
-      action: 'DOC_REQUEST_' + newStatus,
-      detail: 'RequestID: ' + requestId,
+      action: actAction,
+      detail: 'RequestID: ' + requestId + (body.note ? ' | ' + body.note : ''),
       actor:  actor
     });
 
