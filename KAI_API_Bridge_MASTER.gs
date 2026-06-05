@@ -5154,3 +5154,110 @@ function setupDocQueueSheet()    {
   ensureDocQueueSheet_(ss);
   Logger.log('_DocRequestQueue sheet ready');
 }
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 26 — REQUIREMENTS CORRECTION UTILITY
+// ════════════════════════════════════════════════════════════════════
+// Run auditBrokenRequirements() to see all broken requirements.
+// Fill in the corrections table it outputs.
+// Then run applyRequirementCorrections() after updating the array below.
+// ════════════════════════════════════════════════════════════════════
+
+// Step 1: Run this to find all requirements with bad trade values
+function auditBrokenRequirements() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet) { Logger.log('ERROR: _Requirements sheet not found'); return; }
+
+  var data    = sheet.getDataRange().getValues();
+  var broken  = [];
+  var BAD_RE  = /\.(pdf|docx?|xlsx?|jpg|png|jpe?g)\s*$/i;
+
+  for (var i = 1; i < data.length; i++) {
+    var reqId  = String(data[i][0]||'').trim();
+    var client = String(data[i][2]||'').trim();
+    var trade  = String(data[i][4]||'').trim();
+    var qty    = parseInt(data[i][5])||1;
+    var status = String(data[i][11]||'').trim();
+    if (!reqId) continue;
+    if (BAD_RE.test(trade) || trade.toLowerCase().indexOf('.pdf') >= 0) {
+      broken.push({
+        row:         i + 1,
+        reqId:       reqId,
+        client:      client,
+        currentTrade:trade,
+        qty:         qty,
+        status:      status,
+        correctTrade: '← FILL IN',
+        recruitmentClass: '← FILL IN'
+      });
+    }
+  }
+
+  Logger.log('=== BROKEN REQUIREMENTS AUDIT ===');
+  Logger.log('Found ' + broken.length + ' broken requirement(s):\n');
+  broken.forEach(function(r) {
+    Logger.log(
+      'Row ' + r.row + ' | ' + r.reqId + ' | Client: ' + r.client +
+      '\n  Current Trade: "' + r.currentTrade + '"' +
+      '\n  Correct Trade: ' + r.correctTrade +
+      '\n  Recruitment Class: ' + r.recruitmentClass +
+      '\n'
+    );
+  });
+
+  if (!broken.length) Logger.log('✓ No broken requirements found.');
+  return broken;
+}
+
+// Step 2: Fill in CORRECTIONS array below, then run this function
+// Format: { reqId:'REQ-xxx', correctTrade:'Welder', recruitmentClass:'SKILLED_TRADESMAN' }
+// Recruitment classes: UNSKILLED_WORKER | SEMI_SKILLED_WORKER | SKILLED_TRADESMAN
+//                      MEP_TRADES | TECHNICIAN | ENGINEER | PROFESSIONAL_MANAGEMENT
+var REQUIREMENT_CORRECTIONS_ = [
+  // PASTE OUTPUT FROM auditBrokenRequirements() HERE AFTER FILLING IN VALUES
+  // Example:
+  // { reqId:'REQ-20260517-0001', correctTrade:'General Helper',      recruitmentClass:'UNSKILLED_WORKER' },
+  // { reqId:'REQ-20260517-0002', correctTrade:'TIG Welder',          recruitmentClass:'SKILLED_TRADESMAN' },
+  // { reqId:'REQ-20260517-0003', correctTrade:'Mechanical Engineer',  recruitmentClass:'ENGINEER' },
+];
+
+function applyRequirementCorrections() {
+  if (!REQUIREMENT_CORRECTIONS_.length) {
+    Logger.log('REQUIREMENT_CORRECTIONS_ is empty. Fill in the array first.');
+    return;
+  }
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet) { Logger.log('ERROR: _Requirements sheet not found'); return; }
+
+  var data    = sheet.getDataRange().getValues();
+  var applied = 0;
+  var missed  = [];
+
+  // Build index
+  var idx = {};
+  for (var i = 1; i < data.length; i++) {
+    var k = String(data[i][0]||'').trim();
+    if (k) idx[k] = i + 1; // 1-based row
+  }
+
+  REQUIREMENT_CORRECTIONS_.forEach(function(c) {
+    var r = idx[c.reqId];
+    if (!r) { missed.push(c.reqId); return; }
+    sheet.getRange(r, 5).setValue(c.correctTrade);          // Col E = Trade
+    logActivity_(ss, { kaiNo:'SYSTEM', rowIndex:0,
+      action: 'REQ_TRADE_CORRECTED',
+      detail: c.reqId + ': "' + c.correctTrade + '" (' + c.recruitmentClass + ')',
+      actor: 'admin'
+    });
+    applied++;
+  });
+
+  Logger.log('=== CORRECTIONS APPLIED ===');
+  Logger.log('Applied: ' + applied);
+  if (missed.length) Logger.log('Not found: ' + missed.join(', '));
+  Logger.log('');
+  Logger.log('Next: run reEvaluateCandidates() to re-score against fixed requirements.');
+}
