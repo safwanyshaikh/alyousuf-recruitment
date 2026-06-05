@@ -1776,6 +1776,36 @@ var CV_PARSE_PROMPT =
   '- recruiterAction: specific next action for the recruiter\n' +
   '- missingFields: comma-separated list of fields not found in the CV\n';
 
+// Extracts plain text from a Word .docx file (base64 encoded).
+// .docx is a ZIP containing word/document.xml — GAS can unzip it natively.
+// Falls back to empty string if the file is not a valid docx ZIP.
+function extractTextFromDocx_(fileB64) {
+  try {
+    var bytes  = Utilities.base64Decode(fileB64);
+    var blob   = Utilities.newBlob(bytes, 'application/zip', 'cv.docx');
+    var files  = Utilities.unzip(blob);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].getName() === 'word/document.xml') {
+        var xml = files[i].getDataAsString('UTF-8');
+        // Preserve paragraph breaks, strip all XML tags
+        var text = xml
+          .replace(/<w:br[^>]*\/>/gi, '\n')
+          .replace(/<\/w:p>/gi,        '\n')
+          .replace(/<[^>]+>/g,         ' ')
+          .replace(/[ \t]+/g,          ' ')
+          .replace(/\n[ \t]+/g,        '\n')
+          .replace(/\n{3,}/g,          '\n\n')
+          .trim();
+        return text.slice(0, 8000); // Gemini prompt safe limit
+      }
+    }
+    return '';
+  } catch(e) {
+    Logger.log('extractTextFromDocx_ error: ' + e.message);
+    return '';
+  }
+}
+
 function parseCV_(fileB64, mimeType, senderName, senderEmail) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) return null;
@@ -1783,17 +1813,26 @@ function parseCV_(fileB64, mimeType, senderName, senderEmail) {
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
             'gemini-2.5-flash-lite:generateContent?key=' + apiKey;
 
-  // Build parts: attach file first, then prompt
+  // Build parts — PDF and images use inline_data; Word docs extract text first
   var parts = [];
   var approxBytes = fileB64.length * 0.75;
-  var supported   = (mimeType === 'application/pdf' ||
-                     mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-                     mimeType === 'application/msword' ||
-                     mimeType.indexOf('image/') === 0);
 
-  if (supported && approxBytes < 15 * 1024 * 1024) {
+  var isWord = (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                mimeType === 'application/msword');
+  var isPdf  = (mimeType === 'application/pdf');
+  var isImg  = mimeType.indexOf('image/') === 0;
+
+  if (isWord) {
+    // Gemini does not support Word via inline_data — extract text from XML
+    var docText = extractTextFromDocx_(fileB64);
+    if (docText && docText.length > 50) {
+      parts.push({ text: 'CV TEXT (extracted from Word document):\n' + docText + '\n\n' });
+    }
+    // Fall through — prompt added below even if extraction failed
+  } else if ((isPdf || isImg) && approxBytes < 15 * 1024 * 1024) {
     parts.push({ inline_data: { mime_type: mimeType, data: fileB64 } });
   }
+
   parts.push({ text: CV_PARSE_PROMPT });
 
   var payload = {
@@ -3738,15 +3777,17 @@ function parseJDFile_(body) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) return { ok:false, error:'GEMINI_API_KEY not set' };
 
-  var supported = (mimeType === 'application/pdf' ||
-                   mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-                   mimeType === 'application/msword' ||
-                   mimeType.indexOf('image/') === 0);
-
+  var isWord      = (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                     mimeType === 'application/msword');
   var approxBytes = fileB64.length * 0.75;
-  var parts = [];
+  var parts       = [];
 
-  if (supported && approxBytes < 15 * 1024 * 1024) {
+  if (isWord) {
+    var docText = extractTextFromDocx_(fileB64);
+    if (docText && docText.length > 20) {
+      parts.push({ text: 'JD TEXT (extracted from Word document):\n' + docText + '\n\n' });
+    }
+  } else if (approxBytes < 15 * 1024 * 1024) {
     parts.push({ inline_data: { mime_type: mimeType, data: fileB64 } });
   }
 
