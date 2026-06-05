@@ -106,6 +106,8 @@ function doGet(e) {
     else if (action === 'enrichTop3')          out = JSON.stringify(enrichTop3Positions_(params));
     else if (action === 'mobilizationStatus')  out = JSON.stringify(getMobilizationStatus_(params));
     else if (action === 'bulkDocStatus')       out = JSON.stringify(getBulkDocStatus_(params));
+    else if (action === 'docRequestQueue')     out = JSON.stringify(getDocRequestQueue_(params));
+    else if (action === 'complianceRisk')      out = JSON.stringify(getComplianceRisk_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -148,7 +150,8 @@ function doPost(e) {
     else if (action === 'whatsappIntake')          out = JSON.stringify(whatsappIntake_(body));
     else if (action === 'parseJDFile')            out = JSON.stringify(parseJDFile_(body));
     else if (action === 'sendMissingInfoDraft')    out = JSON.stringify(sendMissingInfoDraft_(body));
-    else if (action === 'createDocEmailDrafts')   out = JSON.stringify(createDocEmailDrafts_(body));
+    else if (action === 'createDocRequest')       out = JSON.stringify(createDocRequest_(body));
+    else if (action === 'updateDocRequestStatus') out = JSON.stringify(updateDocRequestStatus_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -4412,57 +4415,71 @@ function enrichTop3Positions()     { Logger.log(JSON.stringify(enrichTop3Positio
 function enrichTop3PositionsDry()  { Logger.log(JSON.stringify(enrichTop3Positions_({ limit:'10', dryRun:'true' }))); }
 
 // ════════════════════════════════════════════════════════════════════
-// SECTION 24 — MOBILIZATION READINESS + BULK DOCUMENT REQUEST
+// SECTION 24 — MOBILIZATION READINESS (GCC Pipeline Model)
 // ════════════════════════════════════════════════════════════════════
 //
 // GET  ?action=mobilizationStatus&kaiNo=KAI-001&token=T
-//      → { stages[7], currentStage, currentLabel, blockers[], missing[] }
-//
+//      → { stages[7], currentStage, currentLabel, blockers[], missing[], complianceRisk }
 // GET  ?action=bulkDocStatus&kaiNos=KAI-001,KAI-002&token=T
-//      → { candidates[{kaiNo,name,mobile,email,missing[],waLink,message}], needsDocs }
+//      → { candidates[{kaiNo,name,mobile,email,missing[{field,label,priority}],waLink}] }
 //   OR ?action=bulkDocStatus&filter=hasMissing&limit=100&token=T
-//      → all candidates with missing fields
-//
-// POST action=createDocEmailDrafts body:{kaiNos:[],note:''}
-//      → creates one Gmail draft per candidate who has email; returns { drafted, noEmail }
+// GET  ?action=complianceRisk&kaiNo=KAI-001&token=T
+//      → { risk:'LOW'|'MEDIUM'|'HIGH', flags:[], score }
 // ════════════════════════════════════════════════════════════════════
 
-// 7-stage mobilization pipeline — "package delivery" model
+// GCC 7-stage mobilization pipeline (Change C — GCC-specific)
 var MOBIL_STAGES_ = [
-  { id:1, label:'Registered',      desc:'Profile created in KAI OS' },
-  { id:2, label:'CV Profiled',     desc:'Trade verified, CV scored' },
-  { id:3, label:'Docs Ready',      desc:'All key info collected' },
-  { id:4, label:'Shortlisted',     desc:'Added to a live requirement' },
-  { id:5, label:'Client Sent',     desc:'Submitted to client for review' },
-  { id:6, label:'Offer / Visa',    desc:'Selected or offer issued' },
-  { id:7, label:'Deployed',        desc:'Candidate on-site, deployed' }
+  { id:1, label:'Registered',       desc:'Profile created in KAI OS' },
+  { id:2, label:'Profile Complete', desc:'Trade, education, experience confirmed' },
+  { id:3, label:'Shortlisted',      desc:'Added to a live requirement' },
+  { id:4, label:'Submitted',        desc:'Sent to client for review' },
+  { id:5, label:'Selected',         desc:'Client confirmed selection' },
+  { id:6, label:'Mobilization',     desc:'Passport · Medical · Visa · Ticket · Joining' },
+  { id:7, label:'Deployed',         desc:'On-site, confirmed joining' }
 ];
 
 function computeMobilizationIndex_(row) {
-  var stage   = String(row[COL.stage-1]||'').trim();
-  var score   = parseFloat(row[COL.score-1])||0;
-  var trade   = String(row[COL.trade-1]||'').trim();
-  var pos     = String(row[COL.positionApplied-1]||'').trim();
-  var mf      = String(row[COL.missingFields-1]||'').trim();
+  var stage  = String(row[COL.stage-1]||'').trim();
+  var score  = parseFloat(row[COL.score-1])||0;
+  var trade  = String(row[COL.trade-1]||'').trim();
+  var pos    = String(row[COL.positionApplied-1]||'').trim();
+  var mf     = String(row[COL.missingFields-1]||'').trim();
 
-  var hasTrade   = !!(trade || pos);
-  var docsReady  = !mf; // missingFields column is blank
-
-  var idx = 1; // REGISTERED
-  if (score > 0 && hasTrade) idx = 2; // CV PROFILED
-  if (idx >= 2 && docsReady) idx = 3; // DOCS READY
+  // Stage 2 = Profile Complete: scored + has trade + no missing fields
+  var idx = 1;
+  if (score > 0 && (trade || pos) && !mf) idx = 2;
+  else if (score > 0 && (trade || pos))   idx = 2; // profiled even if some minor fields missing
 
   var SHORTLIST  = ['Shortlisted','Client Sent','Client Selected','Offer Issued','Visa Processing','Deployed'];
   var SUBMITTED  = ['Client Sent','Client Selected','Offer Issued','Visa Processing','Deployed'];
   var SELECTED   = ['Client Selected','Offer Issued','Visa Processing','Deployed'];
+  var MOBILIZING = ['Visa Processing','Deployed'];
   var DEPLOYED   = ['Deployed'];
 
-  if (SHORTLIST.indexOf(stage) >= 0) idx = Math.max(idx, 4);
-  if (SUBMITTED.indexOf(stage) >= 0) idx = Math.max(idx, 5);
-  if (SELECTED.indexOf(stage)  >= 0) idx = Math.max(idx, 6);
+  if (SHORTLIST.indexOf(stage) >= 0) idx = Math.max(idx, 3);
+  if (SUBMITTED.indexOf(stage) >= 0) idx = Math.max(idx, 4);
+  if (SELECTED.indexOf(stage)  >= 0) idx = Math.max(idx, 5);
+  if (MOBILIZING.indexOf(stage)>= 0) idx = Math.max(idx, 6);
   if (DEPLOYED.indexOf(stage)  >= 0) idx = 7;
 
   return idx;
+}
+
+// Compliance risk from deployScore (T14) or flags (Change E)
+function computeComplianceRisk_(row) {
+  var deployScore = parseInt(row[COL.deployScore-1])||0;
+  var flags       = String(row[COL.flags-1]||'').toUpperCase();
+
+  if (deployScore > 0) {
+    if (deployScore >= 75) return 'LOW';
+    if (deployScore >= 50) return 'MEDIUM';
+    return 'HIGH';
+  }
+  // Fallback: derive from flags column
+  if (flags.indexOf('PASSPORT_EXPIRED') >= 0 || flags.indexOf('MEDICAL_UNFIT') >= 0) return 'HIGH';
+  if (flags.indexOf('PASSPORT_NEAR') >= 0 || flags.indexOf('MISSING_PASSPORT') >= 0 ||
+      flags.indexOf('ECR') >= 0)            return 'MEDIUM';
+  return 'LOW';
 }
 
 function getMobilizationStatus_(params) {
@@ -4480,6 +4497,22 @@ function getMobilizationStatus_(params) {
     var idx  = computeMobilizationIndex_(data[i]);
     var mf   = String(data[i][COL.missingFields-1]||'').trim();
     var missing = mf ? mf.split(',').filter(Boolean) : [];
+    var trade   = String(data[i][COL.trade-1]||'').trim() ||
+                  String(data[i][COL.positionApplied-1]||'').trim();
+    var rc      = inferRecruitmentClass_(trade);
+    var complianceRisk = computeComplianceRisk_(data[i]);
+
+    // Prioritize missing fields (Change D)
+    var missingWithPriority = missing.map(function(field) {
+      return {
+        field:    field,
+        label:    FIELD_LABELS_[field] || field,
+        priority: computeDocPriority_(field, rc)
+      };
+    }).sort(function(a,b){
+      var P = { HIGH:0, MEDIUM:1, LOW:2 };
+      return P[a.priority] - P[b.priority];
+    });
 
     var stages = MOBIL_STAGES_.map(function(s) {
       return {
@@ -4491,41 +4524,79 @@ function getMobilizationStatus_(params) {
       };
     });
 
-    // What's blocking the next stage
+    // Blockers — specific to current stage
     var blockers = [];
-    if (idx === 1) blockers.push('CV not yet scored or trade not identified');
-    if (idx === 2 && missing.length) blockers.push('Missing: ' + missing.join(', '));
-    if (idx === 3) blockers.push('Not yet added to a live requirement');
+    if (idx <= 1) {
+      if (!trade) blockers.push('Trade / position not identified');
+      else        blockers.push('CV not yet scored');
+    }
+    if (idx === 2) {
+      var highMissing = missingWithPriority.filter(function(m){ return m.priority === 'HIGH'; });
+      if (highMissing.length) blockers.push('High-priority missing: ' + highMissing.map(function(m){return m.label;}).join(', '));
+      else blockers.push('Not yet added to a live requirement');
+    }
+    if (idx === 3) blockers.push('Not yet submitted to client');
+    if (idx === 4) blockers.push('Awaiting client decision');
+    if (idx === 5) blockers.push('Mobilization documents pending');
 
     return {
-      ok:           true,
-      kaiNo:        kaiNo,
-      currentStage: idx,
-      currentLabel: MOBIL_STAGES_[idx-1].label,
-      stages:       stages,
-      blockers:     blockers,
-      missing:      missing,
+      ok:             true,
+      kaiNo:          kaiNo,
+      currentStage:   idx,
+      currentLabel:   MOBIL_STAGES_[idx-1].label,
+      stages:         stages,
+      blockers:       blockers,
+      missing:        missingWithPriority,
+      complianceRisk: complianceRisk,
       percentComplete: Math.round((idx / 7) * 100)
     };
   }
   return { ok:false, error:'Candidate not found: ' + kaiNo };
 }
 
-// Build WA message + link for one candidate row
-function buildDocRequestMessage_(kaiNo, cand, missing) {
-  var firstName = (cand.name||'Candidate').split(' ')[0];
+// GET ?action=complianceRisk&kaiNo=KAI-001&token=T (Change E)
+function getComplianceRisk_(params) {
+  var kaiNo = String(params.kaiNo||'').trim();
+  if (!kaiNo) return { ok:false, error:'kaiNo required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL.kaiNo-1]).trim() !== kaiNo) continue;
+    var risk  = computeComplianceRisk_(data[i]);
+    var score = parseInt(data[i][COL.deployScore-1])||0;
+    var flags = String(data[i][COL.flags-1]||'').split(',').map(function(f){ return f.trim(); }).filter(Boolean);
+    return { ok:true, kaiNo:kaiNo, risk:risk, deployScore:score, flags:flags };
+  }
+  return { ok:false, error:'Candidate not found: ' + kaiNo };
+}
+
+// Build role-specific doc request message (Change H — JD-driven)
+function buildDocRequestMessage_(kaiNo, name, trade, missingWithPriority) {
+  var firstName = (name||'Candidate').split(' ')[0];
+  var roleDoc   = getRoleDocRequirements_(trade);
   var lines = [
     'Hi ' + firstName + ',',
     '',
     'Al Yousuf Enterprises LLP — Recruitment Team.',
     'Your application (Ref: ' + kaiNo + ') is progressing.',
     '',
-    'To move your candidacy forward, please share:',
+    'To proceed with your ' + (trade||'position') + ' application, please share:',
     ''
   ];
-  missing.forEach(function(m) { lines.push('  • ' + m.label); });
+  missingWithPriority
+    .filter(function(m){ return m.priority === 'HIGH' || m.priority === 'MEDIUM'; })
+    .forEach(function(m){ lines.push('  • ' + m.label + (m.priority === 'HIGH' ? ' (required)' : '')); });
+  if (roleDoc.length) {
+    lines.push('');
+    lines.push('Also required for this role:');
+    roleDoc.forEach(function(d){ lines.push('  • ' + d); });
+  }
   lines.push('');
-  lines.push('Please reply with these details at your earliest convenience.');
+  lines.push('Please reply at your earliest convenience.');
   lines.push('');
   lines.push('Thank you,');
   lines.push('Al Yousuf Enterprises LLP');
@@ -4539,11 +4610,11 @@ function getBulkDocStatus_(params) {
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet) return { ok:false, error:'Candidates sheet not found' };
 
-  var data          = sheet.getDataRange().getValues();
-  var kaiNosRaw     = String(params.kaiNos||'').trim();
-  var filter        = String(params.filter||'').trim().toLowerCase();
-  var limit         = parseInt(params.limit||'200') || 200;
-  var targetSet     = kaiNosRaw
+  var data      = sheet.getDataRange().getValues();
+  var kaiNosRaw = String(params.kaiNos||'').trim();
+  var filter    = String(params.filter||'').trim().toLowerCase();
+  var limit     = parseInt(params.limit||'200') || 200;
+  var targetSet = kaiNosRaw
     ? kaiNosRaw.split(',').reduce(function(m,k){ m[k.trim()]=1; return m; }, {})
     : null;
 
@@ -4556,40 +4627,52 @@ function getBulkDocStatus_(params) {
     var mf = String(data[i][COL.missingFields-1]||'').trim();
     if (filter === 'hasmissing' && !mf) continue;
 
+    var trade = String(data[i][COL.trade-1]||'').trim() ||
+                String(data[i][COL.positionApplied-1]||'').trim();
+    var rc    = inferRecruitmentClass_(trade);
+
     var cand = {
       name:            String(data[i][COL.name-1]||'').trim(),
       mobile:          String(data[i][COL.mobile-1]||'').trim(),
       email:           String(data[i][COL.email-1]||'').trim(),
-      trade:           String(data[i][COL.trade-1]||'').trim(),
-      positionApplied: String(data[i][COL.positionApplied-1]||'').trim(),
+      trade:           trade,
       nationality:     String(data[i][COL.nationality-1]||'').trim(),
       gulfExp:         String(data[i][COL.gulfExp-1]||'').trim(),
       education:       String(data[i][COL.education-1]||'').trim(),
       dob:             String(data[i][COL.dob-1]||'').trim(),
       age:             parseInt(data[i][COL.age-1])||0,
-      passportNo:      extractPassportNo_(data[i][COL.kaiAssessment-1], data[i][COL.notes-1])
+      passportNo:      extractPassportNo_(data[i][COL.kaiAssessment-1], data[i][COL.notes-1]),
+      positionApplied: String(data[i][COL.positionApplied-1]||'').trim()
     };
 
-    var missing = computeMissingFields_(cand);
+    var missingRaw = computeMissingFields_(cand);
+    var missing    = missingRaw.map(function(m) {
+      return { field: m.field, label: m.label, priority: computeDocPriority_(m.field, rc) };
+    }).sort(function(a,b){ var P={HIGH:0,MEDIUM:1,LOW:2}; return P[a.priority]-P[b.priority]; });
+
     var mob     = normalizeMobile_(cand.mobile);
-    var waLink  = '';
     var message = '';
+    var waLink  = '';
     if (mob && missing.length) {
-      message = buildDocRequestMessage_(rowKaiNo, cand, missing);
+      message = buildDocRequestMessage_(rowKaiNo, cand.name, trade, missing);
       waLink  = 'https://wa.me/' + mob + '?text=' + encodeURIComponent(message);
     }
 
     results.push({
-      kaiNo:      rowKaiNo,
-      name:       cand.name,
-      mobile:     cand.mobile,
-      email:      cand.email,
-      missing:    missing,
-      waLink:     waLink,
-      message:    message,
-      hasMobile:  !!mob,
-      hasEmail:   !!(cand.email && cand.email.indexOf('@') > 0),
-      allComplete: missing.length === 0,
+      kaiNo:             rowKaiNo,
+      name:              cand.name,
+      mobile:            cand.mobile,
+      email:             cand.email,
+      trade:             trade,
+      recruitmentClass:  rc,
+      missing:           missing,
+      topPriority:       missing.length ? missing[0].priority : 'NONE',
+      waLink:            waLink,
+      message:           message,
+      hasMobile:         !!mob,
+      hasEmail:          !!(cand.email && cand.email.indexOf('@') > 0),
+      allComplete:       missing.length === 0,
+      complianceRisk:    computeComplianceRisk_(data[i]),
       mobilizationIndex: computeMobilizationIndex_(data[i])
     });
   }
@@ -4598,102 +4681,365 @@ function getBulkDocStatus_(params) {
     ok:        true,
     total:     results.length,
     needsDocs: results.filter(function(r){ return r.missing.length > 0; }).length,
+    highPriority: results.filter(function(r){ return r.topPriority === 'HIGH'; }).length,
     candidates: results
-  };
-}
-
-// POST action=createDocEmailDrafts
-// body: { kaiNos: ['KAI-001','KAI-002',...], note: '' }
-// Creates one Gmail draft per candidate who has an email address + missing fields
-function createDocEmailDrafts_(body) {
-  var kaiNos  = body.kaiNos  || [];
-  var noteExtra = String(body.note||'').trim();
-
-  if (!kaiNos.length) return { ok:false, error:'kaiNos array required' };
-
-  var ss    = SpreadsheetApp.openById(SS_ID);
-  var sheet = ss.getSheetByName('Candidates');
-  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
-
-  var data = sheet.getDataRange().getValues();
-
-  // Build index for fast kaiNo lookup
-  var idx = {};
-  for (var i = 1; i < data.length; i++) {
-    var k = String(data[i][COL.kaiNo-1]||'').trim();
-    if (k) idx[k] = i;
-  }
-
-  var drafted  = 0;
-  var noEmail  = 0;
-  var complete = 0;
-  var errors   = [];
-
-  kaiNos.forEach(function(kaiNo) {
-    kaiNo = String(kaiNo).trim();
-    var i = idx[kaiNo];
-    if (i === undefined) { errors.push({ kaiNo:kaiNo, error:'Not found' }); return; }
-
-    var cand = {
-      name:            String(data[i][COL.name-1]||'').trim(),
-      mobile:          String(data[i][COL.mobile-1]||'').trim(),
-      email:           String(data[i][COL.email-1]||'').trim(),
-      trade:           String(data[i][COL.trade-1]||'').trim(),
-      positionApplied: String(data[i][COL.positionApplied-1]||'').trim(),
-      nationality:     String(data[i][COL.nationality-1]||'').trim(),
-      gulfExp:         String(data[i][COL.gulfExp-1]||'').trim(),
-      education:       String(data[i][COL.education-1]||'').trim(),
-      dob:             String(data[i][COL.dob-1]||'').trim(),
-      age:             parseInt(data[i][COL.age-1])||0,
-      passportNo:      extractPassportNo_(data[i][COL.kaiAssessment-1], data[i][COL.notes-1])
-    };
-
-    var missing = computeMissingFields_(cand);
-    if (!missing.length) { complete++; return; }
-
-    var email = cand.email;
-    if (!email || email.indexOf('@') < 0) { noEmail++; return; }
-
-    try {
-      var subject = 'Documents Required — Al Yousuf Enterprises (Ref: ' + kaiNo + ')';
-      var bodyText =
-        'Dear ' + (cand.name || 'Candidate') + ',\n\n' +
-        'Thank you for your interest in opportunities with Al Yousuf Enterprises LLP.\n\n' +
-        'Your application (Reference: ' + kaiNo + ') is currently under review. ' +
-        'To proceed with your candidacy, we require the following information/documents:\n\n' +
-        missing.map(function(m){ return '    • ' + m.label; }).join('\n') + '\n\n' +
-        (noteExtra ? noteExtra + '\n\n' : '') +
-        'Please reply to this email with the requested details at your earliest convenience.\n\n' +
-        'Best regards,\n' +
-        'Recruitment Team\n' +
-        'Al Yousuf Enterprises LLP\n' +
-        'Email: ai@alyousufent.com';
-
-      GmailApp.createDraft(email, subject, bodyText);
-      drafted++;
-      sheet.getRange(i+1, COL.lastContact).setValue(new Date());
-      logActivity_(ss, { kaiNo:kaiNo, rowIndex:i, action:'EMAIL_DRAFT_CREATED',
-        detail:'Missing: ' + missing.map(function(m){return m.label;}).join(', '),
-        actor: body.actor||'recruiter' });
-    } catch(e) {
-      errors.push({ kaiNo:kaiNo, error:e.message });
-    }
-  });
-
-  return {
-    ok:       true,
-    drafted:  drafted,
-    noEmail:  noEmail,
-    complete: complete,
-    errors:   errors.length,
-    total:    kaiNos.length,
-    summary:  drafted + ' email drafts created in Gmail. ' +
-              'Open Gmail (ai@alyousufent.com) to review and send. ' +
-              noEmail + ' had no email address. ' +
-              complete + ' already had complete profiles.'
   };
 }
 
 // Public test wrappers
 function testMobilizationStatus()  { Logger.log(JSON.stringify(getMobilizationStatus_({ kaiNo:'' }))); }
 function testBulkDocStatusDry()    { Logger.log(JSON.stringify(getBulkDocStatus_({ filter:'hasMissing', limit:'5' }))); }
+function testComplianceRisk()      { Logger.log(JSON.stringify(getComplianceRisk_({ kaiNo:'' }))); }
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 25 — DOCUMENT INTELLIGENCE ENGINE
+// ════════════════════════════════════════════════════════════════════
+//
+// Changes A (auto-send email), B (WA queue architecture), D (priority
+// intelligence), F (activity timeline), H (JD-driven doc requests)
+//
+// POST action=createDocRequest
+//   body: { kaiNos:[], channel:'email'|'whatsapp'|'both', reqId:'', note:'', source:'candidate' }
+//   → auto-sends email, creates WA queue entries, logs activity
+//
+// POST action=updateDocRequestStatus
+//   body: { requestId:'DRQ-xxx', status:'SENT'|'REPLIED'|'COMPLETED', note:'' }
+//
+// GET  ?action=docRequestQueue&filter=PENDING|SENT|REPLIED&limit=50&token=T
+//      → { requests[{ requestId, kaiNo, name, channel, status, missing, sentAt }] }
+// ════════════════════════════════════════════════════════════════════
+
+var DOC_QUEUE_SHEET_ = '_DocRequestQueue';
+
+// _DocRequestQueue headers (16 columns)
+var DRQ_HDR_ = [
+  'RequestID','KaiNo','Name','Mobile','Email','Channel',
+  'MissingDocs','Priority','Status','RequestedAt',
+  'SentAt','RepliedAt','CompletedAt','ReqId','Source','WaLink'
+];
+
+function ensureDocQueueSheet_(ss) {
+  var s = ss.getSheetByName(DOC_QUEUE_SHEET_);
+  if (!s) {
+    s = ss.insertSheet(DOC_QUEUE_SHEET_);
+    s.appendRow(DRQ_HDR_);
+    s.setFrozenRows(1);
+    s.getRange(1,1,1,DRQ_HDR_.length)
+     .setBackground('#1a1a2e').setFontColor('#ffffff').setFontWeight('bold');
+  }
+  return s;
+}
+
+// ── Priority intelligence (Change D) ─────────────────────────────────
+// Core qualification docs per recruitment class: missing these = HIGH
+var CORE_DOCS_BY_CLASS_ = {
+  UNSKILLED_WORKER:        [],
+  SEMI_SKILLED_WORKER:     ['trade'],
+  SKILLED_TRADESMAN:       ['trade'],
+  MEP_TRADES:              ['trade'],
+  TECHNICIAN:              ['trade','education'],
+  ENGINEER:                ['education'],
+  PROFESSIONAL_MANAGEMENT: ['education']
+};
+
+var FIELD_LABELS_ = {
+  mobile:      'Mobile Number',
+  passport:    'Passport Number',
+  dob:         'Date of Birth',
+  trade:       'Trade / Position',
+  nationality: 'Nationality',
+  gulfExp:     'Gulf Experience',
+  education:   'Highest Education'
+};
+
+function computeDocPriority_(field, recruitmentClass) {
+  var core = CORE_DOCS_BY_CLASS_[recruitmentClass] || [];
+  if (field === 'mobile')  return 'HIGH';   // can't reach candidate
+  if (field === 'trade')   return 'HIGH';   // core role identity
+  if (core.indexOf(field) >= 0) return 'HIGH';
+  if (field === 'passport')    return 'MEDIUM';
+  if (field === 'dob')         return 'MEDIUM';
+  if (field === 'nationality') return 'MEDIUM';
+  return 'LOW';
+}
+
+// Infer recruitment class from trade text (lightweight — no Gemini)
+function inferRecruitmentClass_(trade) {
+  if (!trade) return 'SKILLED_TRADESMAN';
+  var t = trade.toLowerCase();
+  if (/engineer|manager|director|architect|consultant/.test(t)) return 'ENGINEER';
+  if (/technician|inspector|supervisor|coordinator/.test(t))     return 'TECHNICIAN';
+  if (/electrician|plumber|hvac|mep|instrumentation/.test(t))    return 'MEP_TRADES';
+  if (/welder|fitter|fabricator|carpenter|rigger|scaff/.test(t)) return 'SKILLED_TRADESMAN';
+  if (/operator|driver|helper|labourer|labor/.test(t))           return 'SEMI_SKILLED_WORKER';
+  if (/cleaner|housekeeper|peon|sweeper/.test(t))                return 'UNSKILLED_WORKER';
+  return 'SKILLED_TRADESMAN';
+}
+
+// JD-driven role-specific docs beyond the generic missing fields (Change H)
+function getRoleDocRequirements_(trade) {
+  if (!trade) return [];
+  var t = trade.toLowerCase();
+  if (/engineer/.test(t))        return ['Degree Certificate','Experience Letter','Professional License'];
+  if (/technician|inspector/.test(t)) return ['Trade Certificate','Experience Letter'];
+  if (/welder/.test(t))          return ['Welder Qualification Test (WQT)','Experience Letter'];
+  if (/electrician/.test(t))     return ['Electrical Trade Certificate','Experience Letter'];
+  if (/hvac/.test(t))            return ['HVAC Certificate','Experience Letter'];
+  if (/driver/.test(t))          return ['Valid Driving License'];
+  if (/nurse|medic/.test(t))     return ['Nursing License / DHA Eligibility','Degree Certificate'];
+  return [];
+}
+
+// ── _DocRequestQueue CRUD ────────────────────────────────────────────
+
+// POST action=createDocRequest
+// body: { kaiNos:['KAI-001',...], channel:'email'|'whatsapp'|'both',
+//         reqId:'', note:'', source:'candidate', actor:'' }
+function createDocRequest_(body) {
+  var kaiNos  = body.kaiNos  || [];
+  var channel = String(body.channel||'both').toLowerCase();
+  var reqId   = String(body.reqId  ||'').trim();
+  var note    = String(body.note   ||'').trim();
+  var source  = String(body.source ||'candidate').trim();
+  var actor   = String(body.actor  ||'recruiter').trim();
+
+  if (!kaiNos.length) return { ok:false, error:'kaiNos array required' };
+
+  var ss        = SpreadsheetApp.openById(SS_ID);
+  var candSheet = ss.getSheetByName('Candidates');
+  var qSheet    = ensureDocQueueSheet_(ss);
+  if (!candSheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data = candSheet.getDataRange().getValues();
+  var lookup = {};
+  for (var i = 1; i < data.length; i++) {
+    var k = String(data[i][COL.kaiNo-1]||'').trim();
+    if (k) lookup[k] = i;
+  }
+
+  var sent       = 0;
+  var queued     = 0;
+  var complete   = 0;
+  var noChannel  = 0;
+  var errors     = [];
+
+  kaiNos.forEach(function(kaiNo) {
+    kaiNo = String(kaiNo).trim();
+    var i = lookup[kaiNo];
+    if (i === undefined) { errors.push({ kaiNo:kaiNo, error:'Not found' }); return; }
+
+    var trade = String(data[i][COL.trade-1]||'').trim() ||
+                String(data[i][COL.positionApplied-1]||'').trim();
+    var rc    = inferRecruitmentClass_(trade);
+    var cand  = {
+      name:        String(data[i][COL.name-1]||'').trim(),
+      mobile:      String(data[i][COL.mobile-1]||'').trim(),
+      email:       String(data[i][COL.email-1]||'').trim(),
+      trade:       trade,
+      nationality: String(data[i][COL.nationality-1]||'').trim(),
+      gulfExp:     String(data[i][COL.gulfExp-1]||'').trim(),
+      education:   String(data[i][COL.education-1]||'').trim(),
+      dob:         String(data[i][COL.dob-1]||'').trim(),
+      age:         parseInt(data[i][COL.age-1])||0,
+      passportNo:  extractPassportNo_(data[i][COL.kaiAssessment-1], data[i][COL.notes-1]),
+      positionApplied: String(data[i][COL.positionApplied-1]||'').trim()
+    };
+
+    var missingRaw = computeMissingFields_(cand);
+    if (!missingRaw.length) { complete++; return; }
+
+    var missing = missingRaw.map(function(m) {
+      return { field:m.field, label:m.label, priority: computeDocPriority_(m.field, rc) };
+    }).sort(function(a,b){ var P={HIGH:0,MEDIUM:1,LOW:2}; return P[a.priority]-P[b.priority]; });
+
+    var topPriority = missing[0].priority;
+    var mob = normalizeMobile_(cand.mobile);
+    var now = new Date();
+    var reqIdGen = 'DRQ-' + now.getTime() + '-' + kaiNo.replace(/[^A-Z0-9]/g,'');
+
+    var waLink = mob ? 'https://wa.me/' + mob + '?text=' +
+      encodeURIComponent(buildDocRequestMessage_(kaiNo, cand.name, trade, missing)) : '';
+
+    // ── Auto-send email (Change A — no drafts, recruiter not bottleneck) ──
+    var emailSent = false;
+    if ((channel === 'email' || channel === 'both') && cand.email && cand.email.indexOf('@') > 0) {
+      try {
+        var subject = 'Documents Required — Al Yousuf Enterprises (Ref: ' + kaiNo + ')';
+        var bodyText =
+          'Dear ' + (cand.name||'Candidate') + ',\n\n' +
+          'Thank you for your interest in opportunities with Al Yousuf Enterprises LLP.\n\n' +
+          'Your application (Reference: ' + kaiNo + ') is under active review.\n\n' +
+          'To proceed your candidacy for ' + (trade||'this position') + ', we require:\n\n' +
+          missing.map(function(m){
+            return '    • ' + m.label + (m.priority==='HIGH' ? '  ← Required' : '');
+          }).join('\n') +
+          (note ? '\n\n' + note : '') + '\n\n' +
+          'Please reply to this email with the details at your earliest convenience.\n\n' +
+          'Best regards,\n' +
+          'Recruitment Team\n' +
+          'Al Yousuf Enterprises LLP\n' +
+          'Email: ai@alyousufent.com';
+
+        GmailApp.sendEmail(cand.email, subject, bodyText);
+        emailSent = true;
+        sent++;
+      } catch(e) {
+        errors.push({ kaiNo:kaiNo, channel:'email', error:e.message });
+      }
+    }
+
+    // ── WA queue entry (Change B — queue architecture, not sequential manual) ──
+    var waStatus = 'PENDING';
+    if (channel === 'email') waStatus = 'N/A'; // email only request
+
+    var qRow = [
+      reqIdGen,                                             // RequestID
+      kaiNo,                                               // KaiNo
+      cand.name,                                           // Name
+      cand.mobile,                                         // Mobile
+      cand.email,                                          // Email
+      channel,                                             // Channel
+      missing.map(function(m){return m.field;}).join(','), // MissingDocs
+      topPriority,                                         // Priority
+      emailSent ? 'SENT' : waStatus,                       // Status
+      now,                                                 // RequestedAt
+      emailSent ? now : '',                                // SentAt
+      '',                                                  // RepliedAt
+      '',                                                  // CompletedAt
+      reqId,                                               // ReqId
+      source,                                              // Source
+      waLink                                               // WaLink
+    ];
+    qSheet.appendRow(qRow);
+    if (!emailSent) queued++;
+
+    // Update lastContact in Candidates sheet
+    candSheet.getRange(i+1, COL.lastContact).setValue(now);
+
+    // Activity timeline logging (Change F)
+    logActivity_(ss, { kaiNo:kaiNo, rowIndex:i,
+      action: emailSent ? 'DOC_EMAIL_SENT' : 'DOC_WA_QUEUED',
+      detail: 'Priority:' + topPriority + ' | Missing: ' +
+              missing.map(function(m){return m.label;}).join(', '),
+      actor:  actor
+    });
+  });
+
+  return {
+    ok:       true,
+    sent:     sent,
+    queued:   queued,
+    complete: complete,
+    noChannel:noChannel,
+    errors:   errors.length,
+    total:    kaiNos.length,
+    summary:  sent + ' emails sent automatically. ' +
+              queued + ' added to WhatsApp queue. ' +
+              complete + ' already had complete profiles.'
+  };
+}
+
+// GET ?action=docRequestQueue&filter=PENDING&limit=50&token=T
+function getDocRequestQueue_(params) {
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var qSheet = ensureDocQueueSheet_(ss);
+  var filter = String(params.filter||'').trim().toUpperCase();
+  var limit  = parseInt(params.limit||'100') || 100;
+  var kaiNo  = String(params.kaiNo||'').trim();
+
+  var data = qSheet.getDataRange().getValues();
+  if (data.length < 2) return { ok:true, total:0, requests:[] };
+
+  var headers = data[0];
+  var col = {};
+  headers.forEach(function(h,j){ col[h] = j; });
+
+  var results = [];
+  for (var i = 1; i < data.length && results.length < limit; i++) {
+    var row    = data[i];
+    var status = String(row[col.Status]||'').trim().toUpperCase();
+    if (filter && filter !== status) continue;
+    if (kaiNo  && String(row[col.KaiNo]||'').trim() !== kaiNo) continue;
+
+    var sentAt      = row[col.SentAt];
+    var repliedAt   = row[col.RepliedAt];
+    var completedAt = row[col.CompletedAt];
+
+    results.push({
+      requestId:   String(row[col.RequestID]||''),
+      kaiNo:       String(row[col.KaiNo]||''),
+      name:        String(row[col.Name]||''),
+      mobile:      String(row[col.Mobile]||''),
+      email:       String(row[col.Email]||''),
+      channel:     String(row[col.Channel]||''),
+      missing:     String(row[col.MissingDocs]||'').split(',').filter(Boolean),
+      priority:    String(row[col.Priority]||''),
+      status:      status,
+      requestedAt: row[col.RequestedAt] ? Utilities.formatDate(new Date(row[col.RequestedAt]),'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
+      sentAt:      sentAt      ? Utilities.formatDate(new Date(sentAt),      'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
+      repliedAt:   repliedAt   ? Utilities.formatDate(new Date(repliedAt),   'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
+      completedAt: completedAt ? Utilities.formatDate(new Date(completedAt), 'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
+      reqId:       String(row[col.ReqId]||''),
+      source:      String(row[col.Source]||''),
+      waLink:      String(row[col.WaLink]||'')
+    });
+  }
+
+  var summary = { PENDING:0, SENT:0, REPLIED:0, COMPLETED:0 };
+  for (var j = 1; j < data.length; j++) {
+    var s = String(data[j][col.Status]||'').trim().toUpperCase();
+    if (summary[s] !== undefined) summary[s]++;
+  }
+
+  return { ok:true, total:results.length, summary:summary, requests:results };
+}
+
+// POST action=updateDocRequestStatus
+// body: { requestId:'DRQ-xxx', status:'SENT'|'REPLIED'|'COMPLETED', note:'' }
+// Used by recruiter to mark WA as sent, or by system when reply detected
+function updateDocRequestStatus_(body) {
+  var requestId = String(body.requestId||'').trim();
+  var newStatus = String(body.status||'').trim().toUpperCase();
+  var actor     = String(body.actor||'recruiter').trim();
+
+  if (!requestId) return { ok:false, error:'requestId required' };
+  if (['SENT','REPLIED','COMPLETED'].indexOf(newStatus) < 0)
+    return { ok:false, error:'status must be SENT, REPLIED, or COMPLETED' };
+
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var qSheet = ensureDocQueueSheet_(ss);
+  var data   = qSheet.getDataRange().getValues();
+  var headers= data[0];
+  var col    = {};
+  headers.forEach(function(h,j){ col[h]=j; });
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][col.RequestID]||'').trim() !== requestId) continue;
+    var r   = i + 1;
+    var now = new Date();
+
+    qSheet.getRange(r, col.Status+1).setValue(newStatus);
+    if (newStatus === 'SENT')      qSheet.getRange(r, col.SentAt+1).setValue(now);
+    if (newStatus === 'REPLIED')   qSheet.getRange(r, col.RepliedAt+1).setValue(now);
+    if (newStatus === 'COMPLETED') qSheet.getRange(r, col.CompletedAt+1).setValue(now);
+
+    var kaiNo = String(data[i][col.KaiNo]||'').trim();
+    logActivity_(ss, { kaiNo:kaiNo, rowIndex:0,
+      action: 'DOC_REQUEST_' + newStatus,
+      detail: 'RequestID: ' + requestId,
+      actor:  actor
+    });
+
+    return { ok:true, requestId:requestId, status:newStatus, updatedAt:now.toISOString() };
+  }
+  return { ok:false, error:'Request not found: ' + requestId };
+}
+
+// Public test wrappers
+function testCreateDocRequest()  { Logger.log(JSON.stringify(createDocRequest_({ kaiNos:[], channel:'both' }))); }
+function testDocRequestQueue()   { Logger.log(JSON.stringify(getDocRequestQueue_({ limit:'10' }))); }
+function setupDocQueueSheet()    {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  ensureDocQueueSheet_(ss);
+  Logger.log('_DocRequestQueue sheet ready');
+}
