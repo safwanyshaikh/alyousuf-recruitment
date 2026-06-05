@@ -108,6 +108,10 @@ function doGet(e) {
     else if (action === 'bulkDocStatus')       out = JSON.stringify(getBulkDocStatus_(params));
     else if (action === 'docRequestQueue')     out = JSON.stringify(getDocRequestQueue_(params));
     else if (action === 'complianceRisk')      out = JSON.stringify(getComplianceRisk_(params));
+    // T15 — Lead Intake
+    else if (action === 'leads')               out = JSON.stringify(getLeads_(params));
+    else if (action === 'lead')                out = JSON.stringify(getSingleLead_(params));
+    else if (action === 'openPoolMatches')     out = JSON.stringify(getOpenPoolMatches_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -152,6 +156,11 @@ function doPost(e) {
     else if (action === 'sendMissingInfoDraft')    out = JSON.stringify(sendMissingInfoDraft_(body));
     else if (action === 'createDocRequest')       out = JSON.stringify(createDocRequest_(body));
     else if (action === 'updateDocRequestStatus') out = JSON.stringify(updateDocRequestStatus_(body));
+    // T15 — Lead Intake
+    else if (action === 'createLead')             out = JSON.stringify(createLead_(body));
+    else if (action === 'updateLead')             out = JSON.stringify(updateLead_(body));
+    else if (action === 'updateLeadStatus')       out = JSON.stringify(updateLeadStatus_(body));
+    else if (action === 'convertLead')            out = JSON.stringify(convertLeadToCandidate_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -1400,7 +1409,10 @@ function createRequirement_(body) {
     String(body.jdId          ||'').trim(),
     body.startDate||'', body.endDate||''
   ]);
-  return { ok:true, reqId:reqId };
+  // P1-C: flag open pool leads that match this new requirement
+  var trade      = String(body.trade||body.jobTitle||'').trim();
+  var poolResult = checkOpenPoolOnRequirement_(ss, reqId, trade);
+  return { ok:true, reqId:reqId, openPoolMatches: poolResult };
 }
 
 function updateRequirement_(body) {
@@ -5261,3 +5273,569 @@ function applyRequirementCorrections() {
   Logger.log('');
   Logger.log('Next: run reEvaluateCandidates() to re-score against fixed requirements.');
 }
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 27 — T15 LEAD INTAKE ENGINE
+// ════════════════════════════════════════════════════════════════════
+//
+// A Lead is a person captured BEFORE a CV arrives.
+// Sources: phone call, WhatsApp walk-in, recruiter visit, associate referral.
+//
+// Lead lifecycle:
+//   NEW → CONTACTED → CV_REQUESTED → CV_RECEIVED → CONVERTED → (Candidate)
+//                                               ↘ LOST (reason mandatory)
+//
+// Lead Quality (auto-classified on create + on new requirement):
+//   RELEVANT  — trade matches active requirement (STRONG tier)
+//   RELATED   — trade in same family (GOOD/POSSIBLE tier)
+//   IRRELEVANT— trade present, no match
+//   UNKNOWN   — trade not provided
+//
+// P1-C: Every new requirement auto-scans open pool leads for matches.
+// ════════════════════════════════════════════════════════════════════
+
+var LEADS_SHEET_     = '_Leads';
+var LEAD_STATUSES_   = ['NEW','CONTACTED','CV_REQUESTED','CV_RECEIVED','CONVERTED','LOST'];
+var LEAD_LOST_REASONS_ = [
+  'NO_CV','NOT_INTERESTED','SALARY_ISSUE','LOCATION_ISSUE',
+  'TRADE_MISMATCH','NO_PASSPORT','JOINED_ELSEWHERE','NO_RESPONSE','OTHER'
+];
+var LEAD_SOURCES_ = ['PHONE_CALL','WHATSAPP','WALKIN','ASSOCIATE','REFERRAL','OTHER'];
+
+// _Leads column map (1-based, 20 columns)
+var COL_L_ = {
+  leadId:1, createdAt:2, name:3, mobile:4, email:5,
+  trade:6, experience:7, nationality:8, gulfExp:9, currentLocation:10,
+  education:11, status:12, lostReason:13, leadQuality:14,
+  linkedReqId:15, source:16, recruiter:17, lastContactDate:18,
+  convertedKaiNo:19, notes:20
+};
+
+var LEADS_HEADERS_ = [
+  'Lead ID','Created At','Name','Mobile','Email',
+  'Trade','Experience (yrs)','Nationality','Gulf Experience','Current Location',
+  'Education','Status','Lost Reason','Lead Quality',
+  'Linked Req ID','Source','Recruiter','Last Contact Date',
+  'Converted KAI No','Notes'
+];
+
+function ensureLeadsSheet_(ss) {
+  var s = ss.getSheetByName(LEADS_SHEET_);
+  if (!s) {
+    s = ss.insertSheet(LEADS_SHEET_);
+    s.appendRow(LEADS_HEADERS_);
+    s.setFrozenRows(1);
+    s.getRange(1,1,1,LEADS_HEADERS_.length)
+     .setBackground('#0d3b66').setFontColor('#ffffff').setFontWeight('bold');
+  }
+  return s;
+}
+
+function generateLeadId_(ss) {
+  var s    = ensureLeadsSheet_(ss);
+  var last = s.getLastRow();
+  var seq  = last; // row 1 = header, so last data row = seq
+  return 'KAR-L-' + String(seq + 1).padStart(5,'0');
+}
+
+// ── Lead Quality Classification (P1-A) ──────────────────────────────
+// Reuses T13 trade-match tier to classify quality against active requirements.
+// If linkedReqId provided: classify against that requirement only.
+// If Open Pool: classify against ALL active requirements (take best).
+function classifyLeadQuality_(trade, linkedReqId, ss) {
+  if (!trade || !trade.trim()) return 'UNKNOWN';
+
+  var reqSheet = ss.getSheetByName('_Requirements');
+  if (!reqSheet) return 'UNKNOWN';
+  var reqs = reqSheet.getDataRange().getValues();
+
+  var pseudoCand = { trade: trade, positionApplied: trade, kaiAssessment: '' };
+  var bestTier   = 'NONE';
+
+  for (var i = 1; i < reqs.length; i++) {
+    var rId     = String(reqs[i][0]||'').trim();
+    var rTrade  = String(reqs[i][4]||'').trim();
+    var rStatus = String(reqs[i][14]||reqs[i][11]||'').trim().toLowerCase(); // status col varies
+
+    // If linkedReqId set: only compare against that requirement
+    if (linkedReqId && rId !== linkedReqId) continue;
+    // Skip inactive requirements for open pool classification
+    if (!linkedReqId && rStatus && rStatus !== 'active') continue;
+    if (!rTrade) continue;
+
+    var result = getTradeMatchTier_(rTrade, pseudoCand);
+    var tier   = result ? (result.tier || result) : 'NONE';
+
+    if (tier === 'STRONG')                             { bestTier = 'STRONG'; break; }
+    if (tier === 'GOOD'   && bestTier !== 'STRONG')    { bestTier = 'GOOD'; }
+    if (tier === 'POSSIBLE' && bestTier === 'NONE')    { bestTier = 'POSSIBLE'; }
+  }
+
+  if (bestTier === 'STRONG')                   return 'RELEVANT';
+  if (bestTier === 'GOOD' || bestTier === 'POSSIBLE') return 'RELATED';
+  if (bestTier === 'NONE' && linkedReqId)      return 'IRRELEVANT';
+  if (bestTier === 'NONE')                     return 'IRRELEVANT';
+  return 'IRRELEVANT';
+}
+
+// ── P1-C: Open Pool scan on new requirement ──────────────────────────
+// Called automatically from createRequirement_ after every new req.
+// Returns {relevant, related, total, leads[{leadId,name,quality}]}
+function checkOpenPoolOnRequirement_(ss, reqId, trade) {
+  if (!trade) return { relevant:0, related:0, total:0, leads:[] };
+
+  var s = ss.getSheetByName(LEADS_SHEET_);
+  if (!s) return { relevant:0, related:0, total:0, leads:[] };
+
+  var data     = s.getDataRange().getValues();
+  var relevant = 0, related = 0;
+  var matches  = [];
+  var pseudoCand = { trade: trade, positionApplied: trade, kaiAssessment: '' };
+
+  for (var i = 1; i < data.length; i++) {
+    var lStatus  = String(data[i][COL_L_.status-1]||'').trim().toUpperCase();
+    var lReqId   = String(data[i][COL_L_.linkedReqId-1]||'').trim();
+    var lTrade   = String(data[i][COL_L_.trade-1]||'').trim();
+    var lLeadId  = String(data[i][COL_L_.leadId-1]||'').trim();
+
+    // Only open pool (no linked req), not converted/lost
+    if (lReqId) continue;
+    if (lStatus === 'CONVERTED' || lStatus === 'LOST') continue;
+    if (!lLeadId || !lTrade) continue;
+
+    var result  = getTradeMatchTier_(trade, { trade: lTrade, positionApplied: lTrade, kaiAssessment: '' });
+    var tier    = result ? (result.tier || result) : 'NONE';
+    var quality = (tier === 'STRONG') ? 'RELEVANT' :
+                  (tier === 'GOOD' || tier === 'POSSIBLE') ? 'RELATED' : null;
+
+    if (!quality) continue;
+
+    // Update lead quality column in sheet (reflects new req context)
+    s.getRange(i+1, COL_L_.leadQuality).setValue(quality);
+
+    if (quality === 'RELEVANT') relevant++;
+    else related++;
+
+    matches.push({
+      leadId:  lLeadId,
+      name:    String(data[i][COL_L_.name-1]||''),
+      mobile:  String(data[i][COL_L_.mobile-1]||''),
+      trade:   lTrade,
+      quality: quality,
+      status:  lStatus
+    });
+  }
+
+  if (matches.length) {
+    logActivity_(ss, { kaiNo: 'REQ:'+reqId, rowIndex:0,
+      action: 'OPEN_POOL_SCANNED',
+      detail: 'Req: ' + reqId + ' | Relevant: ' + relevant + ' | Related: ' + related,
+      actor: 'system'
+    });
+  }
+
+  return { relevant:relevant, related:related, total:matches.length, leads:matches };
+}
+
+// ── Read Handlers ────────────────────────────────────────────────────
+
+// GET ?action=leads&status=NEW&quality=RELEVANT&limit=50&offset=0&token=T
+function getLeads_(params) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ensureLeadsSheet_(ss);
+
+  var filterStatus  = String(params.status  ||'').trim().toUpperCase();
+  var filterQuality = String(params.quality ||'').trim().toUpperCase();
+  var filterReqId   = String(params.reqId   ||'').trim();
+  var filterSource  = String(params.source  ||'').trim().toUpperCase();
+  var limit         = parseInt(params.limit ||'100') || 100;
+  var offset        = parseInt(params.offset||'0')   || 0;
+
+  var data    = s.getDataRange().getValues();
+  var results = [];
+  var counts  = { RELEVANT:0, RELATED:0, IRRELEVANT:0, UNKNOWN:0,
+                  NEW:0, CONTACTED:0, CV_REQUESTED:0, CV_RECEIVED:0, CONVERTED:0, LOST:0 };
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var status  = String(row[COL_L_.status-1]  ||'NEW').trim().toUpperCase();
+    var quality = String(row[COL_L_.leadQuality-1]||'UNKNOWN').trim().toUpperCase();
+    var leadId  = String(row[COL_L_.leadId-1]  ||'').trim();
+    if (!leadId) continue;
+
+    // Count totals regardless of filter
+    if (counts[quality]  !== undefined) counts[quality]++;
+    if (counts[status]   !== undefined) counts[status]++;
+
+    // Apply filters
+    if (filterStatus  && status  !== filterStatus)  continue;
+    if (filterQuality && quality !== filterQuality) continue;
+    if (filterReqId && String(row[COL_L_.linkedReqId-1]||'').trim() !== filterReqId) continue;
+    if (filterSource  && String(row[COL_L_.source-1]||'').trim().toUpperCase() !== filterSource) continue;
+
+    results.push({
+      leadId:          leadId,
+      createdAt:       row[COL_L_.createdAt-1] ? Utilities.formatDate(new Date(row[COL_L_.createdAt-1]),'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
+      name:            String(row[COL_L_.name-1]           ||'').trim(),
+      mobile:          String(row[COL_L_.mobile-1]         ||'').trim(),
+      email:           String(row[COL_L_.email-1]          ||'').trim(),
+      trade:           String(row[COL_L_.trade-1]          ||'').trim(),
+      experience:      parseFloat(row[COL_L_.experience-1])||0,
+      nationality:     String(row[COL_L_.nationality-1]    ||'').trim(),
+      gulfExp:         String(row[COL_L_.gulfExp-1]        ||'').trim(),
+      currentLocation: String(row[COL_L_.currentLocation-1]||'').trim(),
+      education:       String(row[COL_L_.education-1]      ||'').trim(),
+      status:          status,
+      lostReason:      String(row[COL_L_.lostReason-1]     ||'').trim(),
+      leadQuality:     quality,
+      linkedReqId:     String(row[COL_L_.linkedReqId-1]    ||'').trim(),
+      source:          String(row[COL_L_.source-1]         ||'').trim(),
+      recruiter:       String(row[COL_L_.recruiter-1]      ||'').trim(),
+      lastContactDate: row[COL_L_.lastContactDate-1] ? Utilities.formatDate(new Date(row[COL_L_.lastContactDate-1]),'Asia/Dubai','yyyy-MM-dd') : '',
+      convertedKaiNo:  String(row[COL_L_.convertedKaiNo-1]||'').trim(),
+      notes:           String(row[COL_L_.notes-1]          ||'').trim()
+    });
+  }
+
+  var paginated = results.slice(offset, offset + limit);
+  return { ok:true, total:results.length, counts:counts, leads:paginated };
+}
+
+// GET ?action=lead&leadId=KAR-L-00001&token=T
+function getSingleLead_(params) {
+  var leadId = String(params.leadId||'').trim();
+  if (!leadId) return { ok:false, error:'leadId required' };
+  var result = getLeads_({ status:'', quality:'', limit:'9999', offset:'0' });
+  var found  = (result.leads||[]).filter(function(l){ return l.leadId === leadId; });
+  if (!found.length) return { ok:false, error:'Lead not found: ' + leadId };
+  return { ok:true, lead: found[0] };
+}
+
+// GET ?action=openPoolMatches&reqId=REQ-xxx&token=T
+// Returns open pool leads matching a specific requirement (for recruiter review)
+function getOpenPoolMatches_(params) {
+  var reqId = String(params.reqId||'').trim();
+  if (!reqId) return { ok:false, error:'reqId required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (!rSheet) return { ok:false, error:'_Requirements sheet not found' };
+
+  var rData = rSheet.getDataRange().getValues();
+  var trade = '';
+  for (var j = 1; j < rData.length; j++) {
+    if (String(rData[j][0]||'').trim() === reqId) { trade = String(rData[j][4]||'').trim(); break; }
+  }
+  if (!trade) return { ok:false, error:'Requirement not found or has no trade: ' + reqId };
+
+  var result = checkOpenPoolOnRequirement_(ss, reqId, trade);
+  return { ok:true, reqId:reqId, trade:trade, matches:result };
+}
+
+// ── Write Handlers ────────────────────────────────────────────────────
+
+// POST action=createLead
+// body: { name*, mobile*, trade, experience, nationality, gulfExp,
+//         currentLocation, education, source, recruiter, linkedReqId, notes }
+function createLead_(body) {
+  var name   = String(body.name  ||'').trim();
+  var mobile = String(body.mobile||'').trim();
+  if (!name)   return { ok:false, error:'name required' };
+  if (!mobile) return { ok:false, error:'mobile required' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ensureLeadsSheet_(ss);
+
+  // Dedup: mobile already in _Leads?
+  var data = s.getDataRange().getValues();
+  var normMob = normalizeMobile_(mobile);
+  for (var i = 1; i < data.length; i++) {
+    var existMob = normalizeMobile_(String(data[i][COL_L_.mobile-1]||''));
+    if (normMob && existMob === normMob) {
+      var existId     = String(data[i][COL_L_.leadId-1]||'').trim();
+      var existStatus = String(data[i][COL_L_.status-1]||'').trim();
+      if (existStatus !== 'LOST') {
+        return { ok:false, error:'DUPLICATE_MOBILE',
+                 existing: existId, message: 'Lead already exists: ' + existId };
+      }
+    }
+  }
+
+  // Dedup: mobile already in Candidates?
+  var candSheet = ss.getSheetByName('Candidates');
+  if (candSheet) {
+    var candData = candSheet.getDataRange().getValues();
+    for (var c = 1; c < candData.length; c++) {
+      var candMob = normalizeMobile_(String(candData[c][COL.mobile-1]||''));
+      if (normMob && candMob === normMob) {
+        return { ok:false, error:'ALREADY_CANDIDATE',
+                 kaiNo: String(candData[c][COL.kaiNo-1]||''),
+                 message: 'This person is already a candidate in KAI' };
+      }
+    }
+  }
+
+  var trade      = String(body.trade         ||'').trim();
+  var linkedReqId= String(body.linkedReqId   ||'').trim();
+  var source     = String(body.source        ||'OTHER').trim().toUpperCase();
+  var recruiter  = String(body.recruiter     ||'').trim();
+  var now        = new Date();
+  var leadId     = generateLeadId_(ss);
+  var quality    = classifyLeadQuality_(trade, linkedReqId, ss);
+
+  s.appendRow([
+    leadId,                                    // Lead ID
+    now,                                       // Created At
+    name,                                      // Name
+    mobile,                                    // Mobile
+    String(body.email          ||'').trim(),   // Email
+    trade,                                     // Trade
+    parseFloat(body.experience)||0,            // Experience
+    String(body.nationality    ||'').trim(),   // Nationality
+    String(body.gulfExp        ||'').trim(),   // Gulf Experience
+    String(body.currentLocation||'').trim(),   // Current Location
+    String(body.education      ||'').trim(),   // Education
+    'NEW',                                     // Status
+    '',                                        // Lost Reason
+    quality,                                   // Lead Quality (auto)
+    linkedReqId,                               // Linked Req ID
+    source,                                    // Source
+    recruiter,                                 // Recruiter
+    now,                                       // Last Contact Date
+    '',                                        // Converted KAI No
+    String(body.notes          ||'').trim()    // Notes
+  ]);
+
+  logActivity_(ss, { kaiNo:leadId, rowIndex:0,
+    action: 'LEAD_CREATED',
+    detail: name + ' | ' + (trade||'Trade unknown') + ' | Quality: ' + quality +
+            ' | Source: ' + source + (linkedReqId ? ' | Req: ' + linkedReqId : ' | Open Pool'),
+    actor: recruiter || 'system'
+  });
+
+  return { ok:true, leadId:leadId, name:name, trade:trade,
+           leadQuality:quality, source:source, linkedReqId:linkedReqId||null };
+}
+
+// POST action=updateLead
+// body: { leadId*, trade, experience, nationality, gulfExp, currentLocation, education, email, notes }
+function updateLead_(body) {
+  var leadId = String(body.leadId||'').trim();
+  if (!leadId) return { ok:false, error:'leadId required' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ensureLeadsSheet_(ss);
+  var data = s.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL_L_.leadId-1]||'').trim() !== leadId) continue;
+    var r       = i + 1;
+    var updated = [];
+    var actor   = String(body.actor||body.recruiter||'recruiter').trim();
+
+    var UPDATABLE = {
+      trade:           COL_L_.trade,
+      experience:      COL_L_.experience,
+      nationality:     COL_L_.nationality,
+      gulfExp:         COL_L_.gulfExp,
+      currentLocation: COL_L_.currentLocation,
+      education:       COL_L_.education,
+      email:           COL_L_.email,
+      notes:           COL_L_.notes,
+      linkedReqId:     COL_L_.linkedReqId
+    };
+
+    Object.keys(UPDATABLE).forEach(function(field) {
+      if (body[field] === undefined || body[field] === null) return;
+      s.getRange(r, UPDATABLE[field]).setValue(String(body[field]).trim());
+      updated.push(field);
+    });
+
+    // Re-classify quality if trade or linkedReqId changed
+    if (updated.indexOf('trade') >= 0 || updated.indexOf('linkedReqId') >= 0) {
+      var fresh      = s.getRange(r, 1, 1, 20).getValues()[0];
+      var newTrade   = String(fresh[COL_L_.trade-1]||'').trim();
+      var newReqId   = String(fresh[COL_L_.linkedReqId-1]||'').trim();
+      var newQuality = classifyLeadQuality_(newTrade, newReqId, ss);
+      s.getRange(r, COL_L_.leadQuality).setValue(newQuality);
+      updated.push('leadQuality:' + newQuality);
+    }
+
+    // Update last contact date
+    s.getRange(r, COL_L_.lastContactDate).setValue(new Date());
+
+    logActivity_(ss, { kaiNo:leadId, rowIndex:0,
+      action: 'LEAD_UPDATED',
+      detail: 'Updated: ' + updated.join(', '),
+      actor:  actor
+    });
+
+    return { ok:true, leadId:leadId, updated:updated };
+  }
+  return { ok:false, error:'Lead not found: ' + leadId };
+}
+
+// POST action=updateLeadStatus
+// body: { leadId*, status*, lostReason (required if LOST), actor }
+// Valid statuses: NEW → CONTACTED → CV_REQUESTED → CV_RECEIVED → CONVERTED → LOST
+function updateLeadStatus_(body) {
+  var leadId    = String(body.leadId    ||'').trim();
+  var newStatus = String(body.status    ||'').trim().toUpperCase();
+  var lostReason= String(body.lostReason||'').trim().toUpperCase();
+  var actor     = String(body.actor||body.recruiter||'recruiter').trim();
+
+  if (!leadId)    return { ok:false, error:'leadId required' };
+  if (LEAD_STATUSES_.indexOf(newStatus) < 0)
+    return { ok:false, error:'Invalid status. Must be: ' + LEAD_STATUSES_.join(', ') };
+  if (newStatus === 'LOST' && !lostReason)
+    return { ok:false, error:'lostReason required when status is LOST. Options: ' + LEAD_LOST_REASONS_.join(', ') };
+  if (newStatus === 'LOST' && LEAD_LOST_REASONS_.indexOf(lostReason) < 0)
+    return { ok:false, error:'Invalid lostReason. Options: ' + LEAD_LOST_REASONS_.join(', ') };
+
+  var ss   = SpreadsheetApp.openById(SS_ID);
+  var s    = ensureLeadsSheet_(ss);
+  var data = s.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL_L_.leadId-1]||'').trim() !== leadId) continue;
+    var r = i + 1;
+
+    s.getRange(r, COL_L_.status).setValue(newStatus);
+    if (newStatus === 'LOST') s.getRange(r, COL_L_.lostReason).setValue(lostReason);
+    s.getRange(r, COL_L_.lastContactDate).setValue(new Date());
+
+    var actAction = newStatus === 'CONVERTED' ? 'LEAD_CONVERTED' :
+                    newStatus === 'LOST'      ? 'LEAD_LOST'      :
+                    newStatus === 'CV_REQUESTED' ? 'CV_REQUESTED' :
+                    newStatus === 'CV_RECEIVED'  ? 'CV_RECEIVED'  : 'LEAD_UPDATED';
+
+    logActivity_(ss, { kaiNo:leadId, rowIndex:0,
+      action: actAction,
+      detail: 'Status: ' + newStatus + (lostReason ? ' | Reason: ' + lostReason : ''),
+      actor:  actor
+    });
+
+    return { ok:true, leadId:leadId, status:newStatus, lostReason:lostReason||null };
+  }
+  return { ok:false, error:'Lead not found: ' + leadId };
+}
+
+// POST action=convertLead
+// body: { leadId*, actor }
+// Promotes a Lead to a Candidate in KAI.
+// Dedup check: if mobile already in Candidates, links rather than duplicates.
+function convertLeadToCandidate_(body) {
+  var leadId = String(body.leadId||'').trim();
+  var actor  = String(body.actor||body.recruiter||'recruiter').trim();
+  if (!leadId) return { ok:false, error:'leadId required' };
+
+  var ss   = SpreadsheetApp.openById(SS_ID);
+  var lSheet = ensureLeadsSheet_(ss);
+  var cSheet = ss.getSheetByName('Candidates');
+  if (!cSheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var lData = lSheet.getDataRange().getValues();
+  var lRow  = null;
+  var lRowNum = 0;
+  for (var i = 1; i < lData.length; i++) {
+    if (String(lData[i][COL_L_.leadId-1]||'').trim() === leadId) {
+      lRow = lData[i]; lRowNum = i+1; break;
+    }
+  }
+  if (!lRow) return { ok:false, error:'Lead not found: ' + leadId };
+
+  var lMobile = normalizeMobile_(String(lRow[COL_L_.mobile-1]||''));
+  var lName   = String(lRow[COL_L_.name-1]||'').trim();
+  var lTrade  = String(lRow[COL_L_.trade-1]||'').trim();
+
+  // Dedup: check if mobile already in Candidates
+  var cData = cSheet.getDataRange().getValues();
+  for (var c = 1; c < cData.length; c++) {
+    var cMob = normalizeMobile_(String(cData[c][COL.mobile-1]||''));
+    if (lMobile && cMob === lMobile) {
+      var existKaiNo = String(cData[c][COL.kaiNo-1]||'').trim();
+      // Link lead to existing candidate
+      lSheet.getRange(lRowNum, COL_L_.status).setValue('CONVERTED');
+      lSheet.getRange(lRowNum, COL_L_.convertedKaiNo).setValue(existKaiNo);
+      logActivity_(ss, { kaiNo:leadId, rowIndex:0,
+        action: 'LEAD_CONVERTED',
+        detail: 'Linked to existing candidate ' + existKaiNo + ' (same mobile)',
+        actor: actor
+      });
+      return { ok:true, leadId:leadId, kaiNo:existKaiNo,
+               message:'Linked to existing candidate', isNew:false };
+    }
+  }
+
+  // Create new candidate row from lead data
+  var kaiNo  = generateKaiNumber_(ss);
+  var now    = new Date();
+
+  // Build a minimal candidate row (42 columns, lead data mapped in)
+  var row    = new Array(42).fill('');
+  row[COL.stage-1]           = 'New';
+  row[COL.applicationDate-1] = now;
+  row[COL.nationality-1]     = String(lRow[COL_L_.nationality-1]||'').trim();
+  row[COL.name-1]            = lName;
+  row[COL.mobile-1]          = String(lRow[COL_L_.mobile-1]||'').trim();
+  row[COL.email-1]           = String(lRow[COL_L_.email-1]||'').trim();
+  row[COL.education-1]       = String(lRow[COL_L_.education-1]||'').trim();
+  row[COL.positionApplied-1] = lTrade;
+  row[COL.trade-1]           = lTrade;
+  row[COL.experience-1]      = parseFloat(lRow[COL_L_.experience-1])||0;
+  row[COL.gulfExp-1]         = String(lRow[COL_L_.gulfExp-1]||'').trim();
+  row[COL.verdict-1]         = 'Pending action';
+  row[COL.score-1]           = 0;   // No CV yet — profile completeness will be low
+  row[COL.active-1]          = '';
+  row[COL.kaiNo-1]           = kaiNo;
+  row[COL.currentLocation-1] = String(lRow[COL_L_.currentLocation-1]||'').trim();
+  row[COL.lastContact-1]     = now;
+
+  // Compute missing fields (most will be missing — no CV)
+  var pseudoCand = {
+    name:    lName,             mobile:   row[COL.mobile-1],
+    email:   row[COL.email-1],  trade:    lTrade,
+    education: row[COL.education-1], dob: '',
+    age:     0, passportNo:     '',
+    nationality: row[COL.nationality-1],
+    gulfExp:     row[COL.gulfExp-1],
+    positionApplied: lTrade
+  };
+  var missing = computeMissingFields_(pseudoCand);
+  row[COL.missingFields-1] = missing.map(function(m){ return m.field; }).join(',');
+  row[COL.notes-1]         = 'Converted from Lead ' + leadId +
+                             (String(lRow[COL_L_.notes-1]||'').trim() ? ' | ' + lRow[COL_L_.notes-1] : '');
+
+  cSheet.appendRow(row);
+
+  // Mark lead as converted
+  lSheet.getRange(lRowNum, COL_L_.status).setValue('CONVERTED');
+  lSheet.getRange(lRowNum, COL_L_.convertedKaiNo).setValue(kaiNo);
+  lSheet.getRange(lRowNum, COL_L_.lastContactDate).setValue(now);
+
+  logActivity_(ss, { kaiNo:leadId, rowIndex:0,
+    action: 'LEAD_CONVERTED',
+    detail: 'New candidate created: ' + kaiNo + ' | ' + lName + ' | ' + (lTrade||'trade unknown'),
+    actor: actor
+  });
+  logActivity_(ss, { kaiNo:kaiNo, rowIndex:0,
+    action: 'CANDIDATE_CREATED_FROM_LEAD',
+    detail: 'Source Lead: ' + leadId + ' | Missing fields: ' + row[COL.missingFields-1],
+    actor: actor
+  });
+
+  return { ok:true, leadId:leadId, kaiNo:kaiNo,
+           name:lName, trade:lTrade, missingFields:row[COL.missingFields-1],
+           message:'Candidate created. Profile incomplete — use Document Operations to collect missing info.',
+           isNew:true };
+}
+
+// Public test / setup wrappers
+function setupLeadsSheet()      {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  ensureLeadsSheet_(ss);
+  Logger.log('_Leads sheet ready');
+}
+function testCreateLead()       { Logger.log(JSON.stringify(createLead_({ name:'Test Lead', mobile:'9999999999', trade:'Welder', source:'PHONE_CALL', recruiter:'test' }))); }
+function testLeadQuality()      { Logger.log(classifyLeadQuality_('Welder','',SpreadsheetApp.openById(SS_ID))); }
+function testOpenPoolMatches()  { Logger.log(JSON.stringify(getOpenPoolMatches_({ reqId:'' }))); }
