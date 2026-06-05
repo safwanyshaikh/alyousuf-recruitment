@@ -103,6 +103,7 @@ function doGet(e) {
     else if (action === 'whatsappLink')     out = JSON.stringify(getWhatsAppLink_(params));
     else if (action === 'reEvaluate')       out = JSON.stringify(reEvaluateCandidatesT14_(params));
     else if (action === 'emailAudit')       out = JSON.stringify(diagnoseEmailPipeline_());
+    else if (action === 'enrichTop3')       out = JSON.stringify(enrichTop3Positions_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -512,11 +513,21 @@ function getCandidates_(params) {
 // GET ?action=candidate&rowIndex=5
 // FIX: computes displayStage from verdict (was returning raw "Pending action")
 function getSingleCandidate_(params) {
-  var rowIndex = parseInt(params.rowIndex||'0');
-  if (!rowIndex) return { ok:false, error:'rowIndex required' };
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet) return { ok:false, error:'Sheet not found' };
+
+  var rowIndex = parseInt(params.rowIndex||'0');
+  var kaiNo    = String(params.kaiNo||'').trim();
+
+  // Accept either rowIndex OR kaiNo — find row by kaiNo if rowIndex not provided
+  if (!rowIndex && kaiNo) {
+    var data = sheet.getRange(2, COL.kaiNo, Math.max(1, sheet.getLastRow()-1), 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]||'').trim() === kaiNo) { rowIndex = i + 2; break; }
+    }
+  }
+  if (!rowIndex) return { ok:false, error:'Candidate not found' };
   var lc  = Math.min(sheet.getLastColumn(), 42);
   var row = sheet.getRange(rowIndex, 1, 1, lc).getValues()[0];
 
@@ -4294,3 +4305,105 @@ function catchUpReplyEmails()   { Logger.log(JSON.stringify(catchUpReplyEmails_(
 function installCatchUpTrigger(){ Logger.log(JSON.stringify(installCatchUpTrigger_())); }
 function removeCatchUpTrigger() { Logger.log(JSON.stringify(removeCatchUpTrigger_())); }
 function listCatchUpTriggers()  { Logger.log(JSON.stringify(listCatchUpTriggers_())); }
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 23 — TOP 3 POSITIONS ENRICHMENT (Batch, no CV re-parse)
+// ════════════════════════════════════════════════════════════════════
+// Generates top3Positions for candidates where it is blank.
+// Uses EXISTING data only: trade, positionApplied, experience, education,
+// kaiAssessment, gulfExp. Does NOT re-parse CVs or re-call email pipeline.
+// Safe to run on all 6000+ candidates in batches.
+//
+// GET action=enrichTop3&limit=50&dryRun=true
+// GAS dropdown: enrichTop3Positions (runs batch of 50)
+
+function enrichTop3Positions_(params) {
+  params = params || {};
+  var limit  = Math.min(100, parseInt(params.limit||'50') || 50);
+  var dryRun = String(params.dryRun||'') === 'true';
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return { ok:false, error:'GEMINI_API_KEY not set' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2)
+    return { ok:true, processed:0, message:'No candidates' };
+
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 42).getValues();
+  var enriched = 0, skipped = 0, errors = [];
+
+  for (var i = 0; i < data.length; i++) {
+    if (enriched >= limit) break;
+
+    var active = String(data[i][COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') { skipped++; continue; }
+
+    var existing = String(data[i][COL.top3Positions-1]||'').trim();
+    if (existing && existing.length > 3) { skipped++; continue; } // already has top3
+
+    var trade    = String(data[i][COL.trade-1]||'').trim();
+    var pos      = String(data[i][COL.positionApplied-1]||'').trim();
+    var exp      = parseFloat(data[i][COL.experience-1]) || 0;
+    var edu      = String(data[i][COL.education-1]||'').trim();
+    var gulf     = String(data[i][COL.gulfExp-1]||'').trim();
+    var assess   = String(data[i][COL.kaiAssessment-1]||'').trim().slice(0, 300);
+    var industry = String(data[i][COL.industry-1]||'').trim();
+
+    if (!trade && !pos) { skipped++; continue; } // no trade info — can't enrich
+
+    try {
+      var prompt =
+        'A GCC recruitment candidate has the following profile:\n' +
+        'Trade/Skill: ' + (trade||pos) + '\n' +
+        'Position Applied: ' + (pos||trade) + '\n' +
+        'Experience: ' + exp + ' years\n' +
+        'Education: ' + (edu||'Not specified') + '\n' +
+        'Gulf Experience: ' + (gulf||'None') + '\n' +
+        'Industry: ' + (industry||'Not specified') + '\n' +
+        (assess ? 'Assessment notes: ' + assess + '\n' : '') +
+        '\nList the top 3 GCC job positions this candidate is most qualified for.' +
+        '\nReturn ONLY a comma-separated list of 3 job titles. No explanation. Example:\n' +
+        'Scaffold Supervisor, Rigger, Scaffolder';
+
+      var resp = UrlFetchApp.fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+        { method:'post', contentType:'application/json', muteHttpExceptions:true,
+          payload: JSON.stringify({
+            contents:[{ parts:[{ text:prompt }] }],
+            generationConfig:{ temperature:0.2, maxOutputTokens:80 }
+          })
+        }
+      );
+      var result = JSON.parse(resp.getContentText());
+      if (!result.candidates || !result.candidates[0]) { skipped++; continue; }
+
+      var top3Text = String(result.candidates[0].content.parts[0].text||'').trim()
+        .replace(/\n/g, ', ').replace(/\s*,\s*/g, ', ').replace(/[*#]/g, '').trim();
+
+      if (top3Text.length > 5 && !dryRun) {
+        sheet.getRange(i + 2, COL.top3Positions).setValue(top3Text);
+      }
+
+      enriched++;
+      Utilities.sleep(200); // throttle Gemini calls
+    } catch(e) {
+      errors.push({ row: i+2, error: e.message });
+    }
+  }
+
+  return {
+    ok:       true,
+    enriched: enriched,
+    skipped:  skipped,
+    errors:   errors.length,
+    dryRun:   dryRun,
+    summary:  'Enriched ' + enriched + ' candidates with Top 3 Positions. ' +
+              'Skipped ' + skipped + ' (already had data or no trade info). ' +
+              'Errors: ' + errors.length +
+              (dryRun ? ' [DRY RUN — no writes]' : '')
+  };
+}
+
+function enrichTop3Positions()     { Logger.log(JSON.stringify(enrichTop3Positions_({ limit:'50' }))); }
+function enrichTop3PositionsDry()  { Logger.log(JSON.stringify(enrichTop3Positions_({ limit:'10', dryRun:'true' }))); }
