@@ -5192,15 +5192,20 @@ function auditBrokenRequirements() {
     var qty    = parseInt(data[i][5])||1;
     var status = String(data[i][11]||'').trim();
     if (!reqId) continue;
-    if (BAD_RE.test(trade) || trade.toLowerCase().indexOf('.pdf') >= 0) {
+
+    var isBlank    = trade === '';
+    var isFilename = BAD_RE.test(trade) || trade.toLowerCase().indexOf('.pdf') >= 0;
+
+    if (isBlank || isFilename) {
       broken.push({
-        row:         i + 1,
-        reqId:       reqId,
-        client:      client,
-        currentTrade:trade,
-        qty:         qty,
-        status:      status,
-        correctTrade: '← FILL IN',
+        row:              i + 1,
+        reqId:            reqId,
+        client:           client,
+        currentTrade:     trade,
+        breakType:        isBlank ? 'BLANK_TRADE' : 'FILENAME_AS_TRADE',
+        qty:              qty,
+        status:           status,
+        correctTrade:     '← FILL IN',
         recruitmentClass: '← FILL IN'
       });
     }
@@ -5211,6 +5216,7 @@ function auditBrokenRequirements() {
   broken.forEach(function(r) {
     Logger.log(
       'Row ' + r.row + ' | ' + r.reqId + ' | Client: ' + r.client +
+      '\n  Break Type: ' + r.breakType +
       '\n  Current Trade: "' + r.currentTrade + '"' +
       '\n  Correct Trade: ' + r.correctTrade +
       '\n  Recruitment Class: ' + r.recruitmentClass +
