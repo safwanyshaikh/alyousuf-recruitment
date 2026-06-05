@@ -102,6 +102,7 @@ function doGet(e) {
     else if (action === 'tradeAffinity')    out = JSON.stringify(getTradeAffinity_(params));
     else if (action === 'whatsappLink')     out = JSON.stringify(getWhatsAppLink_(params));
     else if (action === 'reEvaluate')       out = JSON.stringify(reEvaluateCandidatesT14_(params));
+    else if (action === 'emailAudit')       out = JSON.stringify(diagnoseEmailPipeline_());
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -3909,3 +3910,346 @@ function sendMissingInfoDraft_(body) {
     }
   }
 }
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 22 — EMAIL PIPELINE AUDIT + CATCH-UP ENGINE
+// ════════════════════════════════════════════════════════════════════
+// The main pipeline (Code.gs) processes emails via triggers. When it misses
+// emails (quota limits, trigger gaps, reply-thread edge cases), these functions
+// scan and repair the gap by processing CVs directly through the bridge.
+//
+// Two email types handled:
+//   A. Direct CV submissions — new emails with PDF/DOC/DOCX attachments
+//   B. Reply threads — candidates replying to "Action Required" emails
+//      with their DOB, location, passport info, or new CV attachment
+//
+// Labels used by main pipeline:  karigar/processed, karigar/duplicate, karigar/error
+// Label used by this catch-up:   karigar/bridge-processed  (never conflicts)
+//
+// GAS dropdown entry points (no trailing underscore):
+//   diagnosePipeline        — read-only audit, safe to run any time
+//   catchUpMissedEmails     — processes up to 20 missed CVs per run
+//   catchUpReplyEmails      — processes up to 20 missed reply threads
+//   installCatchUpTrigger   — installs hourly auto-catchup trigger
+//   removeCatchUpTrigger    — removes it
+//
+// GET action=emailAudit — diagnostic JSON for UI display
+// ════════════════════════════════════════════════════════════════════
+
+var BRIDGE_LABEL_ = 'karigar/bridge-processed';
+var SKIP_LABELS_  = '-label:karigar/processed -label:karigar/duplicate ' +
+                    '-label:karigar/bridge-processed -label:karigar/error';
+
+// ── Diagnostic (read-only) ────────────────────────────────────────────────────
+function diagnoseEmailPipeline_() {
+  try {
+    var unprocessedQuery = 'has:attachment (filename:pdf OR filename:doc OR filename:docx) ' + SKIP_LABELS_;
+    var replyQuery       = 'subject:"Action Required: Complete Your Application" ' + SKIP_LABELS_;
+
+    var unprocessedThreads = GmailApp.search(unprocessedQuery, 0, 50);
+    var replyThreads       = GmailApp.search(replyQuery,       0, 50);
+
+    var processedQuery  = 'label:karigar/processed';
+    var processedCount  = GmailApp.search(processedQuery, 0, 50).length;
+    var duplicateCount  = GmailApp.search('label:karigar/duplicate', 0, 50).length;
+    var errorCount      = GmailApp.search('label:karigar/error',     0, 50).length;
+    var bridgeCount     = GmailApp.search('label:karigar/bridge-processed', 0, 50).length;
+
+    var ss              = SpreadsheetApp.openById(SS_ID);
+    var candSheet       = ss.getSheetByName('Candidates');
+    var totalCands      = candSheet ? Math.max(0, candSheet.getLastRow() - 1) : 0;
+    var uploadSheet     = ss.getSheetByName('_CV_Upload_Log');
+    var bridgeUploads   = uploadSheet ? Math.max(0, uploadSheet.getLastRow() - 1) : 0;
+
+    // Sample: list first 10 unprocessed thread subjects for review
+    var samples = unprocessedThreads.slice(0, 10).map(function(t) {
+      var msgs = t.getMessages();
+      return {
+        threadId: t.getId(),
+        subject:  msgs[0].getSubject().slice(0, 80),
+        from:     extractEmailFromHeader_(msgs[0].getFrom()),
+        date:     Utilities.formatDate(msgs[0].getDate(), 'Asia/Dubai', 'dd-MMM HH:mm'),
+        hasAttachment: msgs.some(function(m){ return m.getAttachments().length > 0; })
+      };
+    });
+
+    return {
+      ok:                    true,
+      unprocessedCVEmails:   unprocessedThreads.length + (unprocessedThreads.length >= 50 ? '+' : ''),
+      unprocessedReplies:    replyThreads.length       + (replyThreads.length >= 50 ? '+' : ''),
+      pipelineProcessed:     processedCount            + (processedCount >= 50 ? '+' : ''),
+      pipelineDuplicates:    duplicateCount            + (duplicateCount >= 50 ? '+' : ''),
+      pipelineErrors:        errorCount,
+      bridgeProcessed:       bridgeCount,
+      bridgeUploads:         bridgeUploads,
+      totalCandidates:       totalCands,
+      unprocessedSample:     samples,
+      recommendation: unprocessedThreads.length > 0
+        ? 'Run catchUpMissedEmails() and catchUpReplyEmails() — then installCatchUpTrigger() for hourly auto-processing'
+        : 'Pipeline is up to date'
+    };
+  } catch(e) {
+    return { ok:false, error:'diagnoseEmailPipeline_ failed: ' + e.message };
+  }
+}
+
+// ── Type A: Catch-up for CV attachment emails ─────────────────────────────────
+function catchUpMissedEmails_(params) {
+  params = params || {};
+  var batchSize = Math.min(20, parseInt(params.batchSize||'20') || 20);
+
+  var query = 'has:attachment (filename:pdf OR filename:doc OR filename:docx) ' + SKIP_LABELS_;
+  var threads = [];
+  try { threads = GmailApp.search(query, 0, batchSize); }
+  catch(e) { return { ok:false, error:'Gmail search failed: ' + e.message }; }
+
+  var label = getBridgeLabel_();
+  var processed = 0, duplicates = 0, skipped = 0, errors = [];
+
+  threads.forEach(function(thread) {
+    var allMsgs = thread.getMessages();
+    var cvAtt   = null;
+    var srcMsg  = null;
+
+    // Search all messages in thread for a CV attachment
+    for (var m = 0; m < allMsgs.length; m++) {
+      var atts = allMsgs[m].getAttachments();
+      for (var a = 0; a < atts.length; a++) {
+        var n = atts[a].getName().toLowerCase();
+        if (n.endsWith('.pdf') || n.endsWith('.doc') || n.endsWith('.docx')) {
+          cvAtt  = atts[a];
+          srcMsg = allMsgs[m];
+          break;
+        }
+      }
+      if (cvAtt) break;
+    }
+
+    if (!cvAtt) { skipped++; return; }
+
+    try {
+      var from_  = srcMsg.getFrom();
+      var result = uploadCV_({
+        fileName:    cvAtt.getName(),
+        fileBase64:  Utilities.base64Encode(cvAtt.getBytes()),
+        mimeType:    cvAtt.getContentType(),
+        senderName:  extractNameFromHeader_(from_),
+        senderEmail: extractEmailFromHeader_(from_),
+        recruiter:   'bridge-catchup'
+      });
+
+      if (result.ok) {
+        processed++;
+        if (label) thread.addLabel(label);
+      } else if (result.status === 'DUPLICATE') {
+        duplicates++;
+        if (label) thread.addLabel(label);
+      } else {
+        errors.push({ threadId: thread.getId(), error: result.error || 'uploadCV_ failed' });
+      }
+    } catch(e) {
+      errors.push({ threadId: thread.getId(), error: e.message });
+    }
+
+    Utilities.sleep(300); // throttle
+  });
+
+  return {
+    ok:         true,
+    found:      threads.length,
+    processed:  processed,
+    duplicates: duplicates,
+    skipped:    skipped,
+    errors:     errors,
+    summary:    'CV catch-up: found ' + threads.length + ', parsed ' + processed +
+                ', duplicates ' + duplicates + ', errors ' + errors.length
+  };
+}
+
+// ── Type B: Catch-up for reply threads (candidate text replies + optional CV) ─
+// Candidates reply to "Action Required" with DOB, location, passport, or a new CV.
+// Uses Gemini to extract structured fields from the reply body text.
+function catchUpReplyEmails_(params) {
+  params = params || {};
+  var batchSize = Math.min(20, parseInt(params.batchSize||'20') || 20);
+
+  var query = 'subject:"Action Required: Complete Your Application" ' + SKIP_LABELS_;
+  var threads = [];
+  try { threads = GmailApp.search(query, 0, batchSize); }
+  catch(e) { return { ok:false, error:'Gmail search failed: ' + e.message }; }
+
+  var ss          = SpreadsheetApp.openById(SS_ID);
+  var label       = getBridgeLabel_();
+  var candSheet   = ss.getSheetByName('Candidates');
+  var processed   = 0, notFound = 0, errors = [];
+
+  threads.forEach(function(thread) {
+    var allMsgs = thread.getMessages();
+    // Find the candidate reply (not the original outgoing message)
+    var replyMsg = null;
+    for (var m = 0; m < allMsgs.length; m++) {
+      var from_ = extractEmailFromHeader_(allMsgs[m].getFrom());
+      if (from_ !== 'ai@alyousufent.com') { replyMsg = allMsgs[m]; break; }
+    }
+    if (!replyMsg) { notFound++; return; }
+
+    var fromEmail = extractEmailFromHeader_(replyMsg.getFrom());
+    var bodyText  = replyMsg.getPlainBody().slice(0, 2000);
+
+    // 1. Check if reply has a CV attachment — process as full CV
+    var cvAtt = null;
+    var atts  = replyMsg.getAttachments();
+    for (var a = 0; a < atts.length; a++) {
+      var n = atts[a].getName().toLowerCase();
+      if (n.endsWith('.pdf') || n.endsWith('.doc') || n.endsWith('.docx')) {
+        cvAtt = atts[a]; break;
+      }
+    }
+
+    if (cvAtt) {
+      try {
+        var result = uploadCV_({
+          fileName:    cvAtt.getName(),
+          fileBase64:  Utilities.base64Encode(cvAtt.getBytes()),
+          mimeType:    cvAtt.getContentType(),
+          senderName:  extractNameFromHeader_(replyMsg.getFrom()),
+          senderEmail: fromEmail,
+          recruiter:   'bridge-catchup-reply'
+        });
+        if (result.ok || result.status === 'DUPLICATE') {
+          processed++;
+          if (label) thread.addLabel(label);
+        }
+      } catch(e) {
+        errors.push({ threadId: thread.getId(), error: e.message });
+      }
+      Utilities.sleep(300);
+      return;
+    }
+
+    // 2. No CV — parse text reply with Gemini and update existing candidate
+    var existingKaiNo = findCandidateByEmail_(ss, fromEmail);
+    if (!existingKaiNo) { notFound++; return; }
+
+    var fields = parseReplyTextWithGemini_(bodyText);
+    if (!fields || Object.keys(fields).length === 0) { notFound++; return; }
+
+    try {
+      var updateResult = updateCandidateFields_({
+        kaiNo:   existingKaiNo,
+        fields:  fields,
+        recruiter: 'bridge-catchup-reply'
+      });
+      if (updateResult.ok) {
+        processed++;
+        if (label) thread.addLabel(label);
+      }
+    } catch(e) {
+      errors.push({ threadId: thread.getId(), error: e.message });
+    }
+
+    Utilities.sleep(300);
+  });
+
+  return {
+    ok:        true,
+    found:     threads.length,
+    processed: processed,
+    notFound:  notFound,
+    errors:    errors,
+    summary:   'Reply catch-up: found ' + threads.length + ', processed ' +
+               processed + ', not matched ' + notFound + ', errors ' + errors.length
+  };
+}
+
+// Finds a candidate's kaiNo by their email address
+function findCandidateByEmail_(ss, email) {
+  if (!email) return null;
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var data = sheet.getRange(2, COL.email, sheet.getLastRow()-1, 1).getValues();
+  var kaiData = sheet.getRange(2, COL.kaiNo, sheet.getLastRow()-1, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]||'').trim().toLowerCase() === email.toLowerCase()) {
+      return String(kaiData[i][0]||'').trim() || null;
+    }
+  }
+  return null;
+}
+
+// Uses Gemini to extract structured fields from a candidate reply body
+function parseReplyTextWithGemini_(text) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey || !text || text.length < 5) return {};
+  try {
+    var prompt =
+      'A GCC job candidate replied to a recruitment email. Extract only the fields they provided.\n' +
+      'Return ONLY valid JSON with these optional fields (omit fields not mentioned):\n' +
+      '{"dob":"yyyy-MM-dd or freetext","currentLocation":"","gulfExp":"","passportNo":"","ecrStatus":"ECR or ECNR","noticeDays":0,"mobile":"","email":""}\n' +
+      'Candidate reply text:\n' + text;
+    var resp = UrlFetchApp.fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+      { method:'post', contentType:'application/json', muteHttpExceptions:true,
+        payload: JSON.stringify({ contents:[{ parts:[{ text:prompt }] }],
+          generationConfig:{ temperature:0, maxOutputTokens:300 } }) }
+    );
+    var raw = JSON.parse(resp.getContentText());
+    if (!raw.candidates || !raw.candidates[0]) return {};
+    var txt = String(raw.candidates[0].content.parts[0].text||'')
+      .replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    return JSON.parse(txt);
+  } catch(e) { return {}; }
+}
+
+// Ensures bridge label exists (creates if missing)
+function getBridgeLabel_() {
+  try {
+    var l = GmailApp.getUserLabelByName(BRIDGE_LABEL_);
+    return l || GmailApp.createLabel(BRIDGE_LABEL_);
+  } catch(e) { return null; }
+}
+
+// ── Trigger Management ────────────────────────────────────────────────────────
+function installCatchUpTrigger_() {
+  // Remove any existing catch-up triggers first
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'catchUpMissedEmails' ||
+        t.getHandlerFunction() === 'catchUpReplyEmails') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('catchUpMissedEmails').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('catchUpReplyEmails').timeBased().everyHours(1).create();
+  return { ok:true, message:'Hourly catch-up triggers installed for CV emails + reply emails' };
+}
+
+function removeCatchUpTrigger_() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'catchUpMissedEmails' ||
+        t.getHandlerFunction() === 'catchUpReplyEmails') {
+      ScriptApp.deleteTrigger(t); removed++;
+    }
+  });
+  return { ok:true, removed:removed };
+}
+
+function listCatchUpTriggers_() {
+  var triggers = ScriptApp.getProjectTriggers()
+    .filter(function(t){
+      return t.getHandlerFunction() === 'catchUpMissedEmails' ||
+             t.getHandlerFunction() === 'catchUpReplyEmails';
+    })
+    .map(function(t){
+      return { fn: t.getHandlerFunction(), type: t.getTriggerSource().toString() };
+    });
+  return { ok:true, triggers:triggers };
+}
+
+// ── Public GAS dropdown entry points ─────────────────────────────────────────
+function diagnosePipeline()     { Logger.log(JSON.stringify(diagnoseEmailPipeline_())); }
+function catchUpMissedEmails()  { Logger.log(JSON.stringify(catchUpMissedEmails_({}))); }
+function catchUpReplyEmails()   { Logger.log(JSON.stringify(catchUpReplyEmails_({}))); }
+function installCatchUpTrigger(){ Logger.log(JSON.stringify(installCatchUpTrigger_())); }
+function removeCatchUpTrigger() { Logger.log(JSON.stringify(removeCatchUpTrigger_())); }
+function listCatchUpTriggers()  { Logger.log(JSON.stringify(listCatchUpTriggers_())); }
