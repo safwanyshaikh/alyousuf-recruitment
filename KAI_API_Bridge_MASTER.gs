@@ -101,9 +101,11 @@ function doGet(e) {
     else if (action === 'matchAudit')       out = JSON.stringify(getMatchAudit_(params));
     else if (action === 'tradeAffinity')    out = JSON.stringify(getTradeAffinity_(params));
     else if (action === 'whatsappLink')     out = JSON.stringify(getWhatsAppLink_(params));
-    else if (action === 'reEvaluate')       out = JSON.stringify(reEvaluateCandidatesT14_(params));
-    else if (action === 'emailAudit')       out = JSON.stringify(diagnoseEmailPipeline_());
-    else if (action === 'enrichTop3')       out = JSON.stringify(enrichTop3Positions_(params));
+    else if (action === 'reEvaluate')          out = JSON.stringify(reEvaluateCandidatesT14_(params));
+    else if (action === 'emailAudit')          out = JSON.stringify(diagnoseEmailPipeline_());
+    else if (action === 'enrichTop3')          out = JSON.stringify(enrichTop3Positions_(params));
+    else if (action === 'mobilizationStatus')  out = JSON.stringify(getMobilizationStatus_(params));
+    else if (action === 'bulkDocStatus')       out = JSON.stringify(getBulkDocStatus_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -145,7 +147,8 @@ function doPost(e) {
     else if (action === 'splitJDToRequirements')  out = JSON.stringify(splitJDToRequirements_(body));
     else if (action === 'whatsappIntake')          out = JSON.stringify(whatsappIntake_(body));
     else if (action === 'parseJDFile')            out = JSON.stringify(parseJDFile_(body));
-    else if (action === 'sendMissingInfoDraft')   out = JSON.stringify(sendMissingInfoDraft_(body));
+    else if (action === 'sendMissingInfoDraft')    out = JSON.stringify(sendMissingInfoDraft_(body));
+    else if (action === 'createDocEmailDrafts')   out = JSON.stringify(createDocEmailDrafts_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -4407,3 +4410,290 @@ function enrichTop3Positions_(params) {
 
 function enrichTop3Positions()     { Logger.log(JSON.stringify(enrichTop3Positions_({ limit:'50' }))); }
 function enrichTop3PositionsDry()  { Logger.log(JSON.stringify(enrichTop3Positions_({ limit:'10', dryRun:'true' }))); }
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 24 — MOBILIZATION READINESS + BULK DOCUMENT REQUEST
+// ════════════════════════════════════════════════════════════════════
+//
+// GET  ?action=mobilizationStatus&kaiNo=KAI-001&token=T
+//      → { stages[7], currentStage, currentLabel, blockers[], missing[] }
+//
+// GET  ?action=bulkDocStatus&kaiNos=KAI-001,KAI-002&token=T
+//      → { candidates[{kaiNo,name,mobile,email,missing[],waLink,message}], needsDocs }
+//   OR ?action=bulkDocStatus&filter=hasMissing&limit=100&token=T
+//      → all candidates with missing fields
+//
+// POST action=createDocEmailDrafts body:{kaiNos:[],note:''}
+//      → creates one Gmail draft per candidate who has email; returns { drafted, noEmail }
+// ════════════════════════════════════════════════════════════════════
+
+// 7-stage mobilization pipeline — "package delivery" model
+var MOBIL_STAGES_ = [
+  { id:1, label:'Registered',      desc:'Profile created in KAI OS' },
+  { id:2, label:'CV Profiled',     desc:'Trade verified, CV scored' },
+  { id:3, label:'Docs Ready',      desc:'All key info collected' },
+  { id:4, label:'Shortlisted',     desc:'Added to a live requirement' },
+  { id:5, label:'Client Sent',     desc:'Submitted to client for review' },
+  { id:6, label:'Offer / Visa',    desc:'Selected or offer issued' },
+  { id:7, label:'Deployed',        desc:'Candidate on-site, deployed' }
+];
+
+function computeMobilizationIndex_(row) {
+  var stage   = String(row[COL.stage-1]||'').trim();
+  var score   = parseFloat(row[COL.score-1])||0;
+  var trade   = String(row[COL.trade-1]||'').trim();
+  var pos     = String(row[COL.positionApplied-1]||'').trim();
+  var mf      = String(row[COL.missingFields-1]||'').trim();
+
+  var hasTrade   = !!(trade || pos);
+  var docsReady  = !mf; // missingFields column is blank
+
+  var idx = 1; // REGISTERED
+  if (score > 0 && hasTrade) idx = 2; // CV PROFILED
+  if (idx >= 2 && docsReady) idx = 3; // DOCS READY
+
+  var SHORTLIST  = ['Shortlisted','Client Sent','Client Selected','Offer Issued','Visa Processing','Deployed'];
+  var SUBMITTED  = ['Client Sent','Client Selected','Offer Issued','Visa Processing','Deployed'];
+  var SELECTED   = ['Client Selected','Offer Issued','Visa Processing','Deployed'];
+  var DEPLOYED   = ['Deployed'];
+
+  if (SHORTLIST.indexOf(stage) >= 0) idx = Math.max(idx, 4);
+  if (SUBMITTED.indexOf(stage) >= 0) idx = Math.max(idx, 5);
+  if (SELECTED.indexOf(stage)  >= 0) idx = Math.max(idx, 6);
+  if (DEPLOYED.indexOf(stage)  >= 0) idx = 7;
+
+  return idx;
+}
+
+function getMobilizationStatus_(params) {
+  var kaiNo = String(params.kaiNo||'').trim();
+  if (!kaiNo) return { ok:false, error:'kaiNo required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL.kaiNo-1]).trim() !== kaiNo) continue;
+
+    var idx  = computeMobilizationIndex_(data[i]);
+    var mf   = String(data[i][COL.missingFields-1]||'').trim();
+    var missing = mf ? mf.split(',').filter(Boolean) : [];
+
+    var stages = MOBIL_STAGES_.map(function(s) {
+      return {
+        id:     s.id,
+        label:  s.label,
+        desc:   s.desc,
+        status: s.id < idx  ? 'done' :
+                s.id === idx ? 'current' : 'pending'
+      };
+    });
+
+    // What's blocking the next stage
+    var blockers = [];
+    if (idx === 1) blockers.push('CV not yet scored or trade not identified');
+    if (idx === 2 && missing.length) blockers.push('Missing: ' + missing.join(', '));
+    if (idx === 3) blockers.push('Not yet added to a live requirement');
+
+    return {
+      ok:           true,
+      kaiNo:        kaiNo,
+      currentStage: idx,
+      currentLabel: MOBIL_STAGES_[idx-1].label,
+      stages:       stages,
+      blockers:     blockers,
+      missing:      missing,
+      percentComplete: Math.round((idx / 7) * 100)
+    };
+  }
+  return { ok:false, error:'Candidate not found: ' + kaiNo };
+}
+
+// Build WA message + link for one candidate row
+function buildDocRequestMessage_(kaiNo, cand, missing) {
+  var firstName = (cand.name||'Candidate').split(' ')[0];
+  var lines = [
+    'Hi ' + firstName + ',',
+    '',
+    'Al Yousuf Enterprises LLP — Recruitment Team.',
+    'Your application (Ref: ' + kaiNo + ') is progressing.',
+    '',
+    'To move your candidacy forward, please share:',
+    ''
+  ];
+  missing.forEach(function(m) { lines.push('  • ' + m.label); });
+  lines.push('');
+  lines.push('Please reply with these details at your earliest convenience.');
+  lines.push('');
+  lines.push('Thank you,');
+  lines.push('Al Yousuf Enterprises LLP');
+  return lines.join('\n');
+}
+
+// GET ?action=bulkDocStatus&kaiNos=KAI-001,KAI-002&token=T
+// OR  ?action=bulkDocStatus&filter=hasMissing&limit=100&token=T
+function getBulkDocStatus_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data          = sheet.getDataRange().getValues();
+  var kaiNosRaw     = String(params.kaiNos||'').trim();
+  var filter        = String(params.filter||'').trim().toLowerCase();
+  var limit         = parseInt(params.limit||'200') || 200;
+  var targetSet     = kaiNosRaw
+    ? kaiNosRaw.split(',').reduce(function(m,k){ m[k.trim()]=1; return m; }, {})
+    : null;
+
+  var results = [];
+  for (var i = 1; i < data.length && results.length < limit; i++) {
+    var rowKaiNo = String(data[i][COL.kaiNo-1]||'').trim();
+    if (!rowKaiNo) continue;
+    if (targetSet && !targetSet[rowKaiNo]) continue;
+
+    var mf = String(data[i][COL.missingFields-1]||'').trim();
+    if (filter === 'hasmissing' && !mf) continue;
+
+    var cand = {
+      name:            String(data[i][COL.name-1]||'').trim(),
+      mobile:          String(data[i][COL.mobile-1]||'').trim(),
+      email:           String(data[i][COL.email-1]||'').trim(),
+      trade:           String(data[i][COL.trade-1]||'').trim(),
+      positionApplied: String(data[i][COL.positionApplied-1]||'').trim(),
+      nationality:     String(data[i][COL.nationality-1]||'').trim(),
+      gulfExp:         String(data[i][COL.gulfExp-1]||'').trim(),
+      education:       String(data[i][COL.education-1]||'').trim(),
+      dob:             String(data[i][COL.dob-1]||'').trim(),
+      age:             parseInt(data[i][COL.age-1])||0,
+      passportNo:      extractPassportNo_(data[i][COL.kaiAssessment-1], data[i][COL.notes-1])
+    };
+
+    var missing = computeMissingFields_(cand);
+    var mob     = normalizeMobile_(cand.mobile);
+    var waLink  = '';
+    var message = '';
+    if (mob && missing.length) {
+      message = buildDocRequestMessage_(rowKaiNo, cand, missing);
+      waLink  = 'https://wa.me/' + mob + '?text=' + encodeURIComponent(message);
+    }
+
+    results.push({
+      kaiNo:      rowKaiNo,
+      name:       cand.name,
+      mobile:     cand.mobile,
+      email:      cand.email,
+      missing:    missing,
+      waLink:     waLink,
+      message:    message,
+      hasMobile:  !!mob,
+      hasEmail:   !!(cand.email && cand.email.indexOf('@') > 0),
+      allComplete: missing.length === 0,
+      mobilizationIndex: computeMobilizationIndex_(data[i])
+    });
+  }
+
+  return {
+    ok:        true,
+    total:     results.length,
+    needsDocs: results.filter(function(r){ return r.missing.length > 0; }).length,
+    candidates: results
+  };
+}
+
+// POST action=createDocEmailDrafts
+// body: { kaiNos: ['KAI-001','KAI-002',...], note: '' }
+// Creates one Gmail draft per candidate who has an email address + missing fields
+function createDocEmailDrafts_(body) {
+  var kaiNos  = body.kaiNos  || [];
+  var noteExtra = String(body.note||'').trim();
+
+  if (!kaiNos.length) return { ok:false, error:'kaiNos array required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+
+  var data = sheet.getDataRange().getValues();
+
+  // Build index for fast kaiNo lookup
+  var idx = {};
+  for (var i = 1; i < data.length; i++) {
+    var k = String(data[i][COL.kaiNo-1]||'').trim();
+    if (k) idx[k] = i;
+  }
+
+  var drafted  = 0;
+  var noEmail  = 0;
+  var complete = 0;
+  var errors   = [];
+
+  kaiNos.forEach(function(kaiNo) {
+    kaiNo = String(kaiNo).trim();
+    var i = idx[kaiNo];
+    if (i === undefined) { errors.push({ kaiNo:kaiNo, error:'Not found' }); return; }
+
+    var cand = {
+      name:            String(data[i][COL.name-1]||'').trim(),
+      mobile:          String(data[i][COL.mobile-1]||'').trim(),
+      email:           String(data[i][COL.email-1]||'').trim(),
+      trade:           String(data[i][COL.trade-1]||'').trim(),
+      positionApplied: String(data[i][COL.positionApplied-1]||'').trim(),
+      nationality:     String(data[i][COL.nationality-1]||'').trim(),
+      gulfExp:         String(data[i][COL.gulfExp-1]||'').trim(),
+      education:       String(data[i][COL.education-1]||'').trim(),
+      dob:             String(data[i][COL.dob-1]||'').trim(),
+      age:             parseInt(data[i][COL.age-1])||0,
+      passportNo:      extractPassportNo_(data[i][COL.kaiAssessment-1], data[i][COL.notes-1])
+    };
+
+    var missing = computeMissingFields_(cand);
+    if (!missing.length) { complete++; return; }
+
+    var email = cand.email;
+    if (!email || email.indexOf('@') < 0) { noEmail++; return; }
+
+    try {
+      var subject = 'Documents Required — Al Yousuf Enterprises (Ref: ' + kaiNo + ')';
+      var bodyText =
+        'Dear ' + (cand.name || 'Candidate') + ',\n\n' +
+        'Thank you for your interest in opportunities with Al Yousuf Enterprises LLP.\n\n' +
+        'Your application (Reference: ' + kaiNo + ') is currently under review. ' +
+        'To proceed with your candidacy, we require the following information/documents:\n\n' +
+        missing.map(function(m){ return '    • ' + m.label; }).join('\n') + '\n\n' +
+        (noteExtra ? noteExtra + '\n\n' : '') +
+        'Please reply to this email with the requested details at your earliest convenience.\n\n' +
+        'Best regards,\n' +
+        'Recruitment Team\n' +
+        'Al Yousuf Enterprises LLP\n' +
+        'Email: ai@alyousufent.com';
+
+      GmailApp.createDraft(email, subject, bodyText);
+      drafted++;
+      sheet.getRange(i+1, COL.lastContact).setValue(new Date());
+      logActivity_(ss, { kaiNo:kaiNo, rowIndex:i, action:'EMAIL_DRAFT_CREATED',
+        detail:'Missing: ' + missing.map(function(m){return m.label;}).join(', '),
+        actor: body.actor||'recruiter' });
+    } catch(e) {
+      errors.push({ kaiNo:kaiNo, error:e.message });
+    }
+  });
+
+  return {
+    ok:       true,
+    drafted:  drafted,
+    noEmail:  noEmail,
+    complete: complete,
+    errors:   errors.length,
+    total:    kaiNos.length,
+    summary:  drafted + ' email drafts created in Gmail. ' +
+              'Open Gmail (ai@alyousufent.com) to review and send. ' +
+              noEmail + ' had no email address. ' +
+              complete + ' already had complete profiles.'
+  };
+}
+
+// Public test wrappers
+function testMobilizationStatus()  { Logger.log(JSON.stringify(getMobilizationStatus_({ kaiNo:'' }))); }
+function testBulkDocStatusDry()    { Logger.log(JSON.stringify(getBulkDocStatus_({ filter:'hasMissing', limit:'5' }))); }
