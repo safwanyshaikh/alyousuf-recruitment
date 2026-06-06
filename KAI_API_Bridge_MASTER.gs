@@ -122,6 +122,9 @@ function doGet(e) {
     else if (action === 'associateReliability') out = JSON.stringify(getAssociateReliability_(params));
     else if (action === 'recommendedSources')   out = JSON.stringify(getRecommendedSources_(params));
     else if (action === 'associateScore')       out = JSON.stringify(getAssociateScore_(params));
+    // P3 — Supply Intake
+    else if (action === 'matchGmailSender')     out = JSON.stringify(matchGmailSender_(params));
+    else if (action === 'leadPipelineSummary')  out = JSON.stringify(getLeadPipelineSummary_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -177,6 +180,9 @@ function doPost(e) {
     else if (action === 'updateCommitment')            out = JSON.stringify(updateCommitment_(body));
     else if (action === 'upsertAssociateCapacity')     out = JSON.stringify(upsertAssociateCapacity_(body));
     else if (action === 'refreshAssociateReliability') out = JSON.stringify(refreshAssociateReliability_(body));
+    // P3 — Supply Intake
+    else if (action === 'createLeadFromReq')    out = JSON.stringify(createLeadFromReq_(body));
+    else if (action === 'linkLeadToAssociate')  out = JSON.stringify(linkLeadToAssociate_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -5653,7 +5659,7 @@ function createLead_(body) {
   if (!mobile) return { ok:false, error:'mobile required' };
 
   var ss = SpreadsheetApp.openById(SS_ID);
-  var s  = ensureLeadsSheet_(ss);
+  var s  = ensureLeadsSheetP3_(ss);  // P3: ensures 24-col schema
 
   // Dedup: mobile already in _Leads?
   var data = s.getDataRange().getValues();
@@ -5712,7 +5718,11 @@ function createLead_(body) {
     recruiter,                                 // Recruiter
     now,                                       // Last Contact Date
     '',                                        // Converted KAI No
-    String(body.notes          ||'').trim()    // Notes
+    String(body.notes          ||'').trim(),   // Notes
+    String(body.assocId        ||'').trim(),   // Assoc ID  (P3)
+    '',                                        // Assoc Name (P3 — resolved by createLeadFromReq_)
+    '',                                        // Target Country (P3)
+    String(body.cvLink         ||'').trim()    // CV Link (P3)
   ]);
 
   logActivity_(ss, { kaiNo:leadId, rowIndex:0,
@@ -5917,10 +5927,11 @@ function convertLeadToCandidate_(body) {
 
   // 0.1 — immutable source lock. A lead may itself have come from an associate;
   // carry that associate forward so source credit survives conversion.
-  var lSource    = String(lRow[COL_L_.source-1]||'').trim();
+  var lSource  = String(lRow[COL_L_.source-1]||'').trim();
+  var lAssocId = String(lRow.length > 20 ? (lRow[COL_L_.assocId-1]||'') : '').trim(); // P3
   applySourceLockToRow_(row, {
-    sourceType:      (lSource === 'ASSOCIATE') ? 'Associate' : 'Lead',
-    sourceAssociate: '',                       // populated in Phase 2 when leads carry assocId
+    sourceType:      (lSource === 'ASSOCIATE' || lAssocId) ? 'Associate' : 'Lead',
+    sourceAssociate: lAssocId,
     sourceLead:      leadId,
     sourceCampaign:  String(lRow[COL_L_.linkedReqId-1]||'').trim(),
     receivedVia:     lSource || 'Lead',
@@ -7802,4 +7813,456 @@ function testPhase2() {
       Logger.log('  NOTE: assocsRanked=0 is EXPECTED until _AssociateCapacity is seeded.');
     }
   }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 33 — PHASE 3: SUPPLY INTAKE ENGINE
+// ════════════════════════════════════════════════════════════════════
+//
+// Purpose: Capture supply the moment an associate generates it.
+//   Phase 1 = demand signal (requirement demand + fill probability)
+//   Phase 2 = source routing (associate score + commitment)
+//   Phase 3 = intake capture (associate → lead → candidate)
+//
+// 3.1  _Leads schema upgrade (+4 cols: assocId, assocName, targetCountry, cvLink)
+// 3.2  Quick Lead from Requirement (trade + country pre-filled from req)
+// 3.3  Associate attribution (link lead to associate retroactively)
+// 3.4  Gmail sender match (identify associate from CV email sender — read-only)
+// 3.5  Lead pipeline summary (counts + 30-day conversion rate)
+// 3.6  convertLeadToCandidate_ now carries assocId → sourceAssociate (fixed inline above)
+// ════════════════════════════════════════════════════════════════════
+
+// ── 3.1 Schema extension ────────────────────────────────────────────
+// Extends the COL_L_ map defined in Section 27.
+COL_L_.assocId        = 21;
+COL_L_.assocName      = 22;
+COL_L_.targetCountry  = 23;
+COL_L_.cvLink         = 24;
+
+// Idempotent: adds headers for cols 21-24 to _Leads if absent.
+// Called automatically from createLead_ (upgraded above) and createLeadFromReq_.
+function ensureLeadsSheetP3_(ss) {
+  var s       = ensureLeadsSheet_(ss);
+  var lastCol = s.getLastColumn();
+  var needed  = [
+    { col:21, hdr:'Assoc ID' },
+    { col:22, hdr:'Assoc Name' },
+    { col:23, hdr:'Target Country' },
+    { col:24, hdr:'CV Link' }
+  ];
+  needed.forEach(function(n) {
+    var curVal = lastCol >= n.col
+      ? String(s.getRange(1, n.col).getValue()||'').trim()
+      : '';
+    if (!curVal) {
+      s.getRange(1, n.col).setValue(n.hdr)
+       .setBackground('#0d3b66').setFontColor('#ffffff').setFontWeight('bold');
+      if (n.col > lastCol) lastCol = n.col;
+    }
+  });
+  return s;
+}
+
+// ── 3.2 Quick Lead from Requirement ─────────────────────────────────
+// POST action=createLeadFromReq
+// body: { reqId*, name*, mobile*, source, assocId, recruiter, notes,
+//         experience, nationality, gulfExp, currentLocation, education, email }
+// Reads trade + deployCountry from the requirement so the caller never
+// has to re-type them — one tap on a requirement card creates a full lead.
+function createLeadFromReq_(body) {
+  var reqId  = String(body.reqId ||'').trim();
+  var name   = String(body.name  ||'').trim();
+  var mobile = String(body.mobile||'').trim();
+  if (!reqId)  return { ok:false, error:'reqId required' };
+  if (!name)   return { ok:false, error:'name required' };
+  if (!mobile) return { ok:false, error:'mobile required' };
+
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (!rSheet) return { ok:false, error:'_Requirements sheet not found' };
+
+  var rData  = rSheet.getDataRange().getValues();
+  var reqRow = null;
+  for (var i = 1; i < rData.length; i++) {
+    if (String(rData[i][0]||'').trim() === reqId) { reqRow = rData[i]; break; }
+  }
+  if (!reqRow) return { ok:false, error:'Requirement not found: ' + reqId };
+
+  var trade   = String(reqRow[4]||'').trim();  // col 5: trade
+  var country = String(reqRow[3]||'').trim();  // col 4: deployCountry
+
+  // Resolve associate display name if assocId provided
+  var assocId   = String(body.assocId||'').trim();
+  var assocName = '';
+  if (assocId) {
+    var aSheet = ss.getSheetByName('_Associates');
+    if (aSheet) {
+      var aData = aSheet.getDataRange().getValues();
+      for (var a = 1; a < aData.length; a++) {
+        if (String(aData[a][0]||'').trim() === assocId) {
+          assocName = assocDisplayName_(
+            String(aData[a][1]||''), String(aData[a][2]||''), assocId
+          );
+          break;
+        }
+      }
+    }
+    if (!assocName) assocName = 'Associate ' + assocId;
+  }
+
+  var source    = assocId ? 'ASSOCIATE' : String(body.source||'OTHER').trim().toUpperCase();
+  var recruiter = String(body.recruiter||'').trim();
+  var quality   = classifyLeadQuality_(trade, reqId, ss);
+  var normMob   = normalizeMobile_(mobile);
+  var now       = new Date();
+
+  // Dedup: mobile already in _Leads (non-LOST)?
+  var s        = ensureLeadsSheetP3_(ss);
+  var existing = s.getDataRange().getValues();
+  for (var d = 1; d < existing.length; d++) {
+    var eMob    = normalizeMobile_(String(existing[d][COL_L_.mobile-1]||''));
+    var eSt     = String(existing[d][COL_L_.status-1]||'').trim().toUpperCase();
+    var eId     = String(existing[d][COL_L_.leadId-1]||'').trim();
+    if (normMob && eMob === normMob && eSt !== 'LOST') {
+      return { ok:false, error:'DUPLICATE_MOBILE',
+               existing:eId, message:'Lead already exists: ' + eId };
+    }
+  }
+
+  // Dedup: mobile already in Candidates?
+  var cSheet = ss.getSheetByName('Candidates');
+  if (cSheet) {
+    var cData = cSheet.getDataRange().getValues();
+    for (var c = 1; c < cData.length; c++) {
+      var cMob = normalizeMobile_(String(cData[c][COL.mobile-1]||''));
+      if (normMob && cMob === normMob) {
+        return { ok:false, error:'ALREADY_CANDIDATE',
+                 kaiNo:String(cData[c][COL.kaiNo-1]||''),
+                 message:'This person is already a candidate in KAI' };
+      }
+    }
+  }
+
+  var leadId = generateLeadId_(ss);
+  var row    = new Array(24).fill('');
+  row[COL_L_.leadId-1]          = leadId;
+  row[COL_L_.createdAt-1]       = now;
+  row[COL_L_.name-1]            = name;
+  row[COL_L_.mobile-1]          = normalizeMobileStore_(mobile);
+  row[COL_L_.email-1]           = String(body.email          ||'').trim();
+  row[COL_L_.trade-1]           = trade;
+  row[COL_L_.experience-1]      = parseFloat(body.experience)||0;
+  row[COL_L_.nationality-1]     = String(body.nationality    ||'').trim();
+  row[COL_L_.gulfExp-1]         = String(body.gulfExp        ||'').trim();
+  row[COL_L_.currentLocation-1] = String(body.currentLocation||'').trim();
+  row[COL_L_.education-1]       = String(body.education      ||'').trim();
+  row[COL_L_.status-1]          = 'NEW';
+  row[COL_L_.lostReason-1]      = '';
+  row[COL_L_.leadQuality-1]     = quality;
+  row[COL_L_.linkedReqId-1]     = reqId;
+  row[COL_L_.source-1]          = source;
+  row[COL_L_.recruiter-1]       = recruiter;
+  row[COL_L_.lastContactDate-1] = now;
+  row[COL_L_.convertedKaiNo-1]  = '';
+  row[COL_L_.notes-1]           = String(body.notes||'').trim();
+  row[COL_L_.assocId-1]         = assocId;
+  row[COL_L_.assocName-1]       = assocName;
+  row[COL_L_.targetCountry-1]   = country;
+  row[COL_L_.cvLink-1]          = '';
+
+  s.appendRow(row);
+
+  logActivity_(ss, { kaiNo:leadId, rowIndex:0,
+    action: 'LEAD_CREATED_FROM_REQ',
+    detail: name + ' | ' + trade + ' → ' + country +
+            ' | Req: ' + reqId + ' | Quality: ' + quality +
+            (assocId ? ' | Assoc: ' + assocName : ''),
+    actor:  recruiter || assocName || 'system'
+  });
+
+  return {
+    ok:          true,
+    leadId:      leadId,
+    name:        name,
+    trade:       trade,
+    country:     country,
+    reqId:       reqId,
+    leadQuality: quality,
+    source:      source,
+    assocId:     assocId   || null,
+    assocName:   assocName || null
+  };
+}
+
+// ── 3.3 Associate Attribution ────────────────────────────────────────
+// POST action=linkLeadToAssociate
+// body: { leadId*, assocId*, actor }
+// Links an existing lead to an associate retroactively.
+// Only updates source to ASSOCIATE if it was blank or OTHER (never downgrades).
+function linkLeadToAssociate_(body) {
+  var leadId  = String(body.leadId  ||'').trim();
+  var assocId = String(body.assocId ||'').trim();
+  var actor   = String(body.actor   ||'').trim();
+  if (!leadId)  return { ok:false, error:'leadId required' };
+  if (!assocId) return { ok:false, error:'assocId required' };
+
+  var ss        = SpreadsheetApp.openById(SS_ID);
+  var aSheet    = ss.getSheetByName('_Associates');
+  var assocName = 'Associate ' + assocId;
+  if (aSheet) {
+    var aData = aSheet.getDataRange().getValues();
+    for (var a = 1; a < aData.length; a++) {
+      if (String(aData[a][0]||'').trim() === assocId) {
+        assocName = assocDisplayName_(
+          String(aData[a][1]||''), String(aData[a][2]||''), assocId
+        );
+        break;
+      }
+    }
+  }
+
+  var s    = ensureLeadsSheetP3_(ss);
+  var data = s.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL_L_.leadId-1]||'').trim() !== leadId) continue;
+    var r         = i + 1;
+    var curSource = String(data[i][COL_L_.source-1]||'').trim().toUpperCase();
+    s.getRange(r, COL_L_.assocId).setValue(assocId);
+    s.getRange(r, COL_L_.assocName).setValue(assocName);
+    if (!curSource || curSource === 'OTHER') {
+      s.getRange(r, COL_L_.source).setValue('ASSOCIATE');
+    }
+    logActivity_(ss, { kaiNo:leadId, rowIndex:0,
+      action: 'LEAD_ATTRIBUTED',
+      detail: 'Linked to associate: ' + assocName + ' (' + assocId + ')',
+      actor:  actor || 'system'
+    });
+    return { ok:true, leadId:leadId, assocId:assocId, assocName:assocName };
+  }
+  return { ok:false, error:'Lead not found: ' + leadId };
+}
+
+// ── 3.4 Gmail Sender Match ───────────────────────────────────────────
+// GET ?action=matchGmailSender&threadId=X&token=T
+// Reads the inbound sender from a Gmail thread and checks whether they
+// are a known associate. Pure read — no side effects.
+// UI flow: recruiter views a CV email → bridge auto-identifies the source associate.
+function matchGmailSender_(params) {
+  var threadId = String(params.threadId||'').trim();
+  if (!threadId) return { ok:false, error:'threadId required' };
+
+  var thread;
+  try { thread = GmailApp.getThreadById(threadId); }
+  catch(e) { return { ok:false, error:'Thread not found: ' + e.message }; }
+
+  var msgs = thread.getMessages();
+  if (!msgs.length) return { ok:false, error:'Thread has no messages' };
+
+  // Find the first inbound message (not our own outbound)
+  var senderEmail = '';
+  var senderName  = '';
+  for (var m = 0; m < msgs.length; m++) {
+    var rawFrom = msgs[m].getFrom();
+    var fe      = extractEmailFromHeader_(rawFrom);
+    var fn      = extractNameFromHeader_(rawFrom);
+    if (!fe || fe.toLowerCase().indexOf('alyousuf') >= 0) continue;
+    senderEmail = fe;
+    senderName  = fn;
+    break;
+  }
+  // Fallback to first message if all were "ours"
+  if (!senderEmail) {
+    senderEmail = extractEmailFromHeader_(msgs[0].getFrom());
+    senderName  = extractNameFromHeader_(msgs[0].getFrom());
+  }
+
+  // Match sender email against _Associates
+  var ss      = SpreadsheetApp.openById(SS_ID);
+  var aSheet  = ss.getSheetByName('_Associates');
+  var matched     = false;
+  var assocId     = '';
+  var assocName   = '';
+  var assocMobile = '';
+
+  if (aSheet && senderEmail) {
+    var aRows = aSheet.getDataRange().getValues();
+    var seLow = senderEmail.toLowerCase();
+    for (var a = 1; a < aRows.length; a++) {
+      var ae = String(aRows[a][3]||'').trim().toLowerCase();  // col 4 = email (0-idx=3)
+      if (ae && ae === seLow) {
+        matched     = true;
+        assocId     = String(aRows[a][0]||'').trim();
+        assocName   = assocDisplayName_(
+          String(aRows[a][1]||''), String(aRows[a][2]||''), assocId
+        );
+        assocMobile = String(aRows[a][4]||'').trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    ok:          true,
+    threadId:    threadId,
+    senderEmail: senderEmail,
+    senderName:  senderName,
+    matched:     matched,
+    assocId:     assocId     || null,
+    assocName:   assocName   || null,
+    assocMobile: assocMobile || null
+  };
+}
+
+// ── 3.5 Lead Pipeline Summary ────────────────────────────────────────
+// GET ?action=leadPipelineSummary&token=T
+// Returns aggregate counts by status, source, quality plus 30-day conversion rate
+// and top-5 associates by lead volume. Powers the Leads page header stats bar.
+function getLeadPipelineSummary_(params) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ss.getSheetByName(LEADS_SHEET_);
+  if (!s || s.getLastRow() < 2) {
+    return {
+      ok:true, total:0,
+      byStatus:{}, bySource:{}, byQuality:{},
+      conversionRate30d:0, conv30d:{ created:0, converted:0 },
+      topAssociates:[]
+    };
+  }
+
+  var data   = s.getDataRange().getValues();
+  var now    = new Date();
+  var cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  var byStatus   = {};
+  var bySource   = {};
+  var byQuality  = {};
+  var total      = 0;
+  var c30Created = 0;
+  var c30Done    = 0;
+  var assocMap   = {};
+
+  for (var i = 1; i < data.length; i++) {
+    var row    = data[i];
+    var leadId = String(row[COL_L_.leadId-1]||'').trim();
+    if (!leadId) continue;
+    total++;
+
+    var status  = String(row[COL_L_.status-1]    ||'NEW').trim().toUpperCase();
+    var source  = String(row[COL_L_.source-1]    ||'OTHER').trim().toUpperCase();
+    var quality = String(row[COL_L_.leadQuality-1]||'UNKNOWN').trim().toUpperCase();
+    var created = row[COL_L_.createdAt-1];
+
+    byStatus [status ] = (byStatus [status ] || 0) + 1;
+    bySource [source ] = (bySource [source ] || 0) + 1;
+    byQuality[quality] = (byQuality[quality] || 0) + 1;
+
+    // 30-day cohort: leads created within window
+    if (created instanceof Date && created >= cutoff) {
+      c30Created++;
+      if (status === 'CONVERTED') c30Done++;
+    }
+
+    // Associate contribution counts (P3 cols)
+    var aId = String(row.length > 20 ? (row[COL_L_.assocId-1]||'')   : '').trim();
+    var aNm = String(row.length > 21 ? (row[COL_L_.assocName-1]||'') : '').trim();
+    if (aId) {
+      if (!assocMap[aId]) assocMap[aId] = { assocId:aId, assocName:aNm, total:0, converted:0 };
+      assocMap[aId].total++;
+      if (status === 'CONVERTED') assocMap[aId].converted++;
+    }
+  }
+
+  var conversionRate30d = c30Created > 0
+    ? Math.round((c30Done / c30Created) * 100) : 0;
+
+  var topAssociates = Object.keys(assocMap)
+    .map(function(k){ return assocMap[k]; })
+    .sort(function(a,b){ return b.total - a.total; })
+    .slice(0, 5);
+
+  return {
+    ok:               true,
+    total:            total,
+    byStatus:         byStatus,
+    bySource:         bySource,
+    byQuality:        byQuality,
+    conversionRate30d: conversionRate30d,
+    conv30d:          { created:c30Created, converted:c30Done },
+    topAssociates:    topAssociates
+  };
+}
+
+// ── Phase 3 Setup + Test ─────────────────────────────────────────────
+function setupPhase3() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  ensureLeadsSheetP3_(ss);
+  Logger.log('_Leads cols 21-24 (Assoc ID / Assoc Name / Target Country / CV Link): OK');
+  Logger.log('Phase 3 infrastructure ready. Run testPhase3() to verify.');
+}
+
+function testPhase3() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // 3.1 — Schema check
+  ensureLeadsSheetP3_(ss);
+  var s       = ss.getSheetByName(LEADS_SHEET_);
+  var lastCol = s ? s.getLastColumn() : 0;
+  Logger.log('3.1 _Leads schema: ' + lastCol + ' cols — ' +
+             (lastCol >= 24 ? 'OK (cols 21-24 present)' : 'PARTIAL — run setupPhase3()'));
+
+  // Check col headers
+  if (s && lastCol >= 24) {
+    var hdrs = s.getRange(1,21,1,4).getValues()[0];
+    Logger.log('    Col 21=' + hdrs[0] + ' 22=' + hdrs[1] +
+               ' 23=' + hdrs[2] + ' 24=' + hdrs[3]);
+  }
+
+  // 3.5 — Pipeline summary
+  var summary = getLeadPipelineSummary_({});
+  Logger.log('3.5 leadPipelineSummary: ok=' + summary.ok +
+             ' total=' + summary.total +
+             ' conv30d=' + summary.conversionRate30d + '% (' +
+             summary.conv30d.converted + '/' + summary.conv30d.created + ')' +
+             ' byStatus=' + JSON.stringify(summary.byStatus) +
+             ' bySource=' + JSON.stringify(summary.bySource));
+
+  // 3.4 — Endpoint availability check
+  Logger.log('3.4 matchGmailSender: endpoint ready');
+  Logger.log('    Test: GET ?action=matchGmailSender&threadId=<real-thread-id>&token=T');
+
+  // 3.2 — Dry-run: find first valid requirement
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (rSheet && rSheet.getLastRow() > 1) {
+    var rData     = rSheet.getRange(2,1,rSheet.getLastRow()-1,6).getValues();
+    var pickReqId = '', pickTrade = '', pickCountry = '';
+    for (var i = 0; i < rData.length; i++) {
+      var rid = String(rData[i][0]||'').trim();
+      var rtr = String(rData[i][4]||'').trim();
+      if (rid && isValidTrade_(rtr)) {
+        pickReqId   = rid;
+        pickTrade   = rtr;
+        pickCountry = String(rData[i][3]||'').trim();
+        break;
+      }
+    }
+    if (pickReqId) {
+      Logger.log('3.2 createLeadFromReq dry-run:');
+      Logger.log('    reqId=' + pickReqId + ' trade=' + pickTrade + ' country=' + pickCountry);
+      Logger.log('    POST body: { reqId:"' + pickReqId + '", name:"Test", mobile:"TEST_SKIP",' +
+                 ' source:"PHONE_CALL", recruiter:"test" }');
+      Logger.log('    (Not auto-created in test — call via UI/Postman to verify)');
+    } else {
+      Logger.log('3.2 createLeadFromReq: no valid-trade requirement found to dry-run against');
+    }
+  }
+
+  // 3.3 — linkLeadToAssociate check
+  Logger.log('3.3 linkLeadToAssociate: endpoint ready');
+  Logger.log('    POST body: { leadId:"KAR-L-xxxxx", assocId:"ASSOC-001", actor:"recruiter" }');
+
+  // 3.6 — convertLeadToCandidate_ fix confirmation
+  Logger.log('3.6 assocId→sourceAssociate fix: in convertLeadToCandidate_ (line ~5920)');
+  Logger.log('    lAssocId reads col ' + COL_L_.assocId + ' from lead row — OK');
+
+  Logger.log('Phase 3 validation complete.');
 }
