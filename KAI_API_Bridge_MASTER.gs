@@ -6329,16 +6329,22 @@ function computeFillProbability_(freshDeployable, deployable, required, committe
   var demand = (committedQty > 0) ? committedQty : required;
   if (demand <= 0) return { pct:0, riskLevel:'UNKNOWN', label:'No demand set' };
 
-  var baseRatio = Math.min(freshDeployable / demand, 1.0);
-
-  // Time-pressure penalty — closer interview = harder to fill
+  // Time-pressure factor — closer interview = fewer candidates you can work
+  // through and confirm before the date.
   var urgencyFactor = 1.0;
   if      (daysToInterview <= 0)  urgencyFactor = 0.0;
   else if (daysToInterview <= 3)  urgencyFactor = 0.55;
   else if (daysToInterview <= 7)  urgencyFactor = 0.75;
   else if (daysToInterview <= 14) urgencyFactor = 0.90;
 
-  var pct = Math.round(baseRatio * urgencyFactor * 100);
+  // Apply time-pressure to the EFFECTIVE supply, THEN compare to demand.
+  // Validation finding (REQ4): the old formula multiplied an already-capped
+  // supply ratio by the urgency factor, dragging genuinely oversupplied
+  // requirements (234 ready / 12 needed) down to a false MEDIUM. Modelling
+  // urgency as a haircut on supply means a deep bench still fills on a tight
+  // timeline, while scarcity + urgency still collapses fast — no false alerts.
+  var effectiveSupply = freshDeployable * urgencyFactor;
+  var pct = Math.round(Math.min(effectiveSupply / demand, 1.0) * 100);
 
   var riskLevel;
   if      (daysToInterview <= 3 && freshDeployable < demand) riskLevel = 'CRITICAL';
