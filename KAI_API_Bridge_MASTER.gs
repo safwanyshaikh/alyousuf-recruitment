@@ -7776,17 +7776,30 @@ function testPhase2() {
   // Expected: 7d = 20*0.85*0.85*0.75 = ~10.8 | 3d = 5*0.85*0.85*0.75 = ~2.7 | gated = true
   Logger.log('Expected: 7d~10.8, 3d~2.7, GATED=true');
 
-  // recommendedSources smoke test against first live requirement
+  // recommendedSources smoke test — pick the FIRST requirement with a VALID
+  // trade (skip the legacy blank/filename-trade rows so the reading is real).
   var rSheet = ss.getSheetByName('_Requirements');
   if (rSheet && rSheet.getLastRow() > 1) {
-    var firstReqId = String(rSheet.getRange(2,1).getValue()||'').trim();
-    if (firstReqId) {
-      var rs = getRecommendedSources_({ reqId:firstReqId });
-      Logger.log('recommendedSources(' + firstReqId + '): ok=' + rs.ok +
-                 ' assocs=' + (rs.sources ? rs.sources.associates.ranked.length : '?') +
+    var rData = rSheet.getRange(2,1,rSheet.getLastRow()-1,6).getValues();
+    var pickReqId = '';
+    for (var i = 0; i < rData.length; i++) {
+      var rid = String(rData[i][0]||'').trim();
+      var rtr = String(rData[i][4]||'').trim();
+      if (rid && isValidTrade_(rtr)) { pickReqId = rid; break; }
+    }
+    if (!pickReqId) pickReqId = String(rData[0][0]||'').trim();  // fallback
+    if (pickReqId) {
+      var rs = getRecommendedSources_({ reqId:pickReqId });
+      Logger.log('recommendedSources(' + pickReqId + ' / trade=' +
+                 (rs.trade||'?') + ', country=' + (rs.country||'?') + '):');
+      Logger.log('  ok=' + rs.ok +
+                 ' assocsRanked=' + (rs.sources ? rs.sources.associates.ranked.length : '?') +
+                 ' assocsGatedOut=' + (rs.sources ? rs.sources.associates.gatedOut : '?') +
                  ' dbReady=' + (rs.sources ? rs.sources.database.readySupply : '?') +
+                 ' dbReval=' + (rs.sources ? rs.sources.database.revalidationSupply : '?') +
                  ' openLeads=' + (rs.sources ? rs.sources.openLeads.count : '?') +
                  ' total=' + (rs.totalEstimatedSupply||0));
+      Logger.log('  NOTE: assocsRanked=0 is EXPECTED until _AssociateCapacity is seeded.');
     }
   }
 }
