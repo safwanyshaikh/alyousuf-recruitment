@@ -6232,7 +6232,10 @@ function toDateOrNull_(raw) {
 //
 // candidates[] must have fields: trade, positionApplied, experience, age,
 //   gulfExp, currentLocation, kaiAssessment, top3Positions, _freshness
-function getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, candidates) {
+// opts (optional): { collect:true } → also returns result.deployableList[]
+//   (lightweight refs of every deployable candidate, for top-N selection)
+function getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, candidates, opts) {
+  opts = opts || {};
   var dcLower = String(deployCountry||'').toLowerCase();
 
   // Map deploy country to the LOCAL mobility tag to exclude
@@ -6254,7 +6257,8 @@ function getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, cand
     deployable: 0, localPool: 0,
     freshDeployable: 0, revalidationDeployable: 0,
     byMobility: {},
-    freshBreakdown: { READY: 0, REVALIDATION: 0, EXPIRED: 0 }
+    freshBreakdown: { READY: 0, REVALIDATION: 0, EXPIRED: 0 },
+    deployableList: []
   };
 
   var ageFilter = (minAge > 0 || maxAge > 0);
@@ -6295,6 +6299,19 @@ function getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, cand
       result.freshDeployable++;
     } else {
       result.revalidationDeployable++;
+    }
+
+    if (opts.collect) {
+      result.deployableList.push({
+        name:      c._name      || '',
+        kaiNo:     c._kaiNo     || '',
+        score:     c._score     || 0,
+        experience:c.experience || 0,
+        tier:      tier,
+        mobility:  mob,
+        freshness: freshness,
+        location:  c.currentLocation || ''
+      });
     }
   });
 
@@ -6579,4 +6596,181 @@ function testPhase1() {
   Logger.log('  freshBreakdown: ' + JSON.stringify(s1.freshBreakdown));
   var fill1 = computeFillProbability_(s1.freshDeployable, s1.deployable, 10, 0, 5);
   Logger.log('  fillProbability for 10 qty / 5 days: pct=' + fill1.pct + ' risk=' + fill1.riskLevel);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 30 — PHASE 1 VALIDATION GATE (operational reality, not code)
+// ════════════════════════════════════════════════════════════════════
+//
+//  PURPOSE: Prove Deployable Supply reflects recruitment REALITY before
+//  any UI ships. Runs 5 real-world requirement probes against the LIVE
+//  production candidate database (full 6,600+ rows, not capped).
+//
+//  Run from GAS editor:  validatePhase1()
+//  Read the Logger output. For EACH requirement it prints:
+//    Required Qty · Deployable Supply · READY/REVALIDATION/EXPIRED ·
+//    Fill Probability · Risk · Top DB Supply · Associate Signal
+//
+//  GATE: If any row is operationally absurd (e.g. 0 deployable welders in a
+//  6,600-CV DB, or 100% EXPIRED), STOP. Fix data classification. Do NOT ship.
+//
+//  NOTE ON ASSOCIATES: capacity-gated Associate Score is Phase 2 (needs
+//  _Commitments / _AssociateCapacity / _AssociateReliability). Here we print
+//  only a LIGHTWEIGHT associate signal (who covers this state/specialization
+//  from _Associates). Labelled "[pre-P2]" so it is never mistaken for the
+//  real recommendation engine.
+// ════════════════════════════════════════════════════════════════════
+
+// The 5 validation probes — spread across countries + trades per the gate spec.
+var P1_VALIDATION_PROBES_ = [
+  { country:'Saudi Arabia', trade:'Welder',      requiredQty:10, minExp:2, maxAge:45, daysToInterview:7 },
+  { country:'UAE',          trade:'Pipe Fitter', requiredQty:8,  minExp:2, maxAge:45, daysToInterview:5 },
+  { country:'Qatar',        trade:'Fabricator',  requiredQty:6,  minExp:2, maxAge:48, daysToInterview:14 },
+  { country:'Saudi Arabia', trade:'Electrician', requiredQty:12, minExp:3, maxAge:45, daysToInterview:3 },
+  { country:'UAE',          trade:'Driver',      requiredQty:15, minExp:1, maxAge:50, daysToInterview:10 }
+];
+
+function validatePhase1() {
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var cSheet = ss.getSheetByName('Candidates');
+  if (!cSheet || cSheet.getLastRow() < 2) { Logger.log('VALIDATION ABORT: no candidates'); return; }
+
+  // ── Load the FULL live candidate database once ────────────────────
+  var total = cSheet.getLastRow() - 1;
+  var cCols = Math.min(cSheet.getLastColumn(), 42);
+  var cData = cSheet.getRange(2, 1, total, cCols).getValues();
+  var cands = [];
+  var freshAll = { READY:0, REVALIDATION:0, EXPIRED:0 };
+  cData.forEach(function(row) {
+    var active = String(row[COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+    var name  = String(row[COL.name-1]||'').trim();
+    var email = String(row[COL.email-1]||'').trim();
+    if (!name && !email) return;
+    var fresh = classifyDatabaseFreshness_(
+      row[COL.candidateState-1], row[COL.lastContact-1],
+      row[COL.passportExpiry-1], row[COL.applicationDate-1]
+    );
+    freshAll[fresh] = (freshAll[fresh]||0) + 1;
+    cands.push({
+      trade:           String(row[COL.trade-1]||''),
+      positionApplied: String(row[COL.positionApplied-1]||''),
+      experience:      parseFloat(row[COL.experience-1])||0,
+      age:             parseInt(row[COL.age-1])||0,
+      gulfExp:         String(row[COL.gulfExp-1]||''),
+      currentLocation: String(row[COL.currentLocation-1]||''),
+      kaiAssessment:   String(row[COL.kaiAssessment-1]||''),
+      top3Positions:   parseTop3Positions_(String(row[COL.top3Positions-1]||'')),
+      _name:           name,
+      _kaiNo:          String(row[COL.kaiNo-1]||'').trim(),
+      _score:          parseInt(row[COL.score-1])||0,
+      _freshness:      fresh
+    });
+  });
+
+  // ── Load associates for lightweight signal ────────────────────────
+  var assocs = [];
+  var aSheet = ss.getSheetByName('_Associates');
+  if (aSheet && aSheet.getLastRow() > 1) {
+    aSheet.getDataRange().getValues().slice(1).forEach(function(r) {
+      if (!String(r[0]||'').trim()) return;
+      if (String(r[15]||'').toUpperCase() !== 'YES') return;  // active only
+      assocs.push({
+        name:  String(r[2]||r[1]||'').trim(),
+        state: String(r[5]||'').trim(),
+        spec:  String(r[9]||'').toLowerCase(),
+        capacity: String(r[10]||'').trim()
+      });
+    });
+  }
+
+  Logger.log('════════════════════════════════════════════════════');
+  Logger.log('PHASE 1 VALIDATION — LIVE PRODUCTION DATA');
+  Logger.log('Candidate pool (active): ' + cands.length + ' of ' + total + ' rows');
+  Logger.log('DB-wide freshness: READY=' + freshAll.READY +
+             ' REVALIDATION=' + freshAll.REVALIDATION +
+             ' EXPIRED=' + freshAll.EXPIRED);
+  Logger.log('Active associates: ' + assocs.length);
+  Logger.log('════════════════════════════════════════════════════');
+
+  var flags = [];
+  P1_VALIDATION_PROBES_.forEach(function(p, idx) {
+    var supply = getDeployableSupply_(
+      p.country, p.trade, p.minExp, 0, p.maxAge, cands, { collect:true }
+    );
+    var fill = computeFillProbability_(
+      supply.freshDeployable, supply.deployable, p.requiredQty, 0, p.daysToInterview
+    );
+
+    // Top DB supply — READY first, then by score, then experience
+    var top = supply.deployableList.slice().sort(function(a, b) {
+      if (a.freshness !== b.freshness) return a.freshness === 'READY' ? -1 : 1;
+      if (b.score !== a.score) return b.score - a.score;
+      return b.experience - a.experience;
+    }).slice(0, 5);
+
+    // Lightweight associate signal — specialization keyword OR any (sorted by capacity desc)
+    var tradeKey = p.trade.toLowerCase().split(' ')[0];
+    var matchedAssoc = assocs.filter(function(a) {
+      return a.spec && (a.spec.indexOf(tradeKey) >= 0 || a.spec.indexOf('all') >= 0 ||
+                        a.spec.indexOf('general') >= 0 || a.spec.indexOf('fabrication') >= 0);
+    });
+    if (!matchedAssoc.length) matchedAssoc = assocs.slice();  // fallback: any active associate
+    matchedAssoc = matchedAssoc.sort(function(a, b) {
+      return (parseInt(b.capacity)||0) - (parseInt(a.capacity)||0);
+    }).slice(0, 3);
+
+    Logger.log('');
+    Logger.log('── REQ ' + (idx+1) + ': ' + p.trade + ' → ' + p.country +
+               ' (min ' + p.minExp + 'yr, max age ' + p.maxAge + ') ──');
+    Logger.log('  Required Qty:        ' + p.requiredQty);
+    Logger.log('  Trade-matched pool:  ' + supply.tradePossible);
+    Logger.log('  Deployable Supply:   ' + supply.deployable +
+               '   (local-excluded: ' + supply.localPool + ')');
+    Logger.log('    READY:             ' + supply.freshBreakdown.READY);
+    Logger.log('    REVALIDATION:      ' + supply.freshBreakdown.REVALIDATION);
+    Logger.log('    EXPIRED:           ' + supply.freshBreakdown.EXPIRED);
+    Logger.log('  Mobility mix:        ' + JSON.stringify(supply.byMobility));
+    Logger.log('  Interview in:        ' + p.daysToInterview + ' days');
+    Logger.log('  Fill Probability:    ' + fill.pct + '%');
+    Logger.log('  Risk:                ' + fill.riskLevel);
+    Logger.log('  Top DB Supply:');
+    if (!top.length) {
+      Logger.log('      (none deployable)');
+    } else {
+      top.forEach(function(c, i) {
+        Logger.log('      ' + (i+1) + '. ' + (c.name||'(unnamed)') +
+                   '  [' + c.freshness + ', ' + c.mobility +
+                   ', score ' + c.score + ', ' + c.experience + 'yr]');
+      });
+    }
+    Logger.log('  Top Associates [pre-P2 signal, not capacity-scored]:');
+    if (!matchedAssoc.length) {
+      Logger.log('      (no active associates on file)');
+    } else {
+      matchedAssoc.forEach(function(a, i) {
+        Logger.log('      ' + (i+1) + '. ' + a.name +
+                   '  [' + (a.state||'?') + ', cap ' + (a.capacity||'?') + ']');
+      });
+    }
+
+    // ── Reality flags ───────────────────────────────────────────────
+    if (supply.tradePossible === 0)
+      flags.push('REQ' + (idx+1) + ' (' + p.trade + '): ZERO trade-matched candidates in entire DB — check trade-family keywords.');
+    if (supply.tradePossible > 0 && supply.deployable === 0)
+      flags.push('REQ' + (idx+1) + ' (' + p.trade + '): pool exists but ZERO deployable — likely freshness over-expiring.');
+    if (supply.tradePossible > 20 && supply.freshBreakdown.EXPIRED / supply.tradePossible > 0.9)
+      flags.push('REQ' + (idx+1) + ' (' + p.trade + '): >90% EXPIRED — freshness classifier likely mis-calibrated.');
+  });
+
+  Logger.log('');
+  Logger.log('════════════════════════════════════════════════════');
+  if (flags.length) {
+    Logger.log('⚠ VALIDATION FLAGS — DO NOT SHIP UNTIL RESOLVED:');
+    flags.forEach(function(f) { Logger.log('  • ' + f); });
+  } else {
+    Logger.log('✓ No reality flags raised. Supply numbers look operationally plausible.');
+    Logger.log('  Human review still required before Lovable deployment.');
+  }
+  Logger.log('════════════════════════════════════════════════════');
 }
