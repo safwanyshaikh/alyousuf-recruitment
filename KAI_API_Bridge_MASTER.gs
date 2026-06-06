@@ -116,6 +116,12 @@ function doGet(e) {
     // P1 — Requirement Command Center
     else if (action === 'requirementCommandCenter') out = JSON.stringify(requirementCommandCenter_(params));
     else if (action === 'requirementDashboardCards') out = JSON.stringify(getRequirementDashboardCards_(params));
+    // P2 — Associate Production Units
+    else if (action === 'commitments')          out = JSON.stringify(getCommitments_(params));
+    else if (action === 'associateCapacity')    out = JSON.stringify(getAssociateCapacity_(params));
+    else if (action === 'associateReliability') out = JSON.stringify(getAssociateReliability_(params));
+    else if (action === 'recommendedSources')   out = JSON.stringify(getRecommendedSources_(params));
+    else if (action === 'associateScore')       out = JSON.stringify(getAssociateScore_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -166,6 +172,11 @@ function doPost(e) {
     else if (action === 'updateLead')             out = JSON.stringify(updateLead_(body));
     else if (action === 'updateLeadStatus')       out = JSON.stringify(updateLeadStatus_(body));
     else if (action === 'convertLead')            out = JSON.stringify(convertLeadToCandidate_(body));
+    // P2 — Associate Production Units
+    else if (action === 'createCommitment')            out = JSON.stringify(createCommitment_(body));
+    else if (action === 'updateCommitment')            out = JSON.stringify(updateCommitment_(body));
+    else if (action === 'upsertAssociateCapacity')     out = JSON.stringify(upsertAssociateCapacity_(body));
+    else if (action === 'refreshAssociateReliability') out = JSON.stringify(refreshAssociateReliability_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -6993,4 +7004,789 @@ function getRequirementDashboardCards_(params) {
       interviewDateApproaching:     { count: interviewSoon.length, items: sortRefs_(interviewSoon).slice(0,20) }
     }
   };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 32 — PHASE 2: ASSOCIATE PRODUCTION UNITS
+// ════════════════════════════════════════════════════════════════════
+//
+//  Three new sheets (created once by setupPhase2()):
+//    _Commitments        — per-requirement supply pledges from associates
+//    _AssociateCapacity  — time-windowed candidate capacity per associate×trade
+//    _AssociateReliability — country×trade historical delivery performance
+//
+//  Capacity-gated Associate Score (locked v3 formula):
+//    Score = CapacityInWindow × CommitmentAccuracy × CountryTradeReliability × MobilizationRate
+//    GATE: CapacityInWindow = 0 → Score = 0, associate NOT recommended.
+//
+//  Main output: GET ?action=recommendedSources&reqId=X
+//    Returns ranked associates + database supply + open leads for one requirement.
+//    Fills the "Recommended Sources" placeholder left in the Phase 1 UI.
+//
+//  Deploy:
+//    1. Paste file → Save → Deploy new version
+//    2. Run setupPhase2()     — creates all three sheets with headers
+//    3. Run testPhase2()      — smoke-test score formula + sheet access
+//    4. GET ?action=recommendedSources&reqId=<any-live-reqId>
+// ════════════════════════════════════════════════════════════════════
+
+// ── SHEET SCHEMAS ───────────────────────────────────────────────────
+var COMMITMENTS_HEADERS_ = [
+  'CommitId','ReqId','AssocId','AssocName','Trade','Country',
+  'CommittedQty','DeliveredQty','CommitDate','InterviewDate',
+  'Status','Notes','UpdatedAt','CreatedBy'
+];
+// Commitment Status flow: OPEN → PARTIAL | FULFILLED | CANCELLED
+var VALID_COMMIT_STATUSES_ = ['OPEN','PARTIAL','FULFILLED','CANCELLED'];
+
+var CAPACITY_HEADERS_ = [
+  'CapacityId','AssocId','AssocName','Trade',
+  'Within3d','Within7d','Within15d','Beyond15d',
+  'UpdatedAt','UpdatedBy'
+];
+
+var RELIABILITY_HEADERS_ = [
+  'RelId','AssocId','AssocName','Country','Trade',
+  'TotalCommitted','TotalDelivered','CommitmentAccuracy',
+  'MobCommitted','MobDeployed','MobilizationRate',
+  'LastUpdated'
+];
+
+function ensureCommitmentsSheet_(ss) {
+  return ensureSheetWithHeaders_(ss, '_Commitments', COMMITMENTS_HEADERS_, '#1A5276');
+}
+function ensureCapacitySheet_(ss) {
+  return ensureSheetWithHeaders_(ss, '_AssociateCapacity', CAPACITY_HEADERS_, '#145A32');
+}
+function ensureReliabilitySheet_(ss) {
+  return ensureSheetWithHeaders_(ss, '_AssociateReliability', RELIABILITY_HEADERS_, '#4A235A');
+}
+function ensureSheetWithHeaders_(ss, name, headers, color) {
+  var s = ss.getSheetByName(name);
+  if (!s) {
+    s = ss.insertSheet(name);
+    s.appendRow(headers);
+    s.getRange(1,1,1,headers.length)
+     .setFontWeight('bold').setBackground(color||'#2C3E50').setFontColor('#FFFFFF');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+// ── ID GENERATORS ───────────────────────────────────────────────────
+function generateCommitId_() {
+  return 'CMT-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd') +
+         '-' + String(Math.floor(Math.random()*90000)+10000);
+}
+function generateCapacityId_() {
+  return 'CAP-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd') +
+         '-' + String(Math.floor(Math.random()*9000)+1000);
+}
+function generateRelId_() {
+  return 'REL-' + String(Math.floor(Math.random()*900000)+100000);
+}
+
+// ── COMMITMENTS ──────────────────────────────────────────────────────
+// GET ?action=commitments&reqId=X  OR  &assocId=Y
+function getCommitments_(params) {
+  var ss      = SpreadsheetApp.openById(SS_ID);
+  var sheet   = ss.getSheetByName('_Commitments');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, commitments:[], count:0 };
+  var filterReq   = String(params.reqId   ||'').trim();
+  var filterAssoc = String(params.assocId ||'').trim();
+  var data = sheet.getDataRange().getValues();
+  var list = [];
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    if (!String(r[0]||'').trim()) continue;
+    if (filterReq   && String(r[1]) !== filterReq)   continue;
+    if (filterAssoc && String(r[2]) !== filterAssoc) continue;
+    list.push({
+      commitId:     String(r[0]),  reqId:        String(r[1]),
+      assocId:      String(r[2]),  assocName:    String(r[3]),
+      trade:        String(r[4]),  country:      String(r[5]),
+      committedQty: parseInt(r[6])||0,
+      deliveredQty: parseInt(r[7])||0,
+      commitDate:   r[8]  instanceof Date ? Utilities.formatDate(r[8],'Asia/Dubai','yyyy-MM-dd')  : String(r[8]||''),
+      interviewDate:r[9]  instanceof Date ? Utilities.formatDate(r[9],'Asia/Dubai','yyyy-MM-dd')  : String(r[9]||''),
+      status:       String(r[10]||'OPEN'),
+      notes:        String(r[11]||''),
+      updatedAt:    r[12] instanceof Date ? Utilities.formatDate(r[12],'Asia/Dubai','yyyy-MM-dd') : String(r[12]||''),
+      createdBy:    String(r[13]||'')
+    });
+  }
+  return { ok:true, commitments:list, count:list.length };
+}
+
+// POST action=createCommitment
+// body: { reqId, assocId, assocName, committedQty, interviewDate?, notes? }
+function createCommitment_(body) {
+  var reqId    = String(body.reqId    ||'').trim();
+  var assocId  = String(body.assocId  ||'').trim();
+  var qty      = parseInt(body.committedQty)||0;
+  if (!reqId || !assocId) return { ok:false, error:'reqId and assocId required' };
+  if (qty <= 0)           return { ok:false, error:'committedQty must be > 0' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Resolve requirement for trade + country
+  var trade = '', country = '', interviewDate = body.interviewDate || '';
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (rSheet && rSheet.getLastRow() > 1) {
+    var rData = rSheet.getDataRange().getValues();
+    for (var i = 1; i < rData.length; i++) {
+      if (String(rData[i][0]).trim() === reqId) {
+        trade   = String(rData[i][4]||'');
+        country = String(rData[i][3]||'');
+        if (!interviewDate && rData[i][24]) {
+          interviewDate = rData[i][24] instanceof Date
+            ? Utilities.formatDate(rData[i][24],'Asia/Dubai','yyyy-MM-dd')
+            : String(rData[i][24]);
+        }
+        break;
+      }
+    }
+  }
+
+  var assocName = String(body.assocName||'').trim();
+  if (!assocName) {
+    // Try resolving from _Associates
+    var aSheet = ss.getSheetByName('_Associates');
+    if (aSheet && aSheet.getLastRow() > 1) {
+      var aData = aSheet.getDataRange().getValues();
+      for (var j = 1; j < aData.length; j++) {
+        if (String(aData[j][0]).trim() === assocId) {
+          assocName = assocDisplayName_(aData[j][1], aData[j][2], assocId);
+          break;
+        }
+      }
+    }
+    if (!assocName) assocName = assocId;
+  }
+
+  var commitId = generateCommitId_();
+  var sheet    = ensureCommitmentsSheet_(ss);
+  sheet.appendRow([
+    commitId, reqId, assocId, assocName, trade, country,
+    qty, 0, new Date(), interviewDate,
+    'OPEN', String(body.notes||''), new Date(), CURRENT_ACTOR_||'system'
+  ]);
+
+  // Update _Requirements committedQty (sum across all OPEN/PARTIAL commitments)
+  syncRequirementCommittedQty_(ss, reqId);
+
+  logActivity_(ss, { kaiNo:'SYSTEM', rowIndex:0, action:'COMMITMENT_CREATED',
+    detail: commitId + ' | ' + assocName + ' committed ' + qty + ' for ' + reqId,
+    actor: CURRENT_ACTOR_ });
+
+  return { ok:true, commitId:commitId, reqId:reqId, assocId:assocId,
+           assocName:assocName, committedQty:qty };
+}
+
+// POST action=updateCommitment
+// body: { commitId, deliveredQty?, status?, notes? }
+function updateCommitment_(body) {
+  var commitId = String(body.commitId||'').trim();
+  if (!commitId) return { ok:false, error:'commitId required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Commitments');
+  if (!sheet) return { ok:false, error:'_Commitments sheet not found' };
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() !== commitId) continue;
+    var r = i + 1;
+    var delivered = body.deliveredQty !== undefined ? parseInt(body.deliveredQty)||0 : parseInt(data[i][7])||0;
+    var committed = parseInt(data[i][6])||0;
+    var newStatus = String(body.status||data[i][10]||'OPEN').toUpperCase();
+    // Auto-status: if delivered >= committed → FULFILLED; if 0 < delivered < committed → PARTIAL
+    if (body.deliveredQty !== undefined) {
+      if      (delivered >= committed) newStatus = 'FULFILLED';
+      else if (delivered > 0)          newStatus = 'PARTIAL';
+    }
+    sheet.getRange(r,8).setValue(delivered);
+    sheet.getRange(r,11).setValue(newStatus);
+    sheet.getRange(r,13).setValue(new Date());
+    if (body.notes !== undefined) sheet.getRange(r,12).setValue(body.notes);
+
+    // Keep _Requirements committedQty in sync
+    syncRequirementCommittedQty_(ss, String(data[i][1]));
+
+    // Refresh reliability for this associate×country×trade
+    refreshAssociateReliabilityRow_(ss, String(data[i][2]), String(data[i][5]), String(data[i][4]));
+
+    logActivity_(ss, { kaiNo:'SYSTEM', rowIndex:0, action:'COMMITMENT_UPDATED',
+      detail: commitId + ' delivered=' + delivered + ' status=' + newStatus,
+      actor: CURRENT_ACTOR_ });
+
+    return { ok:true, commitId:commitId, deliveredQty:delivered, status:newStatus };
+  }
+  return { ok:false, error:'Commitment not found: '+commitId };
+}
+
+// Recompute _Requirements col 24 (committedQty) as sum of active commitments.
+function syncRequirementCommittedQty_(ss, reqId) {
+  var cSheet = ss.getSheetByName('_Commitments');
+  if (!cSheet || cSheet.getLastRow() < 2) return;
+  var total = 0;
+  var cData = cSheet.getDataRange().getValues();
+  for (var i = 1; i < cData.length; i++) {
+    if (String(cData[i][1]).trim() !== reqId) continue;
+    var st = String(cData[i][10]||'').toUpperCase();
+    if (st === 'CANCELLED') continue;
+    total += parseInt(cData[i][6])||0;
+  }
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (!rSheet) return;
+  var rData = rSheet.getDataRange().getValues();
+  for (var j = 1; j < rData.length; j++) {
+    if (String(rData[j][0]).trim() === reqId) {
+      rSheet.getRange(j+1, 24).setValue(total);
+      return;
+    }
+  }
+}
+
+// ── ASSOCIATE CAPACITY ───────────────────────────────────────────────
+// GET ?action=associateCapacity[&assocId=X][&trade=Y]
+function getAssociateCapacity_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_AssociateCapacity');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, capacity:[], count:0 };
+  var fAssoc = String(params.assocId||'').trim();
+  var fTrade = String(params.trade  ||'').trim().toLowerCase();
+  var data   = sheet.getDataRange().getValues();
+  var list   = [];
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    if (!String(r[0]||'').trim()) continue;
+    if (fAssoc && String(r[1]) !== fAssoc) continue;
+    if (fTrade && String(r[3]||'').toLowerCase().indexOf(fTrade) < 0) continue;
+    list.push({
+      capacityId: String(r[0]), assocId: String(r[1]), assocName: String(r[2]),
+      trade:      String(r[3]),
+      within3d:   parseInt(r[4])||0,  within7d:   parseInt(r[5])||0,
+      within15d:  parseInt(r[6])||0,  beyond15d:  parseInt(r[7])||0,
+      updatedAt:  r[8] instanceof Date ? Utilities.formatDate(r[8],'Asia/Dubai','yyyy-MM-dd') : String(r[8]||''),
+      updatedBy:  String(r[9]||'')
+    });
+  }
+  return { ok:true, capacity:list, count:list.length };
+}
+
+// POST action=upsertAssociateCapacity
+// body: { assocId, trade, within3d, within7d, within15d, beyond15d }
+// One row per assocId×trade — upsert (update if exists, insert if not).
+function upsertAssociateCapacity_(body) {
+  var assocId = String(body.assocId||'').trim();
+  var trade   = String(body.trade  ||'').trim();
+  if (!assocId || !trade) return { ok:false, error:'assocId and trade required' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ensureCapacitySheet_(ss);
+  var data  = sheet.getDataRange().getValues();
+
+  // Resolve assocName
+  var assocName = String(body.assocName||'').trim();
+  if (!assocName) {
+    var aSheet = ss.getSheetByName('_Associates');
+    if (aSheet && aSheet.getLastRow() > 1) {
+      aSheet.getDataRange().getValues().slice(1).forEach(function(ar) {
+        if (!assocName && String(ar[0]).trim() === assocId)
+          assocName = assocDisplayName_(ar[1], ar[2], assocId);
+      });
+    }
+    if (!assocName) assocName = assocId;
+  }
+
+  var w3  = parseInt(body.within3d  )||0;
+  var w7  = parseInt(body.within7d  )||0;
+  var w15 = parseInt(body.within15d )||0;
+  var wb  = parseInt(body.beyond15d )||0;
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][1]).trim() === assocId &&
+        String(data[i][3]).trim().toLowerCase() === trade.toLowerCase()) {
+      var r = i + 1;
+      sheet.getRange(r,3).setValue(assocName);
+      sheet.getRange(r,5).setValue(w3);
+      sheet.getRange(r,6).setValue(w7);
+      sheet.getRange(r,7).setValue(w15);
+      sheet.getRange(r,8).setValue(wb);
+      sheet.getRange(r,9).setValue(new Date());
+      sheet.getRange(r,10).setValue(CURRENT_ACTOR_||'system');
+      return { ok:true, upserted:'updated', assocId:assocId, trade:trade };
+    }
+  }
+  // Insert new row
+  sheet.appendRow([
+    generateCapacityId_(), assocId, assocName, trade,
+    w3, w7, w15, wb, new Date(), CURRENT_ACTOR_||'system'
+  ]);
+  return { ok:true, upserted:'created', assocId:assocId, trade:trade };
+}
+
+// ── ASSOCIATE RELIABILITY ────────────────────────────────────────────
+// GET ?action=associateReliability[&assocId=X][&country=Y][&trade=Z]
+function getAssociateReliability_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_AssociateReliability');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, reliability:[], count:0 };
+  var fA = String(params.assocId ||'').trim();
+  var fC = String(params.country ||'').trim().toLowerCase();
+  var fT = String(params.trade   ||'').trim().toLowerCase();
+  var data = sheet.getDataRange().getValues();
+  var list = [];
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    if (!String(r[0]||'').trim()) continue;
+    if (fA && String(r[1]) !== fA) continue;
+    if (fC && String(r[3]||'').toLowerCase().indexOf(fC) < 0) continue;
+    if (fT && String(r[4]||'').toLowerCase().indexOf(fT) < 0) continue;
+    list.push({
+      relId:              String(r[0]),  assocId:    String(r[1]),
+      assocName:          String(r[2]),  country:    String(r[3]),
+      trade:              String(r[4]),
+      totalCommitted:     parseInt(r[5])||0,
+      totalDelivered:     parseInt(r[6])||0,
+      commitmentAccuracy: parseFloat(r[7])||0,
+      mobCommitted:       parseInt(r[8])||0,
+      mobDeployed:        parseInt(r[9])||0,
+      mobilizationRate:   parseFloat(r[10])||0,
+      lastUpdated:        r[11] instanceof Date ? Utilities.formatDate(r[11],'Asia/Dubai','yyyy-MM-dd') : String(r[11]||'')
+    });
+  }
+  return { ok:true, reliability:list, count:list.length };
+}
+
+// Recompute one associate×country×trade row in _AssociateReliability.
+// Called automatically by updateCommitment_.
+function refreshAssociateReliabilityRow_(ss, assocId, country, trade) {
+  if (!assocId || !country || !trade) return;
+
+  // Commitment Accuracy from _Commitments
+  var cSheet   = ss.getSheetByName('_Commitments');
+  var totCommit = 0, totDeliver = 0;
+  if (cSheet && cSheet.getLastRow() > 1) {
+    cSheet.getDataRange().getValues().slice(1).forEach(function(r) {
+      if (String(r[2]).trim() !== assocId) return;
+      if (String(r[5]).trim().toLowerCase() !== country.toLowerCase()) return;
+      if (String(r[4]).trim().toLowerCase() !== trade.toLowerCase()) return;
+      var st = String(r[10]||'').toUpperCase();
+      if (st === 'CANCELLED') return;
+      totCommit  += parseInt(r[6])||0;
+      totDeliver += parseInt(r[7])||0;
+    });
+  }
+  var commitAcc = totCommit > 0 ? Math.round((totDeliver/totCommit)*100)/100 : 0;
+
+  // Mobilization Rate from _CandidateSlots (SourceOwner = assocId or assocName)
+  var sSheet = ss.getSheetByName('_CandidateSlots');
+  var mobCommit = 0, mobDeploy = 0;
+  if (sSheet && sSheet.getLastRow() > 1) {
+    sSheet.getDataRange().getValues().slice(1).forEach(function(sr) {
+      if (!String(sr[0]||'').trim()) return;
+      var owner = String(sr[6]||'').trim().toLowerCase();
+      if (owner.indexOf(assocId.toLowerCase()) < 0) return;
+      var st = String(sr[9]||'').toUpperCase();
+      if (st === 'SELECTED' || st === 'DEPLOYED') mobCommit++;
+      if (st === 'DEPLOYED') mobDeploy++;
+    });
+  }
+  var mobRate = mobCommit > 0 ? Math.round((mobDeploy/mobCommit)*100)/100 : 0;
+
+  // Upsert reliability row
+  var rSheet = ensureReliabilitySheet_(ss);
+  var rData  = rSheet.getDataRange().getValues();
+  for (var i = 1; i < rData.length; i++) {
+    if (String(rData[i][1]).trim() === assocId &&
+        String(rData[i][3]).trim().toLowerCase() === country.toLowerCase() &&
+        String(rData[i][4]).trim().toLowerCase() === trade.toLowerCase()) {
+      var row = i + 1;
+      rSheet.getRange(row,6).setValue(totCommit);
+      rSheet.getRange(row,7).setValue(totDeliver);
+      rSheet.getRange(row,8).setValue(commitAcc);
+      rSheet.getRange(row,9).setValue(mobCommit);
+      rSheet.getRange(row,10).setValue(mobDeploy);
+      rSheet.getRange(row,11).setValue(mobRate);
+      rSheet.getRange(row,12).setValue(new Date());
+      return;
+    }
+  }
+  // Resolve name
+  var aName = assocId;
+  var aSheet = ss.getSheetByName('_Associates');
+  if (aSheet && aSheet.getLastRow() > 1) {
+    aSheet.getDataRange().getValues().slice(1).forEach(function(ar) {
+      if (!aName || aName === assocId) {
+        if (String(ar[0]).trim() === assocId)
+          aName = assocDisplayName_(ar[1], ar[2], assocId);
+      }
+    });
+  }
+  rSheet.appendRow([
+    generateRelId_(), assocId, aName, country, trade,
+    totCommit, totDeliver, commitAcc,
+    mobCommit, mobDeploy, mobRate, new Date()
+  ]);
+}
+
+// POST action=refreshAssociateReliability
+// body: { assocId?, all:true } — recompute one or all associates
+function refreshAssociateReliability_(body) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var cSheet = ss.getSheetByName('_Commitments');
+  if (!cSheet || cSheet.getLastRow() < 2) return { ok:true, refreshed:0 };
+
+  var filterAssoc = String(body.assocId||'').trim();
+  var seen = {};  // dedupe assocId×country×trade combos
+  cSheet.getDataRange().getValues().slice(1).forEach(function(r) {
+    var aId = String(r[2]||'').trim();
+    var co  = String(r[5]||'').trim();
+    var tr  = String(r[4]||'').trim();
+    if (!aId || !co || !tr) return;
+    if (filterAssoc && aId !== filterAssoc) return;
+    var key = aId + '|' + co.toLowerCase() + '|' + tr.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    refreshAssociateReliabilityRow_(ss, aId, co, tr);
+  });
+  return { ok:true, refreshed:Object.keys(seen).length };
+}
+
+// ── ASSOCIATE SCORE ENGINE ───────────────────────────────────────────
+// Capacity-gated score (locked v3):
+//   Score = CapacityInWindow × CommitmentAccuracy × CountryTradeReliability × MobilizationRate
+//   GATE: CapacityInWindow = 0 → score = 0, associate excluded regardless of history.
+//
+// Returns a score object for one associate vs one requirement context.
+function scoreOneAssociate_(assoc, capacityRows, reliabilityRows, daysToInterview, country, trade) {
+  // 1. Capacity gate — which time window applies?
+  var window = 'beyond15d';
+  if      (daysToInterview !== null && daysToInterview <= 3)  window = 'within3d';
+  else if (daysToInterview !== null && daysToInterview <= 7)  window = 'within7d';
+  else if (daysToInterview !== null && daysToInterview <= 15) window = 'within15d';
+
+  var capacityInWindow = 0;
+  var w3=0, w7=0, w15=0, wb=0;
+  var tLower = trade.toLowerCase();
+  capacityRows.forEach(function(cap) {
+    if (cap.assocId !== assoc.assocId) return;
+    if (cap.trade.toLowerCase().indexOf(tLower) < 0 &&
+        tLower.indexOf(cap.trade.toLowerCase()) < 0) return;
+    w3  = Math.max(w3,  cap.within3d);
+    w7  = Math.max(w7,  cap.within7d);
+    w15 = Math.max(w15, cap.within15d);
+    wb  = Math.max(wb,  cap.beyond15d);
+  });
+  if      (window === 'within3d')  capacityInWindow = w3;
+  else if (window === 'within7d')  capacityInWindow = w7;
+  else if (window === 'within15d') capacityInWindow = w15;
+  else                             capacityInWindow = wb;
+
+  // GATE
+  if (capacityInWindow === 0) {
+    return { score:0, gated:true, gateReason:'CapacityInWindow=0',
+             capacityInWindow:0, window:window,
+             commitmentAccuracy:0, countryTradeReliability:0, mobilizationRate:0 };
+  }
+
+  // 2. Commitment Accuracy + Mobilization Rate (from reliability rows for this country×trade)
+  var cLower = country.toLowerCase();
+  var commitAcc  = 0.70;  // default (conservative baseline)
+  var mobRate    = 0.70;
+  var reliFound  = false;
+  reliabilityRows.forEach(function(rel) {
+    if (rel.assocId !== assoc.assocId) return;
+    if (rel.country.toLowerCase().indexOf(cLower) < 0 &&
+        cLower.indexOf(rel.country.toLowerCase()) < 0) return;
+    if (rel.trade.toLowerCase().indexOf(tLower) < 0 &&
+        tLower.indexOf(rel.trade.toLowerCase()) < 0) return;
+    commitAcc = rel.commitmentAccuracy  > 0 ? rel.commitmentAccuracy  : 0.70;
+    mobRate   = rel.mobilizationRate    > 0 ? rel.mobilizationRate    : 0.70;
+    reliFound = true;
+  });
+
+  // 3. Country×Trade Reliability = commitmentAccuracy from the matched row
+  //    (per v3 spec: CountryTradeReliability is stored per country×trade in _AssociateReliability)
+  var countryTradeRel = commitAcc;
+
+  // 4. Score = CapacityInWindow × CommitmentAccuracy × CountryTradeReliability × MobilizationRate
+  //    Result = effective candidates expected to be deployed. Higher = better.
+  var score = capacityInWindow * commitAcc * countryTradeRel * mobRate;
+  score = Math.round(score * 10) / 10;
+
+  return {
+    score:                 score,
+    gated:                 false,
+    capacityInWindow:      capacityInWindow,
+    window:                window,
+    commitmentAccuracy:    commitAcc,
+    countryTradeReliability: countryTradeRel,
+    mobilizationRate:      mobRate,
+    historyFound:          reliFound
+  };
+}
+
+// GET ?action=associateScore&reqId=X&assocId=Y
+function getAssociateScore_(params) {
+  var reqId   = String(params.reqId   ||'').trim();
+  var assocId = String(params.assocId ||'').trim();
+  if (!reqId || !assocId) return { ok:false, error:'reqId and assocId required' };
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Resolve requirement context
+  var trade='', country=''; var daysToInterview=null;
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (rSheet && rSheet.getLastRow() > 1) {
+    var now = new Date();
+    rSheet.getDataRange().getValues().slice(1).forEach(function(r) {
+      if (String(r[0]).trim() !== reqId) return;
+      trade   = String(r[4]||'');
+      country = String(r[3]||'');
+      var iRaw = r[24];
+      if (iRaw instanceof Date && !isNaN(iRaw))
+        daysToInterview = Math.floor((iRaw - now)/(1000*60*60*24));
+    });
+  }
+
+  // Resolve associate object
+  var assoc = { assocId:assocId, displayName:assocId };
+  var aSheet = ss.getSheetByName('_Associates');
+  if (aSheet && aSheet.getLastRow() > 1) {
+    aSheet.getDataRange().getValues().slice(1).forEach(function(ar) {
+      if (String(ar[0]).trim() === assocId)
+        assoc = { assocId:assocId, displayName: assocDisplayName_(ar[1],ar[2],assocId),
+                  state:String(ar[5]||''), category:String(ar[9]||'') };
+    });
+  }
+
+  var caps  = getAssociateCapacity_({ assocId:assocId }).capacity;
+  var rels  = getAssociateReliability_({ assocId:assocId }).reliability;
+  var sc    = scoreOneAssociate_(assoc, caps, rels, daysToInterview, country, trade);
+  return { ok:true, reqId:reqId, assocId:assocId, trade:trade, country:country,
+           daysToInterview:daysToInterview, score:sc };
+}
+
+// ── RECOMMENDED SOURCES (main Phase 2 output) ────────────────────────
+// GET ?action=recommendedSources&reqId=X
+// Returns ranked: associates + database supply + open leads.
+// Fills the "Recommended Sources" placeholder from the Phase 1 UI.
+function getRecommendedSources_(params) {
+  var reqId = String(params.reqId||'').trim();
+  if (!reqId) return { ok:false, error:'reqId required' };
+
+  var ss  = SpreadsheetApp.openById(SS_ID);
+  var now = new Date();
+
+  // ── Resolve requirement ──────────────────────────────────────────
+  var trade='', country='', requiredQty=0, committedQty=0;
+  var daysToInterview=null, interviewDateStr='';
+  var minExp=0, minAge=0, maxAge=0;
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (rSheet && rSheet.getLastRow() > 1) {
+    var numCols = Math.min(rSheet.getLastColumn(), 25);
+    rSheet.getRange(2,1,rSheet.getLastRow()-1,numCols).getValues().forEach(function(r) {
+      if (String(r[0]).trim() !== reqId) return;
+      trade        = String(r[4]||'');
+      country      = String(r[3]||'');
+      requiredQty  = parseInt(r[5])||0;
+      committedQty = parseInt(r[23])||0;
+      minExp       = parseFloat(r[6])||0;
+      minAge       = parseInt(r[7])||0;
+      maxAge       = parseInt(r[8])||0;
+      var iRaw = numCols >= 25 ? r[24] : null;
+      if (iRaw instanceof Date && !isNaN(iRaw)) {
+        daysToInterview = Math.floor((iRaw - now)/(1000*60*60*24));
+        interviewDateStr = Utilities.formatDate(iRaw,'Asia/Dubai','yyyy-MM-dd');
+      }
+    });
+  }
+  if (!trade) return { ok:false, error:'Requirement not found: '+reqId };
+
+  // ── 1. Associate recommendations ────────────────────────────────
+  var allAssocs = [];
+  var aSheet = ss.getSheetByName('_Associates');
+  if (aSheet && aSheet.getLastRow() > 1) {
+    aSheet.getDataRange().getValues().slice(1).forEach(function(ar) {
+      if (!String(ar[0]||'').trim()) return;
+      if (String(ar[15]||'').toUpperCase() !== 'YES') return;
+      allAssocs.push({
+        assocId:     String(ar[0]),
+        displayName: assocDisplayName_(ar[1], ar[2], ar[0]),
+        contactName: isPhoneLike_(String(ar[2]||'')) ? '' : String(ar[2]||''),
+        state:       String(ar[5]||''),
+        category:    String(ar[9]||''),
+        capacity:    String(ar[10]||'')
+      });
+    });
+  }
+
+  var allCaps  = getAssociateCapacity_({}).capacity;
+  var allRels  = getAssociateReliability_({}).reliability;
+
+  var scoredAssocs = allAssocs.map(function(a) {
+    var sc = scoreOneAssociate_(a, allCaps, allRels, daysToInterview, country, trade);
+    return {
+      assocId:                 a.assocId,
+      displayName:             a.displayName,
+      contactName:             a.contactName,
+      state:                   a.state,
+      category:                a.category,
+      score:                   sc.score,
+      gated:                   sc.gated,
+      gateReason:              sc.gateReason||null,
+      capacityInWindow:        sc.capacityInWindow,
+      window:                  sc.window,
+      commitmentAccuracy:      sc.commitmentAccuracy,
+      countryTradeReliability: sc.countryTradeReliability,
+      mobilizationRate:        sc.mobilizationRate,
+      historyFound:            sc.historyFound||false
+    };
+  }).filter(function(a) { return !a.gated; })   // exclude capacity-gated
+    .sort(function(a,b) { return b.score - a.score; });
+
+  var gatedCount = allAssocs.length - scoredAssocs.length;
+
+  // ── 2. Database supply ───────────────────────────────────────────
+  var cSheet = ss.getSheetByName('Candidates');
+  var dbSupply = { readySupply:0, revalidationSupply:0, tradePossible:0, topCandidates:[] };
+  if (cSheet && cSheet.getLastRow() > 1) {
+    var cCols = Math.min(cSheet.getLastColumn(), 42);
+    var cData = cSheet.getRange(2,1,cSheet.getLastRow()-1,cCols).getValues();
+    var cands = [];
+    cData.forEach(function(row) {
+      var active = String(row[COL.active-1]||'').toUpperCase().trim();
+      if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+      var nm = String(row[COL.name-1]||'').trim();
+      if (!nm && !String(row[COL.email-1]||'').trim()) return;
+      var fresh = classifyDatabaseFreshness_(
+        row[COL.candidateState-1], row[COL.lastContact-1],
+        row[COL.passportExpiry-1], row[COL.applicationDate-1]);
+      cands.push({
+        trade:String(row[COL.trade-1]||''), positionApplied:String(row[COL.positionApplied-1]||''),
+        experience:parseFloat(row[COL.experience-1])||0, age:parseInt(row[COL.age-1])||0,
+        gulfExp:String(row[COL.gulfExp-1]||''), currentLocation:String(row[COL.currentLocation-1]||''),
+        kaiAssessment:String(row[COL.kaiAssessment-1]||''),
+        top3Positions:parseTop3Positions_(String(row[COL.top3Positions-1]||'')),
+        _name:nm, _kaiNo:String(row[COL.kaiNo-1]||'').trim(),
+        _score:parseInt(row[COL.score-1])||0, _freshness:fresh
+      });
+    });
+    var supply = getDeployableSupply_(country, trade, minExp, minAge, maxAge, cands, { collect:true });
+    var top5 = supply.deployableList.slice()
+      .sort(function(a,b) {
+        if (a.freshness!==b.freshness) return a.freshness==='READY'?-1:1;
+        return b.score-a.score;
+      }).slice(0,5);
+    dbSupply = {
+      readySupply:        supply.freshDeployable,
+      revalidationSupply: supply.revalidationDeployable,
+      tradePossible:      supply.tradePossible,
+      topCandidates: top5.map(function(c) {
+        return { name:c.name, kaiNo:c.kaiNo, score:c.score,
+                 experience:c.experience, freshness:c.freshness, mobility:c.mobility };
+      })
+    };
+  }
+
+  // ── 3. Open leads ────────────────────────────────────────────────
+  var openLeads = { count:0, tradePossible:0 };
+  var lSheet = ss.getSheetByName('_Leads');
+  if (lSheet && lSheet.getLastRow() > 1) {
+    var tLow = trade.toLowerCase();
+    lSheet.getDataRange().getValues().slice(1).forEach(function(lr) {
+      var st = String(lr[5]||'').toLowerCase();
+      if (st === 'converted' || st === 'rejected' || st === 'archived') return;
+      openLeads.count++;
+      var lTrade = String(lr[4]||lr[3]||'').toLowerCase();
+      if (lTrade && (lTrade.indexOf(tLow) >= 0 || tLow.indexOf(lTrade) >= 0))
+        openLeads.tradePossible++;
+    });
+  }
+
+  // ── 4. Estimated total supply ────────────────────────────────────
+  var assocEstimate = scoredAssocs.reduce(function(s,a){ return s + a.capacityInWindow; }, 0);
+  var totalEstimate = assocEstimate + dbSupply.readySupply + openLeads.tradePossible;
+
+  return {
+    ok:            true,
+    reqId:         reqId,
+    trade:         trade,
+    country:       country,
+    requiredQty:   requiredQty,
+    committedQty:  committedQty,
+    interviewDate: interviewDateStr,
+    daysToInterview: daysToInterview,
+    sources: {
+      associates: {
+        ranked:      scoredAssocs,
+        totalActive: allAssocs.length,
+        gatedOut:    gatedCount,
+        note:        gatedCount > 0
+          ? gatedCount + ' associate(s) excluded — CapacityInWindow=0 for ' + (daysToInterview===null?'no date':daysToInterview+'d window')
+          : null
+      },
+      database: dbSupply,
+      openLeads: openLeads
+    },
+    totalEstimatedSupply: totalEstimate
+  };
+}
+
+// ── PHASE 2 SETUP + TEST ─────────────────────────────────────────────
+function setupPhase2() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  ensureCommitmentsSheet_(ss);
+  Logger.log('_Commitments:          OK');
+  ensureCapacitySheet_(ss);
+  Logger.log('_AssociateCapacity:    OK');
+  ensureReliabilitySheet_(ss);
+  Logger.log('_AssociateReliability: OK');
+  Logger.log('Phase 2 infrastructure ready.');
+  Logger.log('Next: upsertAssociateCapacity for each associate × trade, then createCommitment per requirement.');
+}
+
+function testPhase2() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Sheet access
+  Logger.log('_Commitments:          ' + (ss.getSheetByName('_Commitments')          ? 'OK' : 'MISSING — run setupPhase2()'));
+  Logger.log('_AssociateCapacity:    ' + (ss.getSheetByName('_AssociateCapacity')     ? 'OK' : 'MISSING'));
+  Logger.log('_AssociateReliability: ' + (ss.getSheetByName('_AssociateReliability')  ? 'OK' : 'MISSING'));
+
+  // Score formula smoke test
+  var mockAssoc = { assocId:'TEST-ASSOC', displayName:'Test Associate' };
+  var mockCaps  = [{ assocId:'TEST-ASSOC', trade:'Welder', within3d:5, within7d:20, within15d:40, beyond15d:60 }];
+  var mockRels  = [{ assocId:'TEST-ASSOC', country:'Saudi Arabia', trade:'Welder',
+                     commitmentAccuracy:0.85, mobilizationRate:0.75 }];
+
+  var sc7  = scoreOneAssociate_(mockAssoc, mockCaps, mockRels, 7,   'Saudi Arabia', 'Welder');
+  var sc3  = scoreOneAssociate_(mockAssoc, mockCaps, mockRels, 3,   'Saudi Arabia', 'Welder');
+  var scN  = scoreOneAssociate_(mockAssoc, mockCaps, mockRels, null,'Saudi Arabia', 'Welder');
+  var scG  = scoreOneAssociate_(mockAssoc, [],       mockRels, 7,   'Saudi Arabia', 'Welder');
+
+  Logger.log('Score tests (Saudi/Welder, cap 3d=5 7d=20 15d=40 beyond=60, acc=0.85 mob=0.75):');
+  Logger.log('  7d window:   score=' + sc7.score + ' cap=' + sc7.capacityInWindow + ' window=' + sc7.window);
+  Logger.log('  3d window:   score=' + sc3.score + ' cap=' + sc3.capacityInWindow + ' window=' + sc3.window);
+  Logger.log('  no date:     score=' + scN.score + ' cap=' + scN.capacityInWindow + ' window=' + scN.window);
+  Logger.log('  GATED(0cap): gated=' + scG.gated + ' reason=' + scG.gateReason);
+
+  // Expected: 7d = 20*0.85*0.85*0.75 = ~10.8 | 3d = 5*0.85*0.85*0.75 = ~2.7 | gated = true
+  Logger.log('Expected: 7d~10.8, 3d~2.7, GATED=true');
+
+  // recommendedSources smoke test against first live requirement
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (rSheet && rSheet.getLastRow() > 1) {
+    var firstReqId = String(rSheet.getRange(2,1).getValue()||'').trim();
+    if (firstReqId) {
+      var rs = getRecommendedSources_({ reqId:firstReqId });
+      Logger.log('recommendedSources(' + firstReqId + '): ok=' + rs.ok +
+                 ' assocs=' + (rs.sources ? rs.sources.associates.ranked.length : '?') +
+                 ' dbReady=' + (rs.sources ? rs.sources.database.readySupply : '?') +
+                 ' openLeads=' + (rs.sources ? rs.sources.openLeads.count : '?') +
+                 ' total=' + (rs.totalEstimatedSupply||0));
+    }
+  }
 }
