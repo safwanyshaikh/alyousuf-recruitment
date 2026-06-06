@@ -6168,8 +6168,17 @@ function ensureReqSchema_(ss) {
 
 // ── 1.3 DATABASE FRESHNESS CLASSIFIER ───────────────────────────────
 // Returns 'READY' | 'REVALIDATION' | 'EXPIRED'
-// Uses Candidates cols 28 (candidateState), 36 (lastContact), 30 (passportExpiry).
-function classifyDatabaseFreshness_(candState, lastContactRaw, passportExpiryRaw) {
+// Uses Candidates cols 28 (candidateState), 36 (lastContact), 30 (passportExpiry),
+// 2 (applicationDate — fallback freshness signal when lastContact is blank).
+//
+// FRESHNESS SIGNAL — last-touch date is the best signal, but lastContact (col 36)
+// is only written on explicit touch events and is blank for most of the DB.
+// We therefore fall back to applicationDate (when the CV entered the system).
+// A CV that arrived 30 days ago with no follow-up is still fresh supply;
+// a 2023 CV with no contact since is not. This honours the
+// "a 2023 cold CV is NOT supply" rule without expiring the whole DB on a
+// blank operational field.
+function classifyDatabaseFreshness_(candState, lastContactRaw, passportExpiryRaw, applicationDateRaw) {
   var now = new Date();
 
   // Hard EXPIRED states — no longer in active pipeline
@@ -6181,21 +6190,18 @@ function classifyDatabaseFreshness_(candState, lastContactRaw, passportExpiryRaw
     if (passportExpiryRaw < now) return 'EXPIRED';
   }
 
-  // Resolve lastContact to a Date
-  var lastContact = null;
-  if (lastContactRaw instanceof Date && !isNaN(lastContactRaw)) {
-    lastContact = lastContactRaw;
-  } else if (lastContactRaw && String(lastContactRaw).trim()) {
-    var parsed = new Date(lastContactRaw);
-    if (!isNaN(parsed)) lastContact = parsed;
-  }
-  // No contact record → treat as cold (548 days is 18 months; no record is older)
-  var daysSinceLast = lastContact
-    ? Math.floor((now - lastContact) / (1000*60*60*24))
-    : 999;
+  // Resolve freshness anchor: lastContact preferred, applicationDate as fallback
+  var anchor = toDateOrNull_(lastContactRaw);
+  if (!anchor) anchor = toDateOrNull_(applicationDateRaw);
 
-  if (daysSinceLast > 548) return 'EXPIRED';       // > 18 months — cold CV
-  if (daysSinceLast > 183) return 'REVALIDATION';  // 6–18 months — needs check
+  // No date at all (no contact AND no application date) → unknown, needs check.
+  // Do NOT auto-expire: absence of a date is a data gap, not proof of a cold CV.
+  if (!anchor) return 'REVALIDATION';
+
+  var daysSinceAnchor = Math.floor((now - anchor) / (1000*60*60*24));
+
+  if (daysSinceAnchor > 548) return 'EXPIRED';       // > 18 months — cold CV
+  if (daysSinceAnchor > 183) return 'REVALIDATION';  // 6–18 months — needs check
 
   // Passport expiring soon but still valid
   if (passportExpiryRaw instanceof Date && !isNaN(passportExpiryRaw)) {
@@ -6204,6 +6210,16 @@ function classifyDatabaseFreshness_(candState, lastContactRaw, passportExpiryRaw
   }
 
   return 'READY';
+}
+
+// Coerce a Sheets cell (Date | string | blank) to a valid Date or null.
+function toDateOrNull_(raw) {
+  if (raw instanceof Date) return isNaN(raw) ? null : raw;
+  if (raw && String(raw).trim()) {
+    var d = new Date(raw);
+    return isNaN(d) ? null : d;
+  }
+  return null;
 }
 
 // ── 1.2 DEPLOYABLE SUPPLY ENGINE ────────────────────────────────────
@@ -6393,7 +6409,8 @@ function requirementCommandCenter_(params) {
         _freshness:      classifyDatabaseFreshness_(
                            row[COL.candidateState-1],
                            row[COL.lastContact-1],
-                           row[COL.passportExpiry-1]
+                           row[COL.passportExpiry-1],
+                           row[COL.applicationDate-1]
                          )
       });
     });
@@ -6504,12 +6521,15 @@ function testPhase1() {
   var d30   = new Date(now - 30*24*60*60*1000);   // 30 days ago
   var ppExp = new Date(now - 10*24*60*60*1000);   // passport expired
   var ppOk  = new Date(now.getFullYear()+2, now.getMonth(), now.getDate());
+  var d700  = new Date(now - 700*24*60*60*1000);  // ~23 months ago (cold)
   Logger.log('Freshness tests:');
-  Logger.log('  rejected state:         ' + classifyDatabaseFreshness_('Rejected', d30, ppOk));
-  Logger.log('  400d no contact:        ' + classifyDatabaseFreshness_('', d400, ppOk));
-  Logger.log('  30d contact, good pp:   ' + classifyDatabaseFreshness_('', d30, ppOk));
-  Logger.log('  30d contact, exp pp:    ' + classifyDatabaseFreshness_('', d30, ppExp));
-  Logger.log('  no contact record:      ' + classifyDatabaseFreshness_('', null, ppOk));
+  Logger.log('  rejected state:              ' + classifyDatabaseFreshness_('Rejected', d30, ppOk, d30));
+  Logger.log('  400d lastContact:           ' + classifyDatabaseFreshness_('', d400, ppOk, null));
+  Logger.log('  30d contact, good pp:       ' + classifyDatabaseFreshness_('', d30, ppOk, null));
+  Logger.log('  30d contact, exp pp:        ' + classifyDatabaseFreshness_('', d30, ppExp, null));
+  Logger.log('  blank contact, 30d appDate: ' + classifyDatabaseFreshness_('', null, ppOk, d30));
+  Logger.log('  blank contact, 700d appDate:' + classifyDatabaseFreshness_('', null, ppOk, d700));
+  Logger.log('  no dates at all:            ' + classifyDatabaseFreshness_('', null, ppOk, null));
 
   // 1.4 Fill probability tests
   Logger.log('Fill probability tests:');
@@ -6545,7 +6565,8 @@ function testPhase1() {
       _freshness:      classifyDatabaseFreshness_(
                          row[COL.candidateState-1],
                          row[COL.lastContact-1],
-                         row[COL.passportExpiry-1]
+                         row[COL.passportExpiry-1],
+                         row[COL.applicationDate-1]
                        )
     });
   });
