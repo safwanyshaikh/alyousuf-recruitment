@@ -8308,7 +8308,7 @@ function testPhase3() {
 //
 // 4.1  Learning Writer  → populates _KAI_Knowledge per COUNTRY×TRADE.
 //       Success trigger = COMPLETED MOBILIZATION (deployed), not selection.
-//       Makes getHistoricalConversion_(trade, country) stop using 0.70.
+//       Makes getHistoricalConversion_(country, trade) stop using 0.70.
 // 4.2  Recruiter KPI    → ranked Mobilized → Selected → Submitted.
 // 4.3  Revenue Summary  → Selected / Mobilized / Travel-This-Week /
 //       Completed Mobilization, by client/country/trade/month.
