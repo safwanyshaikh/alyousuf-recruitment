@@ -81,6 +81,7 @@ function doGet(e) {
         JSON.stringify({ ok: false, error: 'Unauthorized' })
       ).setMimeType(ContentService.MimeType.JSON);
     }
+    CURRENT_ACTOR_ = resolveActorFromToken_(token);   // 0.2 — real identity for any logging
 
     if      (action === 'candidates')       out = JSON.stringify(getCandidates_(params));
     else if (action === 'candidate')        out = JSON.stringify(getSingleCandidate_(params));
@@ -133,6 +134,7 @@ function doPost(e) {
       out = JSON.stringify({ ok: false, error: 'Unauthorized' });
       return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
     }
+    CURRENT_ACTOR_ = resolveActorFromToken_(token);   // 0.2 — real identity for all writes
 
     if      (action === 'updateStage')       out = JSON.stringify(updateStage_(body));
     else if (action === 'saveNote')          out = JSON.stringify(saveNote_(body));
@@ -1315,10 +1317,13 @@ function getActivityLog_(params) {
 }
 
 function logActivity_(ss, entry) {
+  // 0.2 — authenticated identity is source of truth. Falls back to caller-
+  // supplied actor (system/trigger paths have no token → CURRENT_ACTOR_ is '').
+  var actor = CURRENT_ACTOR_ || entry.actor || 'system';
   ensureActivitySheet_(ss).appendRow([
     Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm'),
     entry.kaiNo||'', entry.rowIndex||'', entry.action||'',
-    (entry.detail||'').slice(0,500), entry.actor||'system', entry.notes||''
+    (entry.detail||'').slice(0,500), actor, entry.notes||''
   ]);
 }
 
@@ -1388,6 +1393,22 @@ function createRequirement_(body) {
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('_Requirements');
   if (!sheet) return { ok:false, error:'_Requirements sheet not found' };
+
+  // 0.3 — trade gate. No blank/filename/unknown trade enters production.
+  var tradeIn = String(body.trade||body.jobTitle||'').trim();
+  if (!isValidTrade_(tradeIn)) {
+    var qid = quarantineRequirement_(ss, {
+      importId: String(body.jdId||body.importId||'manual'),
+      fileName: String(body.fileName||body.jobTitle||''),
+      reason:   tradeIn ? 'FILENAME_OR_UNKNOWN_TRADE' : 'BLANK_TRADE',
+      rawTrade: tradeIn,
+      client:   String(body.clientName||'')
+    });
+    return { ok:false, error:'INVALID_TRADE',
+             message:'Requirement rejected — trade is blank/invalid. Quarantined for review: ' + qid,
+             quarantineId: qid };
+  }
+
   var reqId = generateReqId_();
   sheet.appendRow([
     reqId, new Date(),
@@ -1699,6 +1720,17 @@ function uploadCV_(body) {
     if (!candidatesSheet) throw new Error('Candidates sheet not found');
     candidatesSheet.appendRow(buildCandidateRow_(parsed, scoreResult, kaiNo, driveUrl, recruiter, senderName, senderEmail));
     var candidateRowIndex = candidatesSheet.getLastRow();
+
+    // 0.1 — lock immutable source. Registered associate email → Associate credit;
+    // otherwise a recruiter manual upload. Email intake from the main pipeline
+    // is out of scope (that runs in Test 1, which we never touch).
+    var upAssoc = matchAssociateByEmail_(ss, senderEmail);
+    lockSourceIfEmpty_(candidatesSheet, candidateRowIndex, {
+      sourceType:      upAssoc ? 'Associate' : 'Manual',
+      sourceAssociate: upAssoc ? upAssoc.assocId : '',
+      receivedVia:     'Upload',
+      receivedDate:    new Date()
+    });
 
     // STEP 7 — Update upload log
     uploadSheet.getRange(uploadRowNum, 9).setValue('PARSED');
@@ -2914,6 +2946,22 @@ function createJDAndRequirement_(body) {
     recruiter, ''
   ]);
 
+  // 0.3 — trade gate. If Gemini failed to extract a real trade, do NOT
+  // create a corrupt requirement; quarantine it. The JD is already saved
+  // above, so nothing is lost — only the bad requirement is blocked.
+  if (!isValidTrade_(parsed.trade)) {
+    var qidJD = quarantineRequirement_(ss, {
+      importId: jdId,
+      fileName: String(body.fileName||parsed.title||clientName||''),
+      reason:   'JD_PARSE_NO_TRADE',
+      rawTrade: String(parsed.trade||''),
+      client:   clientName || parsed.client || ''
+    });
+    return { ok:false, error:'INVALID_TRADE', jdId:jdId,
+             message:'JD saved but requirement rejected — no valid trade extracted. Quarantined: ' + qidJD,
+             quarantineId: qidJD };
+  }
+
   // Step 3: Auto-create Requirement
   var reqSheet = ss.getSheetByName('_Requirements');
   if (!reqSheet) {
@@ -3103,12 +3151,20 @@ function importAssociates_(body) {
 
     var assocId = 'ASC-' + Utilities.formatDate(now,'Asia/Dubai','yyyyMMdd') +
                   '-' + String(Math.floor(Math.random()*9000)+1000);
+    // 0.4 — normalize mobile. Multi-number imports (e.g. "x / y") are
+    // collapsed for storage but the raw is preserved in Notes so the
+    // Phase-2 Mobile1/Mobile2 split loses nothing.
+    var rawMobile  = String(a.mobile||'').trim();
+    var normMobile = normalizeMobileStore_(rawMobile);
+    var isMulti    = /[\/,]/.test(rawMobile);
+    var notes      = String(a.notes||'').trim();
+    if (isMulti) notes = (notes ? notes + ' | ' : '') + 'raw-mobile: ' + rawMobile;
     sheet.appendRow([
       assocId,
       String(a.companyName   ||'').trim(),
       String(a.contactName   ||'').trim(),
       email,
-      String(a.mobile        ||'').trim(),
+      normMobile,
       String(a.state         ||'').trim(),
       String(a.city          ||'').trim(),
       String(a.licenseType   ||'').trim(),
@@ -3120,7 +3176,7 @@ function importAssociates_(body) {
       String(a.websiteUrl    ||'').trim(),
       String(a.address       ||'').trim(),
       'YES', now,
-      String(a.notes         ||'').trim(),
+      notes,
       source
     ]);
     added++;
@@ -3644,15 +3700,29 @@ function splitJDToRequirements_(body) {
   var reqSheet = ss.getSheetByName('_Requirements');
   if (!reqSheet) return { ok:false, error:'_Requirements sheet not found' };
 
-  var created = [];
+  var created     = [];
+  var quarantined = [];
   positions.forEach(function(pos) {
+    var posTrade = pos.trade || pos.title || '';
+    // 0.3 — per-position trade gate. Bad positions are quarantined, not created.
+    if (!isValidTrade_(posTrade)) {
+      var qidPos = quarantineRequirement_(ss, {
+        importId: jdId || 'split',
+        fileName: String(body.fileName||posTrade||''),
+        reason:   posTrade ? 'FILENAME_OR_UNKNOWN_TRADE' : 'BLANK_TRADE',
+        rawTrade: posTrade,
+        client:   clientName || pos.client || ''
+      });
+      quarantined.push({ rawTrade:posTrade, quarantineId:qidPos });
+      return;
+    }
     var reqId = generateReqId_();
     reqSheet.appendRow([
       reqId,
       new Date(),
       clientName || pos.client || '',
       pos.country || country || '',
-      pos.trade   || pos.title || '',
+      posTrade,
       parseInt(pos.qty||'1')    || 1,
       parseFloat(pos.minExp||'0') || 0,
       0, 0,             // minAge, maxAge
@@ -3669,7 +3739,7 @@ function splitJDToRequirements_(body) {
       jdId || '',
       '', ''            // startDate, endDate
     ]);
-    created.push({ reqId:reqId, trade:pos.trade||pos.title||'',
+    created.push({ reqId:reqId, trade:posTrade,
                    qty:parseInt(pos.qty||'1')||1, minExp:parseFloat(pos.minExp||'0')||0,
                    certifications:pos.certifications||'' });
   });
@@ -3680,7 +3750,9 @@ function splitJDToRequirements_(body) {
       country, raw, positions);
   } catch(e) { Logger.log('captureJDIntelligenceT14_ error: ' + e.message); }
 
-  return { ok:true, jdId:jdId||'', positionsFound:positions.length, requirements:created };
+  return { ok:true, jdId:jdId||'', positionsFound:positions.length,
+           requirements:created, created:created.length,
+           quarantined:quarantined.length, quarantinedItems:quarantined };
 }
 
 
@@ -3727,7 +3799,7 @@ function whatsappIntake_(body) {
 
   var parsed = {
     name:            name,
-    mobile:          mobile,
+    mobile:          normalizeMobileStore_(mobile),   // 0.4
     email:           String(body.email           ||'').trim(),
     trade:           trade,
     positionApplied: trade,
@@ -3770,6 +3842,16 @@ function whatsappIntake_(body) {
   row[COL.currentLocation-1] = parsed.currentLocation;
   row[COL.missingFields-1]   = (pc.missing||[]).join(',');
   row[COL.lastContact-1]     = now;
+
+  // 0.1 — if this mobile/email belongs to a registered associate, credit them;
+  // otherwise it's a direct WhatsApp intake. Source is locked at creation.
+  var waAssoc = matchAssociateByEmail_(ss, parsed.email);
+  applySourceLockToRow_(row, {
+    sourceType:      waAssoc ? 'Associate' : 'Direct',
+    sourceAssociate: waAssoc ? waAssoc.assocId : '',
+    receivedVia:     'WhatsApp',
+    receivedDate:    now
+  });
 
   sheet.appendRow(row);
 
@@ -5593,7 +5675,7 @@ function createLead_(body) {
     leadId,                                    // Lead ID
     now,                                       // Created At
     name,                                      // Name
-    mobile,                                    // Mobile
+    normalizeMobileStore_(mobile),             // Mobile (0.4 normalized)
     String(body.email          ||'').trim(),   // Email
     trade,                                     // Trade
     parseFloat(body.experience)||0,            // Experience
@@ -5783,7 +5865,7 @@ function convertLeadToCandidate_(body) {
   row[COL.applicationDate-1] = now;
   row[COL.nationality-1]     = String(lRow[COL_L_.nationality-1]||'').trim();
   row[COL.name-1]            = lName;
-  row[COL.mobile-1]          = String(lRow[COL_L_.mobile-1]||'').trim();
+  row[COL.mobile-1]          = normalizeMobileStore_(lRow[COL_L_.mobile-1]);   // 0.4
   row[COL.email-1]           = String(lRow[COL_L_.email-1]||'').trim();
   row[COL.education-1]       = String(lRow[COL_L_.education-1]||'').trim();
   row[COL.positionApplied-1] = lTrade;
@@ -5811,6 +5893,18 @@ function convertLeadToCandidate_(body) {
   row[COL.missingFields-1] = missing.map(function(m){ return m.field; }).join(',');
   row[COL.notes-1]         = 'Converted from Lead ' + leadId +
                              (String(lRow[COL_L_.notes-1]||'').trim() ? ' | ' + lRow[COL_L_.notes-1] : '');
+
+  // 0.1 — immutable source lock. A lead may itself have come from an associate;
+  // carry that associate forward so source credit survives conversion.
+  var lSource    = String(lRow[COL_L_.source-1]||'').trim();
+  applySourceLockToRow_(row, {
+    sourceType:      (lSource === 'ASSOCIATE') ? 'Associate' : 'Lead',
+    sourceAssociate: '',                       // populated in Phase 2 when leads carry assocId
+    sourceLead:      leadId,
+    sourceCampaign:  String(lRow[COL_L_.linkedReqId-1]||'').trim(),
+    receivedVia:     lSource || 'Lead',
+    receivedDate:    now
+  });
 
   cSheet.appendRow(row);
 
@@ -5845,3 +5939,180 @@ function setupLeadsSheet()      {
 function testCreateLead()       { Logger.log(JSON.stringify(createLead_({ name:'Test Lead', mobile:'9999999999', trade:'Welder', source:'PHONE_CALL', recruiter:'test' }))); }
 function testLeadQuality()      { Logger.log(classifyLeadQuality_('Welder','',SpreadsheetApp.openById(SS_ID))); }
 function testOpenPoolMatches()  { Logger.log(JSON.stringify(getOpenPoolMatches_({ reqId:'' }))); }
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 28 — PHASE 0: DATA INTEGRITY FOUNDATION
+// 0.1 Source Locking · 0.2 Real Identity · 0.3 Import Validation · 0.4 Mobile
+// These helpers are consumed by intake/creation paths above. They never
+// touch the main pipeline (Test 1) — bridge-owned writes only.
+// ════════════════════════════════════════════════════════════════════
+
+// ───────────────────────────────────────────────────────────────────
+// 0.1 SOURCE LOCKING — immutable provenance (Candidates cols 43-48)
+// ───────────────────────────────────────────────────────────────────
+var COL_SRC = {
+  sourceType:43, sourceAssociate:44, sourceLead:45,
+  sourceCampaign:46, receivedVia:47, receivedDate:48
+};
+var SRC_HDR_ = ['Source Type','Source Associate','Source Lead',
+                'Source Campaign','Received Via','Received Date'];
+
+// Adds the 6 provenance headers to Candidates if not present. Idempotent.
+function ensureSourceLockColumns_(ss) {
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return false;
+  if (sheet.getLastColumn() < COL_SRC.receivedDate) {
+    sheet.getRange(1, COL_SRC.sourceType, 1, SRC_HDR_.length).setValues([SRC_HDR_]);
+  }
+  return true;
+}
+
+// Writes provenance into a NEW candidate row array (mutates in place).
+// Always sets all 6 cells, so the appended row is fully defined to col 48.
+function applySourceLockToRow_(row, src) {
+  src = src || {};
+  row[COL_SRC.sourceType-1]      = String(src.sourceType      || 'Direct').trim();
+  row[COL_SRC.sourceAssociate-1] = String(src.sourceAssociate || '').trim();
+  row[COL_SRC.sourceLead-1]      = String(src.sourceLead      || '').trim();
+  row[COL_SRC.sourceCampaign-1]  = String(src.sourceCampaign  || '').trim();
+  row[COL_SRC.receivedVia-1]     = String(src.receivedVia     || '').trim();
+  row[COL_SRC.receivedDate-1]    = src.receivedDate || new Date();
+}
+
+// Immutable write for an EXISTING candidate row — only fills cells that are
+// currently empty. Never overwrites a locked source. Returns true if changed.
+function lockSourceIfEmpty_(sheet, rowNum, src) {
+  src = src || {};
+  if (sheet.getLastColumn() < COL_SRC.receivedDate) ensureSourceLockColumns_(sheet.getParent());
+  var rng = sheet.getRange(rowNum, COL_SRC.sourceType, 1, 6);
+  var cur = rng.getValues()[0];
+  var want = [
+    String(src.sourceType||''), String(src.sourceAssociate||''),
+    String(src.sourceLead||''), String(src.sourceCampaign||''),
+    String(src.receivedVia||''), src.receivedDate||''
+  ];
+  var changed = false;
+  for (var i = 0; i < 6; i++) {
+    if ((cur[i] === '' || cur[i] === null) && want[i] !== '') { cur[i] = want[i]; changed = true; }
+  }
+  if (changed) rng.setValues([cur]);
+  return changed;
+}
+
+// Registered-associate lookup by sender email → {assocId,name} or null.
+// Powers Associate Email Intake auto-tagging.
+function matchAssociateByEmail_(ss, email) {
+  email = String(email||'').trim().toLowerCase();
+  if (!email) return null;
+  var sheet = ss.getSheetByName('_Associates');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][3]||'').trim().toLowerCase() === email)
+      return { assocId:String(data[i][0]||''), name:String(data[i][1]||'') };
+  }
+  return null;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// 0.2 REAL USER IDENTITY — resolve token → recruiter, set per request
+// ───────────────────────────────────────────────────────────────────
+var CURRENT_ACTOR_ = '';   // set in doGet/doPost after auth; '' for triggers
+
+function resolveActorFromToken_(token) {
+  if (!token) return '';
+  try {
+    var ss    = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName('_LoginSystem');
+    if (!sheet || sheet.getLastRow() < 2) return '';
+    var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 8).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][5]||'').trim() === token)
+        return String(data[i][3] || data[i][0] || '').trim();  // Display Name → Email
+    }
+  } catch(e) {}
+  return '';
+}
+
+// ───────────────────────────────────────────────────────────────────
+// 0.3 IMPORT VALIDATION + QUARANTINE — no corrupt requirement reaches prod
+// ───────────────────────────────────────────────────────────────────
+function isValidTrade_(trade) {
+  var t = String(trade||'').trim();
+  if (!t) return false;                                              // blank
+  if (/\.(pdf|docx?|xlsx?|jpe?g|png|txt)\s*$/i.test(t)) return false; // filename
+  if (t.toLowerCase().indexOf('.pdf') >= 0) return false;
+  if (/^(unknown|n\/?a|na|tbd|manual jd|test trade|none)$/i.test(t)) return false;
+  if (t.length < 2) return false;
+  return true;
+}
+
+var REQ_QUARANTINE_SHEET_ = '_ReqReviewQueue';
+var REQ_Q_HDR_ = ['Quarantine ID','Import ID','File Name','Reason',
+                  'Raw Trade','Client','Timestamp','Status'];
+
+function ensureReqReviewQueue_(ss) {
+  var s = ss.getSheetByName(REQ_QUARANTINE_SHEET_);
+  if (!s) {
+    s = ss.insertSheet(REQ_QUARANTINE_SHEET_);
+    s.appendRow(REQ_Q_HDR_);
+    s.getRange(1,1,1,REQ_Q_HDR_.length).setFontWeight('bold')
+      .setBackground('#7a1f1f').setFontColor('#FFFFFF');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function quarantineRequirement_(ss, info) {
+  var s   = ensureReqReviewQueue_(ss);
+  var qid = 'RQ-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss') +
+            '-' + String(Math.floor(Math.random()*900)+100);
+  s.appendRow([
+    qid,
+    String(info.importId||'').trim(),
+    String(info.fileName||'').trim(),
+    String(info.reason  ||'INVALID_TRADE').trim(),
+    String(info.rawTrade||'').trim(),
+    String(info.client  ||'').trim(),
+    new Date(),
+    'PENDING'
+  ]);
+  logActivity_(ss, { kaiNo:'SYSTEM', rowIndex:0, action:'REQ_QUARANTINED',
+    detail: qid + ' | ' + (info.reason||'INVALID_TRADE') + ' | raw="' + (info.rawTrade||'') + '"',
+    actor: 'import-guard' });
+  return qid;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// 0.4 MOBILE NORMALIZATION — string, no .0, no spaces/specials
+// ───────────────────────────────────────────────────────────────────
+// Storage-safe: preserves the number even if length is unusual (never blanks).
+// Strips the float ".0" that Sheets adds when a mobile is cast to a number.
+function normalizeMobileStore_(raw) {
+  if (raw === null || raw === undefined || raw === '') return '';
+  var s    = String(raw).trim().replace(/\.0+$/, '');   // kill trailing .0
+  var plus = (s.charAt(0) === '+') ? '+' : '';
+  var digits = s.replace(/[^\d]/g, '');
+  return plus + digits;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// PHASE 0 SETUP RUNNER — run once from the GAS editor after deploy
+// ───────────────────────────────────────────────────────────────────
+function setupPhase0() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  Logger.log('0.1 Source-lock columns: ' + (ensureSourceLockColumns_(ss) ? 'OK (cols 43-48)' : 'FAILED'));
+  Logger.log('0.3 _ReqReviewQueue:     ' + (ensureReqReviewQueue_(ss) ? 'OK' : 'FAILED'));
+  Logger.log('Phase 0 infrastructure ready. 0.2 + 0.4 are live on all bridge writes.');
+}
+
+// Quick self-test for the four Phase 0 primitives
+function testPhase0() {
+  Logger.log('isValidTrade_("Welder")               = ' + isValidTrade_('Welder'));
+  Logger.log('isValidTrade_("")                     = ' + isValidTrade_(''));
+  Logger.log('isValidTrade_("JD Safety (1).pdf")    = ' + isValidTrade_('JD Safety Officer (1).pdf'));
+  Logger.log('isValidTrade_("TEST TRADE")           = ' + isValidTrade_('TEST TRADE'));
+  Logger.log('normalizeMobileStore_(9004663661.0)   = ' + normalizeMobileStore_(9004663661.0));
+  Logger.log('normalizeMobileStore_("+91 90046 6361")= ' + normalizeMobileStore_('+91 90046 6361'));
+  Logger.log('resolveActorFromToken_("bad")         = "' + resolveActorFromToken_('bad') + '"');
+}
