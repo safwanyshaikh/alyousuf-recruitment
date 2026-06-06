@@ -115,6 +115,7 @@ function doGet(e) {
     else if (action === 'openPoolMatches')     out = JSON.stringify(getOpenPoolMatches_(params));
     // P1 — Requirement Command Center
     else if (action === 'requirementCommandCenter') out = JSON.stringify(requirementCommandCenter_(params));
+    else if (action === 'requirementDashboardCards') out = JSON.stringify(getRequirementDashboardCards_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -6319,47 +6320,101 @@ function getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, cand
   return result;
 }
 
-// ── 1.4 FILL PROBABILITY ────────────────────────────────────────────
-// freshDeployable: candidates that are READY + deployable (best signal)
-// deployable:      freshDeployable + REVALIDATION (needs confirmation)
-// required:        qty from requirement
-// committedQty:    associate-committed qty (if > 0, overrides required as demand target)
-// daysToInterview: days until interview date (999 = no date set)
-function computeFillProbability_(freshDeployable, deployable, required, committedQty, daysToInterview) {
+// ── TRADE DIFFICULTY (Correction 2 input) ───────────────────────────
+// How hard a trade is to fill, independent of current stock. Rarer/more
+// specialised trades convert slower. Default 1.0 (common trade).
+// Pending Phase 4 learning this is a heuristic table, not historical fact.
+function getTradeDifficulty_(trade) {
+  var t = String(trade||'').toLowerCase();
+  if (!t) return 1.0;
+  // Specialised / scarce — harder to source on short notice
+  if (/qc|qa\b|inspector|ndt|radiograph|6g| tig|instrument|hvac tech|rigger|scaffold inspector/.test(t)) return 0.80;
+  if (/supervisor|foreman|engineer|technician|electrician|millwright/.test(t)) return 0.90;
+  // High-volume common trades — deep market
+  if (/helper|labour|labor|driver|mason|painter|cleaner|fitter|welder|fabricat/.test(t)) return 1.0;
+  return 0.95;
+}
+
+// ── HISTORICAL CONVERSION (Correction 2 input) ──────────────────────
+// Fraction of contacted candidates that actually convert to a confirmed,
+// available submission for this trade. Reads _KAI_Knowledge when learning
+// data exists (Phase 4); until then returns a conservative default so the
+// formula is honest about pipeline leakage.
+function getHistoricalConversion_(trade) {
+  var DEFAULT = 0.70;   // pre-learning baseline
+  try {
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var k  = ss.getSheetByName('_KAI_Knowledge');
+    if (!k || k.getLastRow() < 2) return DEFAULT;
+    var t = String(trade||'').toLowerCase().trim();
+    var data = k.getDataRange().getValues();
+    // Expected (Phase 4): a row keyed by trade with a conversion-rate column.
+    for (var i = 1; i < data.length; i++) {
+      var key = String(data[i][0]||'').toLowerCase().trim();
+      if (key && t.indexOf(key) >= 0) {
+        var rate = parseFloat(data[i][1]);
+        if (!isNaN(rate) && rate > 0 && rate <= 1) return rate;
+      }
+    }
+  } catch(e) {}
+  return DEFAULT;
+}
+
+// ── 1.4 FILL PROBABILITY (Correction 2 — multi-factor) ──────────────
+// Inputs (no longer simple supply ÷ requirement):
+//   ready          — READY deployable (immediate, full weight)
+//   revalidation   — REVALIDATION deployable (counts at REVAL_WEIGHT until reconfirmed)
+//   required       — requirement qty
+//   committedQty   — associate-committed qty (overrides required as demand if > 0)
+//   daysToInterview— interview buffer (urgency factor)
+//   trade          — drives historical conversion + trade difficulty
+function computeFillProbability_(ready, revalidation, required, committedQty, daysToInterview, trade) {
+  ready        = ready        || 0;
+  revalidation = revalidation || 0;
   var demand = (committedQty > 0) ? committedQty : required;
   if (demand <= 0) return { pct:0, riskLevel:'UNKNOWN', label:'No demand set' };
 
-  // Time-pressure factor — closer interview = fewer candidates you can work
-  // through and confirm before the date.
+  var REVAL_WEIGHT = 0.5;   // a revalidation candidate is half a confirmed one
+
+  // Time-pressure factor — fewer candidates you can work through before the date
   var urgencyFactor = 1.0;
   if      (daysToInterview <= 0)  urgencyFactor = 0.0;
   else if (daysToInterview <= 3)  urgencyFactor = 0.55;
   else if (daysToInterview <= 7)  urgencyFactor = 0.75;
   else if (daysToInterview <= 14) urgencyFactor = 0.90;
 
-  // Apply time-pressure to the EFFECTIVE supply, THEN compare to demand.
-  // Validation finding (REQ4): the old formula multiplied an already-capped
-  // supply ratio by the urgency factor, dragging genuinely oversupplied
-  // requirements (234 ready / 12 needed) down to a false MEDIUM. Modelling
-  // urgency as a haircut on supply means a deep bench still fills on a tight
-  // timeline, while scarcity + urgency still collapses fast — no false alerts.
-  var effectiveSupply = freshDeployable * urgencyFactor;
+  var conversion = getHistoricalConversion_(trade);   // pipeline leakage
+  var difficulty = getTradeDifficulty_(trade);        // trade scarcity
+
+  // Effective confirmable supply, then compared to demand (capped at 1.0).
+  // Oversupply is NOT penalised (deep bench fills even when rushed); scarcity
+  // + urgency still collapses fast → no false Critical alerts.
+  var weightedSupply  = ready + (revalidation * REVAL_WEIGHT);
+  var effectiveSupply = weightedSupply * urgencyFactor * conversion * difficulty;
   var pct = Math.round(Math.min(effectiveSupply / demand, 1.0) * 100);
 
+  // Risk gate keyed on IMMEDIATE (READY) stock vs demand — revalidation is not
+  // a guarantee, so a near-term interview with READY < demand is still CRITICAL.
   var riskLevel;
-  if      (daysToInterview <= 3 && freshDeployable < demand) riskLevel = 'CRITICAL';
-  else if (pct < 30)                                          riskLevel = 'HIGH';
-  else if (pct < 60)                                          riskLevel = 'MEDIUM';
-  else if (pct < 85)                                          riskLevel = 'LOW';
-  else                                                        riskLevel = 'HEALTHY';
+  if      (daysToInterview <= 3 && ready < demand) riskLevel = 'CRITICAL';
+  else if (pct < 30)                               riskLevel = 'HIGH';
+  else if (pct < 60)                               riskLevel = 'MEDIUM';
+  else if (pct < 85)                               riskLevel = 'LOW';
+  else                                             riskLevel = 'HEALTHY';
 
   return {
     pct:             pct,
     riskLevel:       riskLevel,
-    freshDeployable: freshDeployable,
-    allDeployable:   deployable,
+    ready:           ready,
+    revalidation:    revalidation,
     demand:          demand,
-    daysToInterview: daysToInterview
+    daysToInterview: daysToInterview,
+    factors: {
+      urgencyFactor:    urgencyFactor,
+      conversion:       conversion,
+      tradeDifficulty:  difficulty,
+      revalWeight:      REVAL_WEIGHT
+    }
   };
 }
 
@@ -6467,12 +6522,18 @@ function requirementCommandCenter_(params) {
       if (!isNaN(iDate)) daysToInterview = Math.floor((iDate - now) / (1000*60*60*24));
     }
 
-    // Supply + fill math
+    // Supply + fill math (Correction 2 — fill consumes READY + REVAL + trade)
     var supply = getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, candidates);
-    var fill   = computeFillProbability_(
-      supply.freshDeployable, supply.deployable,
-      requiredQty, committedQty, daysToInterview
+    var readySupply        = supply.freshDeployable;
+    var revalidationSupply = supply.revalidationDeployable;
+    var fill = computeFillProbability_(
+      readySupply, revalidationSupply,
+      requiredQty, committedQty, daysToInterview, trade
     );
+
+    // Correction 1 — shortfall measured against IMMEDIATE (READY) stock only.
+    var demand    = committedQty || requiredQty;
+    var shortfall = Math.max(0, demand - readySupply);
 
     // Critical actions only when there's a real problem
     var criticalActions = [];
@@ -6492,10 +6553,17 @@ function requirementCommandCenter_(params) {
       deployCountry:   deployCountry,
       trade:           trade,
       jobTitle:        trade,
-      requiredQty:     requiredQty,
-      committedQty:    committedQty,
-      interviewDate:   interviewDateStr,
-      daysToInterview: daysToInterview === 999 ? null : daysToInterview,
+      // ── Command Center header fields (Correction 4) ─────────────
+      requiredQty:        requiredQty,
+      committedQty:       committedQty,
+      readySupply:        readySupply,         // Correction 1 — immediate
+      revalidationSupply: revalidationSupply,  // Correction 1 — needs reconfirm
+      shortfall:          shortfall,
+      interviewDate:      interviewDateStr,
+      daysRemaining:      daysToInterview === 999 ? null : daysToInterview,
+      fillProbability:    fill.pct,
+      riskLevel:          fill.riskLevel,
+      // ── Secondary detail ────────────────────────────────────────
       minExperience:   minExp,
       minAge:          minAge,
       maxAge:          maxAge,
@@ -6508,20 +6576,22 @@ function requirementCommandCenter_(params) {
                          ? Utilities.formatDate(row[21],'Asia/Dubai','yyyy-MM-dd') : String(row[21]||''),
       endDate:         row[22] instanceof Date
                          ? Utilities.formatDate(row[22],'Asia/Dubai','yyyy-MM-dd') : String(row[22]||''),
-      // ── Supply Intelligence (Phase 1 core) ──────────────────────
+      // ── Recruiter-facing supply (Correction 6: NO expired here) ──
       supply: {
-        tradePossible:          supply.tradePossible,
-        deployable:             supply.deployable,
-        freshDeployable:        supply.freshDeployable,
-        revalidationDeployable: supply.revalidationDeployable,
-        localPool:              supply.localPool,
-        byMobility:             supply.byMobility,
-        freshBreakdown:         supply.freshBreakdown
+        tradePossible:      supply.tradePossible,
+        readySupply:        readySupply,
+        revalidationSupply: revalidationSupply,
+        localExcluded:      supply.localPool,
+        byMobility:         supply.byMobility
       },
-      fillProbability:  fill.pct,
-      riskLevel:        fill.riskLevel,
-      shortfall:        Math.max(0, (committedQty||requiredQty) - supply.freshDeployable),
-      criticalActions:  criticalActions
+      fillFactors:     fill.factors,
+      criticalActions: criticalActions,
+      // ── Internal-only metrics (Correction 6 — never render to recruiter)
+      _internal: {
+        expired:        supply.freshBreakdown.EXPIRED,
+        totalDeployable:supply.deployable,
+        freshBreakdown: supply.freshBreakdown
+      }
     });
   });
 
@@ -6554,14 +6624,16 @@ function testPhase1() {
   Logger.log('  blank contact, 700d appDate:' + classifyDatabaseFreshness_('', null, ppOk, d700));
   Logger.log('  no dates at all:            ' + classifyDatabaseFreshness_('', null, ppOk, null));
 
-  // 1.4 Fill probability tests
+  // 1.4 Fill probability tests (ready, revalidation, required, committed, days, trade)
   Logger.log('Fill probability tests:');
-  var fp1 = computeFillProbability_(5, 8, 10, 0, 2);
-  Logger.log('  5 fresh / 10 req / 2d:  pct=' + fp1.pct + ' risk=' + fp1.riskLevel);
-  var fp2 = computeFillProbability_(9, 10, 10, 0, 30);
-  Logger.log('  9 fresh / 10 req / 30d: pct=' + fp2.pct + ' risk=' + fp2.riskLevel);
-  var fp3 = computeFillProbability_(3, 5, 20, 0, 7);
-  Logger.log('  3 fresh / 20 req / 7d:  pct=' + fp3.pct + ' risk=' + fp3.riskLevel);
+  var fp1 = computeFillProbability_(5, 3, 10, 0, 2, 'Welder');
+  Logger.log('  5 ready+3 reval / 10 req / 2d Welder:  pct=' + fp1.pct + ' risk=' + fp1.riskLevel);
+  var fp2 = computeFillProbability_(9, 1, 10, 0, 30, 'Welder');
+  Logger.log('  9 ready+1 reval / 10 req / 30d Welder: pct=' + fp2.pct + ' risk=' + fp2.riskLevel);
+  var fp3 = computeFillProbability_(3, 2, 20, 0, 7, 'QC Inspector');
+  Logger.log('  3 ready+2 reval / 20 req / 7d QC:      pct=' + fp3.pct + ' risk=' + fp3.riskLevel);
+  var fp4 = computeFillProbability_(234, 67, 12, 0, 3, 'Electrician');
+  Logger.log('  234 ready / 12 req / 3d Electrician:   pct=' + fp4.pct + ' risk=' + fp4.riskLevel + ' (oversupply must be HEALTHY)');
 
   // 1.2 Live supply smoke test (first 500 candidates)
   var ss     = SpreadsheetApp.openById(SS_ID);
@@ -6600,7 +6672,7 @@ function testPhase1() {
              ' local=' + s1.localPool);
   Logger.log('  byMobility: '     + JSON.stringify(s1.byMobility));
   Logger.log('  freshBreakdown: ' + JSON.stringify(s1.freshBreakdown));
-  var fill1 = computeFillProbability_(s1.freshDeployable, s1.deployable, 10, 0, 5);
+  var fill1 = computeFillProbability_(s1.freshDeployable, s1.revalidationDeployable, 10, 0, 5, 'Welder');
   Logger.log('  fillProbability for 10 qty / 5 days: pct=' + fill1.pct + ' risk=' + fill1.riskLevel);
 }
 
@@ -6626,6 +6698,27 @@ function testPhase1() {
 //  from _Associates). Labelled "[pre-P2]" so it is never mistaken for the
 //  real recommendation engine.
 // ════════════════════════════════════════════════════════════════════
+
+// ── ASSOCIATE IDENTITY HELPERS (Correction 3) ───────────────────────
+// A string is "phone-like" if, stripped of separators, it's ≥7 digits and
+// has no real alpha content — i.e. it's a number masquerading as a name.
+function isPhoneLike_(s) {
+  var str = String(s||'').trim();
+  if (!str) return false;
+  var digits = str.replace(/[\s\-\/\+\(\)\.]/g, '');
+  return /^\d{7,}(?:[\/,]\d{7,})*$/.test(digits) || /^[\d\s\-\/\+\(\)\.]{7,}$/.test(str);
+}
+
+// Resolve a presentable associate identity, never a raw phone number.
+// Prefers a non-phone company name, then a non-phone contact name, else the
+// stable AssocId. Guarantees the primary identity is human-readable.
+function assocDisplayName_(companyName, contactName, assocId) {
+  var co = String(companyName||'').trim();
+  var ct = String(contactName||'').trim();
+  if (co && !isPhoneLike_(co)) return co;
+  if (ct && !isPhoneLike_(ct)) return ct;
+  return 'Associate ' + String(assocId||'').trim();
+}
 
 // The 5 validation probes — spread across countries + trades per the gate spec.
 var P1_VALIDATION_PROBES_ = [
@@ -6675,6 +6768,8 @@ function validatePhase1() {
   });
 
   // ── Load associates for lightweight signal ────────────────────────
+  // Correction 3 — show Company / Contact Person / State / Category.
+  // Never use a raw phone number as the primary identity.
   var assocs = [];
   var aSheet = ss.getSheetByName('_Associates');
   if (aSheet && aSheet.getLastRow() > 1) {
@@ -6682,10 +6777,14 @@ function validatePhase1() {
       if (!String(r[0]||'').trim()) return;
       if (String(r[15]||'').toUpperCase() !== 'YES') return;  // active only
       assocs.push({
-        name:  String(r[2]||r[1]||'').trim(),
-        state: String(r[5]||'').trim(),
-        spec:  String(r[9]||'').toLowerCase(),
-        capacity: String(r[10]||'').trim()
+        assocId:     String(r[0]||'').trim(),
+        companyName: String(r[1]||'').trim(),
+        contactName: String(r[2]||'').trim(),
+        displayName: assocDisplayName_(r[1], r[2], r[0]),  // phone-safe identity
+        state:       String(r[5]||'').trim(),
+        category:    String(r[9]||'').trim(),
+        spec:        String(r[9]||'').toLowerCase(),
+        capacity:    String(r[10]||'').trim()
       });
     });
   }
@@ -6705,7 +6804,8 @@ function validatePhase1() {
       p.country, p.trade, p.minExp, 0, p.maxAge, cands, { collect:true }
     );
     var fill = computeFillProbability_(
-      supply.freshDeployable, supply.deployable, p.requiredQty, 0, p.daysToInterview
+      supply.freshDeployable, supply.revalidationDeployable,
+      p.requiredQty, 0, p.daysToInterview, p.trade
     );
 
     // Top DB supply — READY first, then by score, then experience
@@ -6755,8 +6855,12 @@ function validatePhase1() {
       Logger.log('      (no active associates on file)');
     } else {
       matchedAssoc.forEach(function(a, i) {
-        Logger.log('      ' + (i+1) + '. ' + a.name +
-                   '  [' + (a.state||'?') + ', cap ' + (a.capacity||'?') + ']');
+        // Correction 3 — Name / Contact Person / State / Category. No raw phone as identity.
+        var contactDisp = isPhoneLike_(a.contactName) ? '—' : (a.contactName || '—');
+        Logger.log('      ' + (i+1) + '. ' + a.displayName +
+                   '  [contact: ' + contactDisp +
+                   ', ' + (a.state || 'state ?') +
+                   ', ' + (a.category || 'category ?') + ']');
       });
     }
 
@@ -6779,4 +6883,114 @@ function validatePhase1() {
     Logger.log('  Human review still required before Lovable deployment.');
   }
   Logger.log('════════════════════════════════════════════════════');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 31 — PHASE 1: REQUIREMENT DASHBOARD HOME CARDS (Correction 7)
+// ════════════════════════════════════════════════════════════════════
+//
+//  GET ?action=requirementDashboardCards
+//  Returns the 6 home-screen cards with live counts + drill-down ids.
+//
+//  Cards:
+//   1. urgentRequirements        — urgency High/Urgent OR ≤3 days to interview
+//   2. candidatesAwaitingSubmission — slots ADDED/SHORTLISTED, not yet SUBMITTED
+//   3. mobilizationPending       — slots SELECTED, not yet DEPLOYED
+//   4. travelThisWeek            — DEPLOYED slots updated within next/last 7 days
+//                                  (best-effort; flagged dataPending — no dedicated
+//                                   travel-date field exists yet)
+//   5. requiredQtyNotAchieved    — open reqs where selectedCount < requiredQty
+//   6. interviewDateApproaching  — reqs with interview date in next 7 days
+// ════════════════════════════════════════════════════════════════════
+function getRequirementDashboardCards_(params) {
+  var ss  = SpreadsheetApp.openById(SS_ID);
+  var now = new Date();
+  var DAY = 1000*60*60*24;
+
+  // ── Requirements pass ─────────────────────────────────────────────
+  var urgent = [], notAchieved = [], interviewSoon = [];
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (rSheet && rSheet.getLastRow() > 1) {
+    var rCols = Math.min(rSheet.getLastColumn(), 25);
+    var rData = rSheet.getRange(2, 1, rSheet.getLastRow()-1, rCols).getValues();
+    rData.forEach(function(row) {
+      var reqId = String(row[0]||'').trim();
+      if (!reqId) return;
+      var status = String(row[14]||'Open').trim().toLowerCase();
+      var isOpen = (status !== 'closed' && status !== 'cancelled' &&
+                    status !== 'archived' && status !== 'filled');
+      if (!isOpen) return;
+
+      var requiredQty   = parseInt(row[5])  || 0;
+      var selectedCount = parseInt(row[18]) || 0;
+      var urgency       = String(row[13]||'').trim().toLowerCase();
+      var trade         = String(row[4]||'').trim();
+      var client        = String(row[2]||'').trim();
+
+      // Interview date → days remaining
+      var iRaw = rCols >= 25 ? row[24] : null;
+      var days = null;
+      if (iRaw instanceof Date && !isNaN(iRaw)) {
+        days = Math.floor((iRaw - now) / DAY);
+      } else if (iRaw && String(iRaw).trim()) {
+        var d = new Date(iRaw); if (!isNaN(d)) days = Math.floor((d - now) / DAY);
+      }
+
+      var ref = { reqId:reqId, trade:trade, client:client,
+                  requiredQty:requiredQty, selectedCount:selectedCount,
+                  daysRemaining:days };
+
+      if (urgency === 'urgent' || urgency === 'high' || (days !== null && days >= 0 && days <= 3))
+        urgent.push(ref);
+      if (selectedCount < requiredQty)
+        notAchieved.push(ref);
+      if (days !== null && days >= 0 && days <= 7)
+        interviewSoon.push(ref);
+    });
+  }
+
+  // ── Slots pass ────────────────────────────────────────────────────
+  var awaitingSub = 0, mobPending = 0, travelWeek = 0;
+  var sSheet = ss.getSheetByName('_CandidateSlots');
+  if (sSheet && sSheet.getLastRow() > 1) {
+    var sData = sSheet.getDataRange().getValues();
+    for (var i = 1; i < sData.length; i++) {
+      var srow = sData[i];
+      if (!String(srow[0]||'').trim()) continue;
+      var st = String(srow[9]||'').trim().toUpperCase();   // SlotStatus
+      if (st === 'ADDED' || st === 'SHORTLISTED' || st === 'INTERVIEWED') awaitingSub++;
+      if (st === 'SELECTED') mobPending++;
+      if (st === 'DEPLOYED') {
+        var upd = srow[11];   // UpdatedAt
+        if (upd instanceof Date && !isNaN(upd)) {
+          var diff = Math.abs((upd - now) / DAY);
+          if (diff <= 7) travelWeek++;
+        }
+      }
+    }
+  }
+
+  // Helper — sort req refs by soonest interview, then biggest gap
+  function sortRefs_(arr) {
+    return arr.sort(function(a, b) {
+      var ad = a.daysRemaining === null ? 9999 : a.daysRemaining;
+      var bd = b.daysRemaining === null ? 9999 : b.daysRemaining;
+      if (ad !== bd) return ad - bd;
+      return (b.requiredQty - b.selectedCount) - (a.requiredQty - a.selectedCount);
+    });
+  }
+
+  return {
+    ok: true,
+    generatedAt: now.toISOString(),
+    cards: {
+      urgentRequirements:           { count: urgent.length,        items: sortRefs_(urgent).slice(0,20) },
+      candidatesAwaitingSubmission: { count: awaitingSub },
+      mobilizationPending:          { count: mobPending },
+      travelThisWeek:               { count: travelWeek, dataPending: true,
+                                      note: 'Best-effort from DEPLOYED slot UpdatedAt — no dedicated travel-date field yet.' },
+      requiredQtyNotAchieved:       { count: notAchieved.length,   items: sortRefs_(notAchieved).slice(0,20) },
+      interviewDateApproaching:     { count: interviewSoon.length, items: sortRefs_(interviewSoon).slice(0,20) }
+    }
+  };
 }
