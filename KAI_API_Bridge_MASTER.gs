@@ -113,6 +113,8 @@ function doGet(e) {
     else if (action === 'leads')               out = JSON.stringify(getLeads_(params));
     else if (action === 'lead')                out = JSON.stringify(getSingleLead_(params));
     else if (action === 'openPoolMatches')     out = JSON.stringify(getOpenPoolMatches_(params));
+    // P1 — Requirement Command Center
+    else if (action === 'requirementCommandCenter') out = JSON.stringify(requirementCommandCenter_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -1428,7 +1430,9 @@ function createRequirement_(body) {
     0, 0,
     String(body.notes         ||'').trim(),
     String(body.jdId          ||'').trim(),
-    body.startDate||'', body.endDate||''
+    body.startDate||'', body.endDate||'',
+    parseInt(body.committedQty||'0')||0,   // col 24 — committed qty (Phase 1)
+    body.interviewDate||''                  // col 25 — interview date (Phase 1)
   ]);
   // P1-C: flag open pool leads that match this new requirement
   var trade      = String(body.trade||body.jobTitle||'').trim();
@@ -1459,6 +1463,11 @@ function updateRequirement_(body) {
     if (body.endDate)         sheet.getRange(r,23).setValue(body.endDate);
     if (body.shortlistCount !== undefined)
       sheet.getRange(r,18).setValue(parseInt(body.shortlistCount)||0);
+    // Phase 1 — committed qty + interview date
+    if (body.committedQty !== undefined)
+      sheet.getRange(r,24).setValue(parseInt(body.committedQty)||0);
+    if (body.interviewDate !== undefined)
+      sheet.getRange(r,25).setValue(body.interviewDate);
     return { ok:true, reqId:reqId, updated:true };
   }
   return { ok:false, error:'Requirement not found: '+reqId };
@@ -6115,4 +6124,438 @@ function testPhase0() {
   Logger.log('normalizeMobileStore_(9004663661.0)   = ' + normalizeMobileStore_(9004663661.0));
   Logger.log('normalizeMobileStore_("+91 90046 6361")= ' + normalizeMobileStore_('+91 90046 6361'));
   Logger.log('resolveActorFromToken_("bad")         = "' + resolveActorFromToken_('bad') + '"');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 29 — PHASE 1: REQUIREMENT COMMAND CENTER
+// ════════════════════════════════════════════════════════════════════
+//
+//  1.1  _Requirements schema: cols 24 (committedQty) + 25 (interviewDate)
+//  1.2  Deployable Supply Engine — wires classifyGCCMobility_ per requirement
+//  1.3  Database Freshness Classifier: READY / REVALIDATION / EXPIRED
+//  1.4  Fill Probability + Critical Requirement Engine (≤3d + gap → red banner)
+//
+//  GET  ?action=requirementCommandCenter[&reqId=X]
+//  POST action=updateRequirement now accepts committedQty + interviewDate
+//
+//  Deploy order:
+//    1. Paste file into Apps Script → Save → Deploy new version
+//    2. Run setupPhase1()  — adds headers to _Requirements cols 24-25
+//    3. Run testPhase1()   — verify logic in Logger
+//    4. GET ?action=requirementCommandCenter — live data check
+// ════════════════════════════════════════════════════════════════════
+
+// ── 1.1 SCHEMA CONSTANTS ────────────────────────────────────────────
+var COL_REQ_ = {
+  committedQty:  24,   // associates' committed supply for this requirement
+  interviewDate: 25    // scheduled interview / drive date
+};
+var REQ_EXT_HDR_ = ['Committed Qty', 'Interview Date'];
+
+// Idempotent — safe to re-run; only writes headers if column is empty.
+function ensureReqSchema_(ss) {
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet) return false;
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 24 || String(sheet.getRange(1, 24).getValue()||'').trim() === '') {
+    sheet.getRange(1, 24).setValue(REQ_EXT_HDR_[0]);
+  }
+  if (lastCol < 25 || String(sheet.getRange(1, 25).getValue()||'').trim() === '') {
+    sheet.getRange(1, 25).setValue(REQ_EXT_HDR_[1]);
+  }
+  return true;
+}
+
+// ── 1.3 DATABASE FRESHNESS CLASSIFIER ───────────────────────────────
+// Returns 'READY' | 'REVALIDATION' | 'EXPIRED'
+// Uses Candidates cols 28 (candidateState), 36 (lastContact), 30 (passportExpiry).
+function classifyDatabaseFreshness_(candState, lastContactRaw, passportExpiryRaw) {
+  var now = new Date();
+
+  // Hard EXPIRED states — no longer in active pipeline
+  var state = String(candState||'').toLowerCase().trim();
+  if (state === 'rejected' || state === 'deployed' || state === 'archived') return 'EXPIRED';
+
+  // Passport already expired
+  if (passportExpiryRaw instanceof Date && !isNaN(passportExpiryRaw)) {
+    if (passportExpiryRaw < now) return 'EXPIRED';
+  }
+
+  // Resolve lastContact to a Date
+  var lastContact = null;
+  if (lastContactRaw instanceof Date && !isNaN(lastContactRaw)) {
+    lastContact = lastContactRaw;
+  } else if (lastContactRaw && String(lastContactRaw).trim()) {
+    var parsed = new Date(lastContactRaw);
+    if (!isNaN(parsed)) lastContact = parsed;
+  }
+  // No contact record → treat as cold (548 days is 18 months; no record is older)
+  var daysSinceLast = lastContact
+    ? Math.floor((now - lastContact) / (1000*60*60*24))
+    : 999;
+
+  if (daysSinceLast > 548) return 'EXPIRED';       // > 18 months — cold CV
+  if (daysSinceLast > 183) return 'REVALIDATION';  // 6–18 months — needs check
+
+  // Passport expiring soon but still valid
+  if (passportExpiryRaw instanceof Date && !isNaN(passportExpiryRaw)) {
+    var daysToExpiry = Math.floor((passportExpiryRaw - now) / (1000*60*60*24));
+    if (daysToExpiry < 180) return 'REVALIDATION';
+  }
+
+  return 'READY';
+}
+
+// ── 1.2 DEPLOYABLE SUPPLY ENGINE ────────────────────────────────────
+// Wires classifyGCCMobility_ into requirement demand.
+//
+// "Deployable" for an overseas GCC campaign (India-sourced):
+//   INDIA_AVAILABLE    = candidate in India, ready to fly          → DEPLOYABLE
+//   GCC_TRANSFERABLE   = has prior GCC exp, can transfer           → DEPLOYABLE
+//   {COUNTRY}_LOCAL    = already in target country, not mobilizable → localPool
+//
+// candidates[] must have fields: trade, positionApplied, experience, age,
+//   gulfExp, currentLocation, kaiAssessment, top3Positions, _freshness
+function getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, candidates) {
+  var dcLower = String(deployCountry||'').toLowerCase();
+
+  // Map deploy country to the LOCAL mobility tag to exclude
+  var LOCAL_TAGS = {
+    'saudi':   'SAUDI_LOCAL',  'ksa':     'SAUDI_LOCAL',
+    'uae':     'UAE_LOCAL',    'dubai':   'UAE_LOCAL',   'abu dhabi':'UAE_LOCAL',
+    'qatar':   'QATAR_LOCAL',  'doha':    'QATAR_LOCAL',
+    'kuwait':  'KUWAIT_LOCAL',
+    'bahrain': 'BAHRAIN_LOCAL','manama':  'BAHRAIN_LOCAL',
+    'oman':    'OMAN_LOCAL',   'muscat':  'OMAN_LOCAL'
+  };
+  var excludeTag = null;
+  for (var key in LOCAL_TAGS) {
+    if (dcLower.indexOf(key) >= 0) { excludeTag = LOCAL_TAGS[key]; break; }
+  }
+
+  var result = {
+    total: 0, tradePossible: 0,
+    deployable: 0, localPool: 0,
+    freshDeployable: 0, revalidationDeployable: 0,
+    byMobility: {},
+    freshBreakdown: { READY: 0, REVALIDATION: 0, EXPIRED: 0 }
+  };
+
+  var ageFilter = (minAge > 0 || maxAge > 0);
+
+  candidates.forEach(function(c) {
+    // Trade gate — uses existing T13-aware matcher
+    var tier = getTradeMatchTier_(trade, c);
+    if (!tier) return;
+
+    // Experience gate
+    if (minExp > 0 && c.experience < minExp) return;
+
+    // Age gate
+    if (ageFilter) {
+      if (maxAge > 0 && c.age > maxAge) return;
+      if (minAge > 0 && c.age < minAge) return;
+    }
+
+    result.tradePossible++;
+
+    // Mobility — computed dynamically (stored col 29 may be blank for older records)
+    var mob = classifyGCCMobility_(c.gulfExp, c.currentLocation);
+    result.byMobility[mob] = (result.byMobility[mob]||0) + 1;
+
+    // Already in target country — excluded from overseas mobilization supply
+    if (excludeTag && mob === excludeTag) {
+      result.localPool++;
+      return;
+    }
+
+    // Freshness gate — only READY and REVALIDATION enter deployable pool
+    var freshness = c._freshness || 'REVALIDATION';
+    result.freshBreakdown[freshness] = (result.freshBreakdown[freshness]||0) + 1;
+    if (freshness === 'EXPIRED') return;
+
+    result.deployable++;
+    if (freshness === 'READY') {
+      result.freshDeployable++;
+    } else {
+      result.revalidationDeployable++;
+    }
+  });
+
+  result.total = result.tradePossible;
+  return result;
+}
+
+// ── 1.4 FILL PROBABILITY ────────────────────────────────────────────
+// freshDeployable: candidates that are READY + deployable (best signal)
+// deployable:      freshDeployable + REVALIDATION (needs confirmation)
+// required:        qty from requirement
+// committedQty:    associate-committed qty (if > 0, overrides required as demand target)
+// daysToInterview: days until interview date (999 = no date set)
+function computeFillProbability_(freshDeployable, deployable, required, committedQty, daysToInterview) {
+  var demand = (committedQty > 0) ? committedQty : required;
+  if (demand <= 0) return { pct:0, riskLevel:'UNKNOWN', label:'No demand set' };
+
+  var baseRatio = Math.min(freshDeployable / demand, 1.0);
+
+  // Time-pressure penalty — closer interview = harder to fill
+  var urgencyFactor = 1.0;
+  if      (daysToInterview <= 0)  urgencyFactor = 0.0;
+  else if (daysToInterview <= 3)  urgencyFactor = 0.55;
+  else if (daysToInterview <= 7)  urgencyFactor = 0.75;
+  else if (daysToInterview <= 14) urgencyFactor = 0.90;
+
+  var pct = Math.round(baseRatio * urgencyFactor * 100);
+
+  var riskLevel;
+  if      (daysToInterview <= 3 && freshDeployable < demand) riskLevel = 'CRITICAL';
+  else if (pct < 30)                                          riskLevel = 'HIGH';
+  else if (pct < 60)                                          riskLevel = 'MEDIUM';
+  else if (pct < 85)                                          riskLevel = 'LOW';
+  else                                                        riskLevel = 'HEALTHY';
+
+  return {
+    pct:             pct,
+    riskLevel:       riskLevel,
+    freshDeployable: freshDeployable,
+    allDeployable:   deployable,
+    demand:          demand,
+    daysToInterview: daysToInterview
+  };
+}
+
+// ── CRITICAL ACTIONS ENGINE ──────────────────────────────────────────
+// Returns 5 ranked actions for CRITICAL or HIGH risk requirements.
+function buildCriticalActions_(req, supply, daysToInterview) {
+  var trade   = req.trade   || req.jobTitle    || 'the trade';
+  var country = req.deployCountry              || 'target country';
+  var demand  = (req.committedQty > 0) ? req.committedQty : req.requiredQty;
+  var gap     = Math.max(0, demand - supply.freshDeployable);
+
+  return [
+    'ACTION 1 — Associate broadcast: activate all associates immediately for ' +
+      trade + ' → ' + country + '. Confirmed gap: ' + gap + ' candidates. Share requirement card now.',
+
+    'ACTION 2 — Bulk outreach: WhatsApp/call all ' + supply.freshDeployable +
+      ' READY ' + trade + ' candidates. Confirm availability and passport validity for ' + country + ' deployment.',
+
+    supply.revalidationDeployable > 0
+      ? 'ACTION 3 — Revalidate ' + supply.revalidationDeployable +
+          ' Revalidation-Required ' + trade + ' candidates within 24h — confirm current availability and location.'
+      : 'ACTION 3 — Adjacent trade expansion: open GOOD/POSSIBLE tier matching for related trades (Fitter, Boilermaker, Pipe Welder) to find hidden supply.',
+
+    supply.localPool > 0
+      ? 'ACTION 4 — Local hire track: ' + supply.localPool + ' ' + trade +
+          ' candidates already in ' + country + '. Explore direct local hire (separate visa class) as parallel track.'
+      : 'ACTION 4 — Expand sourcing geography: open requirement to additional states/cities. Brief regional associates for wider coverage.',
+
+    'ACTION 5 — Client escalation: document supply risk and notify client. Request interview date extension (current buffer: ' +
+      (daysToInterview === 999 ? 'not set' : daysToInterview + ' days') +
+      '). Record client response in requirement notes.'
+  ];
+}
+
+// ── MAIN: REQUIREMENT COMMAND CENTER ────────────────────────────────
+// GET ?action=requirementCommandCenter
+// GET ?action=requirementCommandCenter&reqId=AYE-REQ-2026-0001
+// Returns all open requirements enriched with live supply intelligence.
+function requirementCommandCenter_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, requirements:[], count:0 };
+
+  var filterReqId = String(params.reqId||'').trim();
+  var numCols     = Math.min(sheet.getLastColumn(), 25);
+  var data        = sheet.getRange(2, 1, sheet.getLastRow()-1, numCols).getValues();
+  var now         = new Date();
+
+  // ── Load all candidates once and annotate with freshness ──────────
+  var candidates = [];
+  var cSheet = ss.getSheetByName('Candidates');
+  if (cSheet && cSheet.getLastRow() > 1) {
+    var cCols = Math.min(cSheet.getLastColumn(), 42);
+    var cData = cSheet.getRange(2, 1, cSheet.getLastRow()-1, cCols).getValues();
+    cData.forEach(function(row) {
+      var active = String(row[COL.active-1]||'').toUpperCase().trim();
+      if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+      var name  = String(row[COL.name-1]||'').trim();
+      var email = String(row[COL.email-1]||'').trim();
+      if (!name && !email) return;
+      candidates.push({
+        trade:           String(row[COL.trade-1]||'').trim(),
+        positionApplied: String(row[COL.positionApplied-1]||'').trim(),
+        experience:      parseFloat(row[COL.experience-1])||0,
+        age:             parseInt(row[COL.age-1])||0,
+        gulfExp:         String(row[COL.gulfExp-1]||'').trim(),
+        currentLocation: String(row[COL.currentLocation-1]||'').trim(),
+        kaiAssessment:   String(row[COL.kaiAssessment-1]||'').trim(),
+        top3Positions:   parseTop3Positions_(String(row[COL.top3Positions-1]||'')),
+        _freshness:      classifyDatabaseFreshness_(
+                           row[COL.candidateState-1],
+                           row[COL.lastContact-1],
+                           row[COL.passportExpiry-1]
+                         )
+      });
+    });
+  }
+
+  // ── Enrich each requirement ───────────────────────────────────────
+  var results = [];
+  data.forEach(function(row) {
+    var reqId = String(row[0]||'').trim();
+    if (!reqId) return;
+    if (filterReqId && reqId !== filterReqId) return;
+
+    var requiredQty   = parseInt(row[5])    || 0;
+    var minExp        = parseFloat(row[6])  || 0;
+    var minAge        = parseInt(row[7])    || 0;
+    var maxAge        = parseInt(row[8])    || 0;
+    var deployCountry = String(row[3]||'').trim();
+    var trade         = String(row[4]||'').trim();
+    var committedQty  = parseInt(row[23])   || 0;
+
+    // Interview date → days remaining
+    var interviewDateRaw = numCols >= 25 ? row[24] : null;
+    var interviewDateStr = '';
+    var daysToInterview  = 999;
+    if (interviewDateRaw instanceof Date && !isNaN(interviewDateRaw)) {
+      interviewDateStr = Utilities.formatDate(interviewDateRaw,'Asia/Dubai','yyyy-MM-dd');
+      daysToInterview  = Math.floor((interviewDateRaw - now) / (1000*60*60*24));
+    } else if (interviewDateRaw && String(interviewDateRaw).trim()) {
+      interviewDateStr = String(interviewDateRaw).trim();
+      var iDate = new Date(interviewDateStr);
+      if (!isNaN(iDate)) daysToInterview = Math.floor((iDate - now) / (1000*60*60*24));
+    }
+
+    // Supply + fill math
+    var supply = getDeployableSupply_(deployCountry, trade, minExp, minAge, maxAge, candidates);
+    var fill   = computeFillProbability_(
+      supply.freshDeployable, supply.deployable,
+      requiredQty, committedQty, daysToInterview
+    );
+
+    // Critical actions only when there's a real problem
+    var criticalActions = [];
+    if (fill.riskLevel === 'CRITICAL' || fill.riskLevel === 'HIGH') {
+      criticalActions = buildCriticalActions_(
+        { trade:trade, deployCountry:deployCountry,
+          requiredQty:requiredQty, committedQty:committedQty },
+        supply, daysToInterview
+      );
+    }
+
+    results.push({
+      reqId:           reqId,
+      receivedDate:    row[1] instanceof Date
+                         ? Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy') : '',
+      clientName:      String(row[2]||'').trim(),
+      deployCountry:   deployCountry,
+      trade:           trade,
+      jobTitle:        trade,
+      requiredQty:     requiredQty,
+      committedQty:    committedQty,
+      interviewDate:   interviewDateStr,
+      daysToInterview: daysToInterview === 999 ? null : daysToInterview,
+      minExperience:   minExp,
+      minAge:          minAge,
+      maxAge:          maxAge,
+      urgency:         String(row[13]||'Normal').trim(),
+      status:          String(row[14]||'Open').trim(),
+      sourcedBy:       String(row[15]||'').trim(),
+      notes:           String(row[19]||'').trim(),
+      jdId:            String(row[20]||'').trim(),
+      startDate:       row[21] instanceof Date
+                         ? Utilities.formatDate(row[21],'Asia/Dubai','yyyy-MM-dd') : String(row[21]||''),
+      endDate:         row[22] instanceof Date
+                         ? Utilities.formatDate(row[22],'Asia/Dubai','yyyy-MM-dd') : String(row[22]||''),
+      // ── Supply Intelligence (Phase 1 core) ──────────────────────
+      supply: {
+        tradePossible:          supply.tradePossible,
+        deployable:             supply.deployable,
+        freshDeployable:        supply.freshDeployable,
+        revalidationDeployable: supply.revalidationDeployable,
+        localPool:              supply.localPool,
+        byMobility:             supply.byMobility,
+        freshBreakdown:         supply.freshBreakdown
+      },
+      fillProbability:  fill.pct,
+      riskLevel:        fill.riskLevel,
+      shortfall:        Math.max(0, (committedQty||requiredQty) - supply.freshDeployable),
+      criticalActions:  criticalActions
+    });
+  });
+
+  return { ok:true, requirements:results, count:results.length };
+}
+
+// ── PHASE 1 SETUP + TEST ─────────────────────────────────────────────
+function setupPhase1() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  Logger.log('1.1 _Requirements cols 24-25: ' + (ensureReqSchema_(ss) ? 'OK (Committed Qty + Interview Date)' : 'FAILED — _Requirements sheet missing'));
+  Logger.log('Phase 1 infrastructure ready.');
+  Logger.log('Verify: GET ?action=requirementCommandCenter');
+}
+
+function testPhase1() {
+  var now = new Date();
+
+  // 1.3 Freshness tests
+  var d400  = new Date(now - 400*24*60*60*1000);  // 400 days ago
+  var d30   = new Date(now - 30*24*60*60*1000);   // 30 days ago
+  var ppExp = new Date(now - 10*24*60*60*1000);   // passport expired
+  var ppOk  = new Date(now.getFullYear()+2, now.getMonth(), now.getDate());
+  Logger.log('Freshness tests:');
+  Logger.log('  rejected state:         ' + classifyDatabaseFreshness_('Rejected', d30, ppOk));
+  Logger.log('  400d no contact:        ' + classifyDatabaseFreshness_('', d400, ppOk));
+  Logger.log('  30d contact, good pp:   ' + classifyDatabaseFreshness_('', d30, ppOk));
+  Logger.log('  30d contact, exp pp:    ' + classifyDatabaseFreshness_('', d30, ppExp));
+  Logger.log('  no contact record:      ' + classifyDatabaseFreshness_('', null, ppOk));
+
+  // 1.4 Fill probability tests
+  Logger.log('Fill probability tests:');
+  var fp1 = computeFillProbability_(5, 8, 10, 0, 2);
+  Logger.log('  5 fresh / 10 req / 2d:  pct=' + fp1.pct + ' risk=' + fp1.riskLevel);
+  var fp2 = computeFillProbability_(9, 10, 10, 0, 30);
+  Logger.log('  9 fresh / 10 req / 30d: pct=' + fp2.pct + ' risk=' + fp2.riskLevel);
+  var fp3 = computeFillProbability_(3, 5, 20, 0, 7);
+  Logger.log('  3 fresh / 20 req / 7d:  pct=' + fp3.pct + ' risk=' + fp3.riskLevel);
+
+  // 1.2 Live supply smoke test (first 500 candidates)
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var cSheet = ss.getSheetByName('Candidates');
+  if (!cSheet || cSheet.getLastRow() < 2) {
+    Logger.log('Supply test: no candidates'); return;
+  }
+  var limit  = Math.min(cSheet.getLastRow()-1, 500);
+  var cCols  = Math.min(cSheet.getLastColumn(), 42);
+  var cData  = cSheet.getRange(2, 1, limit, cCols).getValues();
+  var cands  = [];
+  cData.forEach(function(row) {
+    var active = String(row[COL.active-1]||'').toUpperCase();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+    cands.push({
+      trade:           String(row[COL.trade-1]||''),
+      positionApplied: String(row[COL.positionApplied-1]||''),
+      experience:      parseFloat(row[COL.experience-1])||0,
+      age:             parseInt(row[COL.age-1])||0,
+      gulfExp:         String(row[COL.gulfExp-1]||''),
+      currentLocation: String(row[COL.currentLocation-1]||''),
+      kaiAssessment:   String(row[COL.kaiAssessment-1]||''),
+      top3Positions:   parseTop3Positions_(String(row[COL.top3Positions-1]||'')),
+      _freshness:      classifyDatabaseFreshness_(
+                         row[COL.candidateState-1],
+                         row[COL.lastContact-1],
+                         row[COL.passportExpiry-1]
+                       )
+    });
+  });
+  Logger.log('Supply test (Saudi / Welder / 2yr exp / max 45):');
+  var s1 = getDeployableSupply_('Saudi Arabia', 'Welder', 2, 0, 45, cands);
+  Logger.log('  tradePossible=' + s1.tradePossible + ' deployable=' + s1.deployable +
+             ' fresh=' + s1.freshDeployable + ' revalidation=' + s1.revalidationDeployable +
+             ' local=' + s1.localPool);
+  Logger.log('  byMobility: '     + JSON.stringify(s1.byMobility));
+  Logger.log('  freshBreakdown: ' + JSON.stringify(s1.freshBreakdown));
+  var fill1 = computeFillProbability_(s1.freshDeployable, s1.deployable, 10, 0, 5);
+  Logger.log('  fillProbability for 10 qty / 5 days: pct=' + fill1.pct + ' risk=' + fill1.riskLevel);
 }
