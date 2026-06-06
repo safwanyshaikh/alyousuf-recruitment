@@ -1009,9 +1009,14 @@ function getMatchedCandidates_(params) {
       if (gye < minGulfExp) return;
     }
 
-    // ── GCC RECRUITMENT INTELLIGENCE ENGINE V2 (T14) ────────────────────
-    var ms = computeMatchScoreT14_(reqTrade, minExp, reqCerts, campaignType,
-                                    reqNationality, reqMinAge, reqMaxAge, r);
+    // ── GCC RECRUITMENT INTELLIGENCE ENGINE V2 ───────────────────────────
+    // Nationality whitelist — requirement-level hard gate (blank = any nationality)
+    if (reqNationality) {
+      var candNat = String(r.nationality||'').trim().toLowerCase();
+      var reqNatL = reqNationality.toLowerCase();
+      if (candNat && candNat.indexOf(reqNatL) < 0 && reqNatL.indexOf(candNat) < 0) return;
+    }
+    var ms = computeMatchScoreGCC_(reqTrade, minExp, reqCerts, campaignType, r);
 
     // Hard fails: trade mismatch or nationality block → exclude entirely
     if (ms.hardFail) return;
