@@ -125,6 +125,10 @@ function doGet(e) {
     // P3 — Supply Intake
     else if (action === 'matchGmailSender')     out = JSON.stringify(matchGmailSender_(params));
     else if (action === 'leadPipelineSummary')  out = JSON.stringify(getLeadPipelineSummary_(params));
+    // P4 — Lifecycle
+    else if (action === 'learningSnapshot')     out = JSON.stringify(getLearningSnapshot_(params));
+    else if (action === 'recruiterKPI')         out = JSON.stringify(getRecruiterKPI_(params));
+    else if (action === 'revenueSummary')       out = JSON.stringify(getRevenueSummary_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -183,6 +187,8 @@ function doPost(e) {
     // P3 — Supply Intake
     else if (action === 'createLeadFromReq')    out = JSON.stringify(createLeadFromReq_(body));
     else if (action === 'linkLeadToAssociate')  out = JSON.stringify(linkLeadToAssociate_(body));
+    // P4 — Lifecycle
+    else if (action === 'runLearning')          out = JSON.stringify(runLearningWriter_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -8265,4 +8271,379 @@ function testPhase3() {
   Logger.log('    lAssocId reads col ' + COL_L_.assocId + ' from lead row — OK');
 
   Logger.log('Phase 3 validation complete.');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 34 — PHASE 4: LIFECYCLE ENGINE
+// ════════════════════════════════════════════════════════════════════
+//
+// Closes the KAI spine loop: outcomes feed back into the intelligence.
+//   Phase 1 demand → Phase 2 routing → Phase 3 intake → DELIVERY (slots)
+//   → SELECTION → MOBILIZATION → P4 LEARNING (this section)
+//
+// 4.1  Learning Writer  → populates _KAI_Knowledge from real slot outcomes.
+//       Makes getHistoricalConversion_() stop using the 0.70 default.
+// 4.2  Recruiter KPI    → per-recruiter funnel from slots + leads (read-only).
+// 4.3  Revenue Summary  → placement counts by client/country/trade/month.
+//       Revenue projected ONLY when a rate is supplied — never fabricated.
+//
+// Funnel semantics (cumulative — a DEPLOYED slot also passed SUBMITTED):
+//   added       = every slot with a trade (denominator)
+//   submitted   = SUBMITTED | INTERVIEWED | SELECTED | DEPLOYED
+//   interviewed = INTERVIEWED | SELECTED | DEPLOYED
+//   selected    = SELECTED | DEPLOYED
+//   deployed    = DEPLOYED
+//   (REJECTED is terminal/off-funnel — counted in added, never advances)
+// ════════════════════════════════════════════════════════════════════
+
+var KNOWLEDGE_SHEET_   = '_KAI_Knowledge';
+var KNOWLEDGE_HEADERS_ = [
+  'Trade','ConversionRate','Added','Submitted','Interviewed',
+  'Selected','Deployed','SubmitRate','SelectRate','DeployRate',
+  'SampleSize','LastUpdated'
+];
+// Below this many observations a learned rate is statistically meaningless —
+// we write the row for visibility but leave ConversionRate at 0 so the reader
+// (getHistoricalConversion_) falls back to its conservative default.
+var MIN_LEARNING_SAMPLE_ = 5;
+
+function ensureKnowledgeSheet_(ss) {
+  return ensureSheetWithHeaders_(ss, KNOWLEDGE_SHEET_, KNOWLEDGE_HEADERS_, '#7D6608');
+}
+
+// Classifies a slot status into cumulative funnel flags.
+function slotFunnelFlags_(statusRaw) {
+  var st = String(statusRaw||'').trim().toUpperCase();
+  return {
+    submitted:   (st === 'SUBMITTED' || st === 'INTERVIEWED' || st === 'SELECTED' || st === 'DEPLOYED'),
+    interviewed: (st === 'INTERVIEWED' || st === 'SELECTED' || st === 'DEPLOYED'),
+    selected:    (st === 'SELECTED' || st === 'DEPLOYED'),
+    deployed:    (st === 'DEPLOYED')
+  };
+}
+
+// ── 4.1 LEARNING WRITER ──────────────────────────────────────────────
+// POST action=runLearning   body: { actor? }
+// Scans _CandidateSlots, aggregates the funnel per trade, writes _KAI_Knowledge.
+// Idempotent: fully rebuilds the knowledge rows each run (data rows only).
+function runLearningWriter_(body) {
+  body = body || {};
+  var actor = String(body.actor||'system').trim();
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sSheet = ss.getSheetByName('_CandidateSlots');
+  if (!sSheet || sSheet.getLastRow() < 2)
+    return { ok:true, trades:0, message:'No slot data yet — nothing to learn.' };
+
+  var data = sSheet.getDataRange().getValues();
+  var byTrade = {};   // tradeLower → aggregate
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!String(row[0]||'').trim()) continue;          // no slotId
+    var trade = String(row[5]||'').trim();             // col 6 = Trade
+    if (!isValidTrade_(trade)) continue;               // skip junk-trade slots
+    var key = trade.toLowerCase();
+    if (!byTrade[key]) byTrade[key] = {
+      trade:trade, added:0, submitted:0, interviewed:0, selected:0, deployed:0
+    };
+    var agg = byTrade[key];
+    agg.added++;
+    var f = slotFunnelFlags_(row[9]);                  // col 10 = SlotStatus
+    if (f.submitted)   agg.submitted++;
+    if (f.interviewed) agg.interviewed++;
+    if (f.selected)    agg.selected++;
+    if (f.deployed)    agg.deployed++;
+  }
+
+  var keys = Object.keys(byTrade);
+  var kSheet = ensureKnowledgeSheet_(ss);
+  // Clear existing data rows (keep header), then rewrite — idempotent rebuild.
+  if (kSheet.getLastRow() > 1)
+    kSheet.getRange(2,1,kSheet.getLastRow()-1,KNOWLEDGE_HEADERS_.length).clearContent();
+
+  var now  = new Date();
+  var rows = [];
+  var learned = 0;
+  keys.sort(function(a,b){ return byTrade[b].added - byTrade[a].added; });
+  keys.forEach(function(k) {
+    var a = byTrade[k];
+    var submitRate = a.added     > 0 ? Math.round((a.submitted/a.added)*100)/100     : 0;
+    var selectRate = a.submitted > 0 ? Math.round((a.selected/a.submitted)*100)/100  : 0;
+    var deployRate = a.selected  > 0 ? Math.round((a.deployed/a.selected)*100)/100   : 0;
+    // Headline ConversionRate = contact→submission leakage, but only trust it
+    // once the sample is large enough; else 0 → reader falls back to default.
+    var conv = (a.added >= MIN_LEARNING_SAMPLE_ && submitRate > 0) ? submitRate : 0;
+    if (conv > 0) learned++;
+    rows.push([
+      a.trade, conv, a.added, a.submitted, a.interviewed,
+      a.selected, a.deployed, submitRate, selectRate, deployRate,
+      a.added, now
+    ]);
+  });
+
+  if (rows.length)
+    kSheet.getRange(2,1,rows.length,KNOWLEDGE_HEADERS_.length).setValues(rows);
+
+  logActivity_(ss, { kaiNo:'LEARNING', rowIndex:0,
+    action: 'LEARNING_WRITTEN',
+    detail: 'Trades: ' + keys.length + ' | Learned (sample>=' + MIN_LEARNING_SAMPLE_ +
+            '): ' + learned + ' | Source: _CandidateSlots',
+    actor:  actor
+  });
+
+  return {
+    ok:           true,
+    trades:       keys.length,
+    learnedTrades: learned,
+    minSample:    MIN_LEARNING_SAMPLE_,
+    message:      learned + ' of ' + keys.length +
+                  ' trades now have a learned conversion rate; the rest fall back to the 0.70 default until they reach ' +
+                  MIN_LEARNING_SAMPLE_ + ' observations.'
+  };
+}
+
+// GET ?action=learningSnapshot&token=T
+// Reads _KAI_Knowledge back for the UI (Learning / intelligence panel).
+function getLearningSnapshot_(params) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var k  = ss.getSheetByName(KNOWLEDGE_SHEET_);
+  if (!k || k.getLastRow() < 2)
+    return { ok:true, trades:[], count:0, lastUpdated:null,
+             message:'No learning data yet — run Learning Writer (POST runLearning).' };
+
+  var data = k.getDataRange().getValues();
+  var out  = [];
+  var lastUpdated = null;
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    if (!String(r[0]||'').trim()) continue;
+    var lu = r[11] instanceof Date ? r[11] : null;
+    if (lu && (!lastUpdated || lu > lastUpdated)) lastUpdated = lu;
+    out.push({
+      trade:          String(r[0]||'').trim(),
+      conversionRate: parseFloat(r[1])||0,
+      learned:        (parseFloat(r[1])||0) > 0,
+      added:          parseInt(r[2])||0,
+      submitted:      parseInt(r[3])||0,
+      interviewed:    parseInt(r[4])||0,
+      selected:       parseInt(r[5])||0,
+      deployed:       parseInt(r[6])||0,
+      submitRate:     parseFloat(r[7])||0,
+      selectRate:     parseFloat(r[8])||0,
+      deployRate:     parseFloat(r[9])||0,
+      sampleSize:     parseInt(r[10])||0
+    });
+  }
+  return {
+    ok:          true,
+    count:       out.length,
+    trades:      out,
+    minSample:   MIN_LEARNING_SAMPLE_,
+    lastUpdated: lastUpdated
+      ? Utilities.formatDate(lastUpdated,'Asia/Dubai','yyyy-MM-dd HH:mm') : null
+  };
+}
+
+// ── 4.2 RECRUITER KPI ────────────────────────────────────────────────
+// GET ?action=recruiterKPI&token=T
+// Per-recruiter funnel: leads created/converted (from _Leads.Recruiter) +
+// submissions/selections/deployments (from _CandidateSlots.AddedBy).
+// Read-only aggregate — no new sheet, no writes.
+function getRecruiterKPI_(params) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var kpi = {};   // recruiterKey → stats
+
+  function bucket(name) {
+    var key = String(name||'').trim();
+    if (!key) key = 'Unattributed';
+    if (!kpi[key]) kpi[key] = {
+      recruiter:key, leadsCreated:0, leadsConverted:0,
+      slotsAdded:0, submitted:0, interviewed:0, selected:0, deployed:0
+    };
+    return kpi[key];
+  }
+
+  // Leads — attribution from Recruiter col
+  var lSheet = ss.getSheetByName(LEADS_SHEET_);
+  if (lSheet && lSheet.getLastRow() > 1) {
+    var lData = lSheet.getDataRange().getValues();
+    for (var i = 1; i < lData.length; i++) {
+      if (!String(lData[i][COL_L_.leadId-1]||'').trim()) continue;
+      var b  = bucket(lData[i][COL_L_.recruiter-1]);
+      b.leadsCreated++;
+      if (String(lData[i][COL_L_.status-1]||'').trim().toUpperCase() === 'CONVERTED')
+        b.leadsConverted++;
+    }
+  }
+
+  // Slots — attribution from AddedBy (col 8)
+  var sSheet = ss.getSheetByName('_CandidateSlots');
+  if (sSheet && sSheet.getLastRow() > 1) {
+    var sData = sSheet.getDataRange().getValues();
+    for (var j = 1; j < sData.length; j++) {
+      if (!String(sData[j][0]||'').trim()) continue;
+      var rb = bucket(sData[j][7]);   // AddedBy
+      rb.slotsAdded++;
+      var f = slotFunnelFlags_(sData[j][9]);
+      if (f.submitted)   rb.submitted++;
+      if (f.interviewed) rb.interviewed++;
+      if (f.selected)    rb.selected++;
+      if (f.deployed)    rb.deployed++;
+    }
+  }
+
+  var list = Object.keys(kpi).map(function(key) {
+    var r = kpi[key];
+    r.leadConversionRate = r.leadsCreated > 0
+      ? Math.round((r.leadsConverted/r.leadsCreated)*100) : 0;
+    r.submitToSelectRate = r.submitted > 0
+      ? Math.round((r.selected/r.submitted)*100) : 0;
+    r.selectToDeployRate = r.selected > 0
+      ? Math.round((r.deployed/r.selected)*100) : 0;
+    return r;
+  });
+  // Rank by deployed, then selected, then submitted — outcome-weighted.
+  list.sort(function(a,b) {
+    return (b.deployed-a.deployed) || (b.selected-a.selected) || (b.submitted-a.submitted);
+  });
+
+  return { ok:true, count:list.length, recruiters:list };
+}
+
+// ── 4.3 REVENUE SUMMARY ──────────────────────────────────────────────
+// GET ?action=revenueSummary&ratePerPlacement=N&token=T
+// Counts confirmed placements (DEPLOYED slots) grouped by client / country /
+// trade / month. Joins reqId → _Requirements for client + country.
+// Revenue is projected ONLY when ratePerPlacement is supplied (> 0); otherwise
+// returns counts with revenuePending:true — KAI never fabricates billing data.
+function getRevenueSummary_(params) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var rate = parseFloat(params.ratePerPlacement||'0') || 0;
+  var hasRate = rate > 0;
+
+  // reqId → { client, country }
+  var reqMap = {};
+  var rSheet = ss.getSheetByName('_Requirements');
+  if (rSheet && rSheet.getLastRow() > 1) {
+    rSheet.getDataRange().getValues().slice(1).forEach(function(rr) {
+      var rid = String(rr[0]||'').trim();
+      if (!rid) return;
+      reqMap[rid] = {
+        client:  String(rr[2]||'Unknown').trim() || 'Unknown',
+        country: String(rr[3]||'').trim()
+      };
+    });
+  }
+
+  var sSheet = ss.getSheetByName('_CandidateSlots');
+  if (!sSheet || sSheet.getLastRow() < 2) {
+    return { ok:true, totalPlacements:0, hasRate:hasRate,
+             revenuePending:!hasRate, byClient:[], byCountry:[],
+             byTrade:[], byMonth:[],
+             message:'No placements yet.' };
+  }
+
+  var byClient = {}, byCountry = {}, byTrade = {}, byMonth = {};
+  var total = 0;
+
+  sSheet.getDataRange().getValues().slice(1).forEach(function(sr) {
+    if (!String(sr[0]||'').trim()) return;
+    if (String(sr[9]||'').trim().toUpperCase() !== 'DEPLOYED') return;  // confirmed only
+    total++;
+
+    var reqId   = String(sr[1]||'').trim();
+    var trade   = String(sr[5]||'').trim() || 'Unknown';
+    var meta    = reqMap[reqId] || { client:'Unknown', country:'Unknown' };
+    var client  = meta.client  || 'Unknown';
+    var country = meta.country || 'Unknown';
+
+    // Month from UpdatedAt (col 12, deployment proxy) → fallback AddedAt (col 9)
+    var when = toDateOrNull_(sr[11]) || toDateOrNull_(sr[8]);
+    var month = when ? Utilities.formatDate(when,'Asia/Dubai','yyyy-MM') : 'Unknown';
+
+    byClient [client ] = (byClient [client ]||0) + 1;
+    byCountry[country] = (byCountry[country]||0) + 1;
+    byTrade  [trade  ] = (byTrade  [trade  ]||0) + 1;
+    byMonth  [month  ] = (byMonth  [month  ]||0) + 1;
+  });
+
+  function rollup(map, labelKey) {
+    return Object.keys(map).map(function(k) {
+      var o = { placements:map[k] };
+      o[labelKey] = k;
+      if (hasRate) o.revenue = map[k] * rate;
+      return o;
+    }).sort(function(a,b){ return b.placements - a.placements; });
+  }
+
+  return {
+    ok:              true,
+    totalPlacements: total,
+    hasRate:         hasRate,
+    ratePerPlacement: hasRate ? rate : null,
+    revenuePending:  !hasRate,
+    projectedRevenue: hasRate ? total * rate : null,
+    byClient:        rollup(byClient,  'client'),
+    byCountry:       rollup(byCountry, 'country'),
+    byTrade:         rollup(byTrade,   'trade'),
+    byMonth:         rollup(byMonth,   'month'),
+    message:         hasRate
+      ? 'Revenue projected at ' + rate + ' per placement.'
+      : 'Placement counts only — pass &ratePerPlacement=N to project revenue (no billing data is stored).'
+  };
+}
+
+// ── Phase 4 Setup + Test ─────────────────────────────────────────────
+function setupPhase4() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  ensureKnowledgeSheet_(ss);
+  Logger.log('_KAI_Knowledge: OK (' + KNOWLEDGE_HEADERS_.length + ' cols)');
+  Logger.log('Phase 4 infrastructure ready.');
+  Logger.log('Next: POST runLearning to populate _KAI_Knowledge from slot outcomes.');
+}
+
+function testPhase4() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // 4.1 — Run the learning writer for real
+  var learn = runLearningWriter_({ actor:'test' });
+  Logger.log('4.1 runLearning: ok=' + learn.ok +
+             ' trades=' + learn.trades +
+             ' learned=' + (learn.learnedTrades!==undefined?learn.learnedTrades:'-'));
+  Logger.log('    ' + (learn.message||''));
+
+  // Verify getHistoricalConversion_ now reflects learned data where available
+  var snap = getLearningSnapshot_({});
+  Logger.log('4.1 learningSnapshot: count=' + snap.count +
+             ' lastUpdated=' + (snap.lastUpdated||'-'));
+  (snap.trades||[]).slice(0,5).forEach(function(t) {
+    var live = getHistoricalConversion_(t.trade);
+    Logger.log('    ' + t.trade + ': conv=' + t.conversionRate +
+               ' (learned=' + t.learned + ', sample=' + t.sampleSize + ')' +
+               ' submit=' + t.submitRate + ' select=' + t.selectRate +
+               ' deploy=' + t.deployRate + ' → getHistoricalConversion_=' + live);
+  });
+  if (!snap.count) Logger.log('    (No slot data yet — snapshot empty is EXPECTED on a fresh DB.)');
+
+  // 4.2 — Recruiter KPI
+  var kpi = getRecruiterKPI_({});
+  Logger.log('4.2 recruiterKPI: count=' + kpi.count);
+  (kpi.recruiters||[]).slice(0,5).forEach(function(r) {
+    Logger.log('    ' + r.recruiter + ': leads=' + r.leadsCreated +
+               '(conv ' + r.leadConversionRate + '%) slots=' + r.slotsAdded +
+               ' submitted=' + r.submitted + ' selected=' + r.selected +
+               ' deployed=' + r.deployed);
+  });
+
+  // 4.3 — Revenue summary (counts-only, then projected at a sample rate)
+  var rev = getRevenueSummary_({});
+  Logger.log('4.3 revenueSummary (no rate): totalPlacements=' + rev.totalPlacements +
+             ' revenuePending=' + rev.revenuePending);
+  var revP = getRevenueSummary_({ ratePerPlacement:'1000' });
+  Logger.log('4.3 revenueSummary (rate=1000): projectedRevenue=' + revP.projectedRevenue +
+             ' clients=' + revP.byClient.length +
+             ' countries=' + revP.byCountry.length +
+             ' months=' + revP.byMonth.length);
+
+  Logger.log('Phase 4 validation complete.');
 }
