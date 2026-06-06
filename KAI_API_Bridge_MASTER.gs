@@ -129,6 +129,11 @@ function doGet(e) {
     else if (action === 'learningSnapshot')     out = JSON.stringify(getLearningSnapshot_(params));
     else if (action === 'recruiterKPI')         out = JSON.stringify(getRecruiterKPI_(params));
     else if (action === 'revenueSummary')       out = JSON.stringify(getRevenueSummary_(params));
+    // P5 — Governance
+    else if (action === 'settings')             out = JSON.stringify(getSettings_(params));
+    else if (action === 'roles')                out = JSON.stringify(getRoles_(params));
+    else if (action === 'users')                out = JSON.stringify(getUsers_(params, token));
+    else if (action === 'myContext')            out = JSON.stringify(getMyContext_(params, token));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -189,6 +194,9 @@ function doPost(e) {
     else if (action === 'linkLeadToAssociate')  out = JSON.stringify(linkLeadToAssociate_(body));
     // P4 — Lifecycle
     else if (action === 'runLearning')          out = JSON.stringify(runLearningWriter_(body));
+    // P5 — Governance (admin-gated inside each handler)
+    else if (action === 'updateSetting')        out = JSON.stringify(updateSetting_(body, token));
+    else if (action === 'setUserRole')          out = JSON.stringify(setUserRole_(body, token));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -8799,4 +8807,373 @@ function testPhase4() {
              ' months=' + revP.byMonth.length);
 
   Logger.log('Phase 4 validation complete.');
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 35 — PHASE 5: GOVERNANCE
+// ════════════════════════════════════════════════════════════════════
+//
+// The last Phase-1-scope module. Two pillars:
+//   5.1  Settings Control Center — a _Settings key/value store that surfaces
+//        the system's tuning knobs (learning sample floor, default conversion,
+//        revenue rate, freshness windows, feature flags) as governed config
+//        instead of buried constants. Firestore-ready (collection = settings).
+//   5.2  Admin Roles — a role + permission matrix layered on the existing
+//        _LoginSystem (Role lives in col 3 already). Adds whoami context,
+//        user listing, and admin-gated role assignment. No login-pipeline edits.
+//
+// Roles (Collaboration Model): ADMIN · MANAGER · RECRUITER · ASSOCIATE
+// Admin-only writes are gated by requireAdmin_(token) — never trust the client.
+// ════════════════════════════════════════════════════════════════════
+
+// ── ROLE + PERMISSION MATRIX ─────────────────────────────────────────
+var KAI_ROLES_ = ['ADMIN','MANAGER','RECRUITER','ASSOCIATE'];
+
+// Capability → roles allowed. UI reads this via getRoles_/myContext to scope.
+var ROLE_PERMISSIONS_ = {
+  ADMIN: {
+    viewAllProjects:true, manageRequirements:true, manageCommitments:true,
+    manageSettings:true,  manageUsers:true,  runLearning:true,
+    viewRevenue:true,     viewRecruiterKPI:true, assignedScopeOnly:false
+  },
+  MANAGER: {
+    viewAllProjects:true, manageRequirements:true, manageCommitments:true,
+    manageSettings:false, manageUsers:false, runLearning:true,
+    viewRevenue:true,     viewRecruiterKPI:true, assignedScopeOnly:false
+  },
+  RECRUITER: {
+    viewAllProjects:false, manageRequirements:true, manageCommitments:true,
+    manageSettings:false,  manageUsers:false, runLearning:false,
+    viewRevenue:false,     viewRecruiterKPI:false, assignedScopeOnly:true
+  },
+  ASSOCIATE: {
+    viewAllProjects:false, manageRequirements:false, manageCommitments:false,
+    manageSettings:false,  manageUsers:false, runLearning:false,
+    viewRevenue:false,     viewRecruiterKPI:false, assignedScopeOnly:true
+  }
+};
+
+function normalizeRole_(raw) {
+  var r = String(raw||'').trim().toUpperCase();
+  return KAI_ROLES_.indexOf(r) >= 0 ? r : 'RECRUITER';   // safe default
+}
+
+// Resolves a token → { email, name, role } from _LoginSystem (col 3 = Role).
+function resolveUserFromToken_(token) {
+  if (!token) return null;
+  try {
+    var ss    = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName('_LoginSystem');
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 8).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][5]||'').trim() === token) {
+        return {
+          email: String(data[i][0]||'').trim(),
+          name:  String(data[i][3]||data[i][0]||'').trim(),
+          role:  normalizeRole_(data[i][2])
+        };
+      }
+    }
+  } catch(e) {}
+  return null;
+}
+
+// Admin gate — returns the user object if ADMIN, else null (caller rejects).
+function requireAdmin_(token) {
+  var u = resolveUserFromToken_(token);
+  return (u && u.role === 'ADMIN') ? u : null;
+}
+
+// ── 5.1 SETTINGS CONTROL CENTER ──────────────────────────────────────
+var SETTINGS_SHEET_   = '_Settings';
+var SETTINGS_HEADERS_ = ['Key','Value','Type','Category','Description','UpdatedBy','UpdatedAt'];
+
+// Seed of governed knobs. setupPhase5 writes any that are MISSING — it never
+// overwrites a value an admin has already tuned.
+var DEFAULT_SETTINGS_ = [
+  ['learning.minSample',            '5',    'number', 'Learning', 'Min Country×Trade observations before a learned conversion rate is trusted'],
+  ['learning.defaultConversion',    '0.70', 'number', 'Learning', 'Fallback conversion rate used until a pair reaches minSample'],
+  ['fill.revalWeight',              '0.5',  'number', 'FillProbability', 'Weight of a REVALIDATION candidate vs a READY one'],
+  ['revenue.defaultRatePerPlacement','0',   'number', 'Revenue', 'Default revenue per completed mobilization (0 = revenue pending / counts only)'],
+  ['freshness.readyMonths',         '6',    'number', 'Freshness', 'Months since last contact within which supply is READY'],
+  ['freshness.expiredMonths',       '18',   'number', 'Freshness', 'Months since last contact beyond which supply is EXPIRED'],
+  ['features.expiredVisibleToRecruiter','false','bool','Features', 'Whether EXPIRED supply is ever shown to recruiters (must stay false)'],
+  ['features.campaignAsSource',     'false','bool',   'Features', 'Show Campaign as a source row in Recommended Sources']
+];
+
+function ensureSettingsSheet_(ss) {
+  return ensureSheetWithHeaders_(ss, SETTINGS_SHEET_, SETTINGS_HEADERS_, '#1B4F72');
+}
+
+function coerceSettingValue_(value, type) {
+  var v = String(value);
+  if (type === 'number') { var n = parseFloat(v); return isNaN(n) ? v : n; }
+  if (type === 'bool')   { return (v.toLowerCase() === 'true'); }
+  return v;
+}
+
+// Reader for backend use — returns typed value or fallback. Cached per request.
+function getSetting_(key, fallback) {
+  try {
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var s  = ss.getSheetByName(SETTINGS_SHEET_);
+    if (!s || s.getLastRow() < 2) return fallback;
+    var data = s.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]||'').trim() === key)
+        return coerceSettingValue_(data[i][1], String(data[i][2]||'string'));
+    }
+  } catch(e) {}
+  return fallback;
+}
+
+// GET ?action=settings[&category=Learning]&token=T
+function getSettings_(params) {
+  params = params || {};
+  var fCat = String(params.category||'').trim().toLowerCase();
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ss.getSheetByName(SETTINGS_SHEET_);
+  if (!s || s.getLastRow() < 2)
+    return { ok:true, settings:[], count:0,
+             message:'No settings yet — run setupPhase5() to seed defaults.' };
+
+  var data = s.getDataRange().getValues();
+  var out  = [];
+  for (var i = 1; i < data.length; i++) {
+    var key = String(data[i][0]||'').trim();
+    if (!key) continue;
+    var cat = String(data[i][3]||'').trim();
+    if (fCat && cat.toLowerCase() !== fCat) continue;
+    var type = String(data[i][2]||'string').trim();
+    out.push({
+      key:         key,
+      value:       coerceSettingValue_(data[i][1], type),
+      rawValue:    String(data[i][1]||''),
+      type:        type,
+      category:    cat,
+      description: String(data[i][4]||'').trim(),
+      updatedBy:   String(data[i][5]||'').trim(),
+      updatedAt:   data[i][6] instanceof Date
+                     ? Utilities.formatDate(data[i][6],'Asia/Dubai','yyyy-MM-dd HH:mm') : ''
+    });
+  }
+  return { ok:true, count:out.length, settings:out };
+}
+
+// POST action=updateSetting  body: { key*, value*, token }  (ADMIN only)
+function updateSetting_(body, token) {
+  var admin = requireAdmin_(token);
+  if (!admin) return { ok:false, error:'FORBIDDEN', message:'Settings changes require ADMIN role.' };
+
+  var key   = String(body.key||'').trim();
+  if (!key) return { ok:false, error:'key required' };
+  if (body.value === undefined || body.value === null)
+    return { ok:false, error:'value required' };
+  var value = String(body.value);
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ensureSettingsSheet_(ss);
+  var data = s.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]||'').trim() === key) {
+      var r = i + 1;
+      var type = String(data[i][2]||'string').trim();
+      // Guard: bool/number must parse
+      if (type === 'number' && isNaN(parseFloat(value)))
+        return { ok:false, error:'Setting "' + key + '" expects a number.' };
+      s.getRange(r, 2).setValue(value);
+      s.getRange(r, 6).setValue(admin.name || admin.email);
+      s.getRange(r, 7).setValue(new Date());
+      logActivity_(ss, { kaiNo:'SETTINGS', rowIndex:0,
+        action:'SETTING_UPDATED',
+        detail:key + ' = ' + value, actor:admin.email });
+      return { ok:true, key:key, value:coerceSettingValue_(value, type), updatedBy:admin.email };
+    }
+  }
+  return { ok:false, error:'Unknown setting key: ' + key +
+           ' (admins may only tune seeded keys; add new keys via setupPhase5).' };
+}
+
+// ── 5.2 ADMIN ROLES ──────────────────────────────────────────────────
+
+// GET ?action=roles&token=T — role taxonomy + permission matrix (for UI scoping)
+function getRoles_(params) {
+  return { ok:true, roles:KAI_ROLES_, permissions:ROLE_PERMISSIONS_ };
+}
+
+// GET ?action=myContext&token=T — whoami: identity + role + resolved permissions
+function getMyContext_(params, token) {
+  var u = resolveUserFromToken_(token);
+  if (!u) return { ok:false, error:'Could not resolve user from token' };
+  return {
+    ok:          true,
+    email:       u.email,
+    name:        u.name,
+    role:        u.role,
+    permissions: ROLE_PERMISSIONS_[u.role] || ROLE_PERMISSIONS_.RECRUITER
+  };
+}
+
+// GET ?action=users&token=T  (ADMIN only) — list users WITHOUT password hashes
+function getUsers_(params, token) {
+  var admin = requireAdmin_(token);
+  if (!admin) return { ok:false, error:'FORBIDDEN', message:'User listing requires ADMIN role.' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ss.getSheetByName('_LoginSystem');
+  if (!s || s.getLastRow() < 2) return { ok:true, users:[], count:0 };
+
+  var data = s.getRange(2, 1, s.getLastRow()-1, 8).getValues();
+  var out  = [];
+  for (var i = 0; i < data.length; i++) {
+    var email = String(data[i][0]||'').trim();
+    if (!email) continue;
+    out.push({
+      email:      email,
+      name:       String(data[i][3]||'').trim(),
+      role:       normalizeRole_(data[i][2]),
+      hasSession: !!String(data[i][5]||'').trim(),
+      // col 2 (password hash) deliberately omitted
+      permissions: ROLE_PERMISSIONS_[normalizeRole_(data[i][2])] || {}
+    });
+  }
+  return { ok:true, count:out.length, users:out };
+}
+
+// POST action=setUserRole  body: { email*, role*, token }  (ADMIN only)
+function setUserRole_(body, token) {
+  var admin = requireAdmin_(token);
+  if (!admin) return { ok:false, error:'FORBIDDEN', message:'Role changes require ADMIN role.' };
+
+  var email   = String(body.email||'').trim().toLowerCase();
+  var newRole = normalizeRole_(body.role);
+  if (!email) return { ok:false, error:'email required' };
+  if (KAI_ROLES_.indexOf(String(body.role||'').trim().toUpperCase()) < 0)
+    return { ok:false, error:'Invalid role. Must be one of: ' + KAI_ROLES_.join(', ') };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ss.getSheetByName('_LoginSystem');
+  if (!s || s.getLastRow() < 2) return { ok:false, error:'_LoginSystem not found' };
+
+  var data = s.getRange(2, 1, s.getLastRow()-1, 8).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]||'').trim().toLowerCase() === email) {
+      var prev = normalizeRole_(data[i][2]);
+      // Guard: never strip the last remaining ADMIN.
+      if (prev === 'ADMIN' && newRole !== 'ADMIN') {
+        var adminCount = 0;
+        for (var j = 0; j < data.length; j++)
+          if (normalizeRole_(data[j][2]) === 'ADMIN') adminCount++;
+        if (adminCount <= 1)
+          return { ok:false, error:'LAST_ADMIN',
+                   message:'Cannot demote the only remaining ADMIN.' };
+      }
+      s.getRange(i+2, 3).setValue(newRole);
+      logActivity_(ss, { kaiNo:'ROLES', rowIndex:0,
+        action:'ROLE_CHANGED',
+        detail:email + ': ' + prev + ' → ' + newRole, actor:admin.email });
+      return { ok:true, email:email, prevRole:prev, role:newRole };
+    }
+  }
+  return { ok:false, error:'User not found: ' + email };
+}
+
+// ── Phase 5 Setup + Test ─────────────────────────────────────────────
+function setupPhase5() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Seed settings (missing keys only — never clobber tuned values)
+  var s = ensureSettingsSheet_(ss);
+  var existing = {};
+  if (s.getLastRow() > 1)
+    s.getRange(2,1,s.getLastRow()-1,1).getValues().forEach(function(r){
+      existing[String(r[0]||'').trim()] = true;
+    });
+  var added = 0, now = new Date();
+  DEFAULT_SETTINGS_.forEach(function(d) {
+    if (existing[d[0]]) return;
+    s.appendRow([d[0], d[1], d[2], d[3], d[4], 'system', now]);
+    added++;
+  });
+  Logger.log('_Settings: OK (' + added + ' default(s) seeded, ' +
+             Object.keys(existing).length + ' preserved)');
+
+  // Bootstrap an ADMIN if none exists — promote the first user so governance
+  // is reachable. Logged, idempotent (no-op once an admin exists).
+  var ls = ss.getSheetByName('_LoginSystem');
+  if (ls && ls.getLastRow() > 1) {
+    var u = ls.getRange(2,1,ls.getLastRow()-1,8).getValues();
+    var hasAdmin = u.some(function(r){ return normalizeRole_(r[2]) === 'ADMIN'; });
+    if (!hasAdmin) {
+      ls.getRange(2,3).setValue('ADMIN');
+      Logger.log('Admin bootstrap: promoted first user (' +
+                 String(u[0][0]||'') + ') to ADMIN.');
+    } else {
+      Logger.log('Admin bootstrap: ADMIN already present — no change.');
+    }
+  } else {
+    Logger.log('Admin bootstrap: _LoginSystem empty — seed users first.');
+  }
+  Logger.log('Phase 5 governance ready.');
+}
+
+function testPhase5() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // 5.1 — Settings
+  var set = getSettings_({});
+  Logger.log('5.1 settings: ok=' + set.ok + ' count=' + set.count);
+  set.settings.slice(0,8).forEach(function(x){
+    Logger.log('    [' + x.category + '] ' + x.key + ' = ' + x.value +
+               ' (' + x.type + ')');
+  });
+  Logger.log('5.1 getSetting_(learning.minSample) = ' + getSetting_('learning.minSample', 5) +
+             ' | defaultConversion = ' + getSetting_('learning.defaultConversion', 0.70));
+
+  // 5.2 — Roles matrix
+  var roles = getRoles_({});
+  Logger.log('5.2 roles: ' + roles.roles.join(', '));
+  KAI_ROLES_.forEach(function(r){
+    var p = ROLE_PERMISSIONS_[r];
+    Logger.log('    ' + r + ': settings=' + p.manageSettings +
+               ' users=' + p.manageUsers + ' revenue=' + p.viewRevenue +
+               ' scopeOnly=' + p.assignedScopeOnly);
+  });
+
+  // 5.2 — Users (need a real ADMIN token to pass the gate)
+  var ls = ss.getSheetByName('_LoginSystem');
+  var adminTok = '';
+  var adminEmail = '';
+  if (ls && ls.getLastRow() > 1) {
+    var u = ls.getRange(2,1,ls.getLastRow()-1,8).getValues();
+    for (var i = 0; i < u.length; i++) {
+      if (normalizeRole_(u[i][2]) === 'ADMIN') {
+        adminTok = String(u[i][5]||'').trim();
+        adminEmail = String(u[i][0]||'').trim();
+        break;
+      }
+    }
+  }
+  Logger.log('5.2 admin present: ' + (adminEmail||'NONE — run setupPhase5()') +
+             ' | live token: ' + (adminTok ? 'yes' : 'no (admin must log in for users/setUserRole)'));
+
+  if (adminTok) {
+    var users = getUsers_({}, adminTok);
+    Logger.log('5.2 users (admin-gated): ok=' + users.ok + ' count=' + users.count);
+    (users.users||[]).slice(0,10).forEach(function(x){
+      Logger.log('    ' + x.email + ' | role=' + x.role + ' | hasSession=' + x.hasSession);
+    });
+    var ctx = getMyContext_({}, adminTok);
+    Logger.log('5.2 myContext: ' + ctx.email + ' role=' + ctx.role +
+               ' canManageSettings=' + (ctx.permissions||{}).manageSettings);
+  }
+
+  // Gate check — non-admin (empty token) must be refused
+  var blocked = getUsers_({}, 'not-a-real-token');
+  Logger.log('5.2 gate check (bad token → users): ok=' + blocked.ok +
+             ' error=' + (blocked.error||'-') +
+             ' → ' + (blocked.ok ? 'FAIL (should be FORBIDDEN)' : 'PASS'));
+
+  Logger.log('Phase 5 validation complete.');
 }
