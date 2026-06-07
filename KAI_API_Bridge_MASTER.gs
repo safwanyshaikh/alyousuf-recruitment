@@ -11075,3 +11075,110 @@ function backfillKaiNumbersLastN() {
 
   Logger.log('backfillKaiNumbersLastN: patched ' + patched + ' of last ' + N + ' rows');
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 41 — GMAIL INTAKE WATCHER
+//
+// Problem: Gmail CVs enter via Code.gs email pipeline (untouchable).
+// That pipeline creates candidate rows but never assigns kaiNo or queues Top3.
+// This watcher runs every 5 min via trigger, finds new rows without kaiNo,
+// assigns numbers, scores them, and queues Top3 enrichment.
+//
+// TRIGGER TO SET:
+//   Function: watchNewCandidates
+//   Type: Time-driven → Minutes timer → Every 5 minutes
+// ════════════════════════════════════════════════════════════════════════════
+
+function watchNewCandidates() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) { Logger.log('watchNewCandidates: Candidates sheet not found'); return; }
+
+  var lr   = sheet.getLastRow();
+  if (lr < 2) return;
+
+  // Scan last 100 rows only — new Gmail CVs land at the bottom
+  var scanStart = Math.max(2, lr - 99);
+  var numRows   = lr - scanStart + 1;
+  var data      = sheet.getRange(scanStart, 1, numRows, 38).getValues();
+
+  var year      = new Date().getFullYear();
+  var prefix    = 'AYE-KAI-' + year + '-';
+
+  // Find current max kaiNo across entire sheet once (fast single read)
+  var allKai = sheet.getRange(2, COL.kaiNo, lr - 1, 1).getValues();
+  var maxNum = 0;
+  allKai.forEach(function(r) {
+    var m = String(r[0]||'').match(/AYE-KAI-\d{4}-(\d+)/);
+    if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1]);
+  });
+  var nextNum = maxNum + 1;
+
+  var patched = 0;
+  var queued  = 0;
+
+  for (var i = 0; i < data.length; i++) {
+    var row      = data[i];
+    var name     = String(row[COL.name-1]    ||'').trim();
+    var kaiNo    = String(row[COL.kaiNo-1]   ||'').trim();
+    var trade    = String(row[COL.trade-1]   ||'').trim();
+    var active   = String(row[COL.active-1]  ||'').trim().toLowerCase();
+    var verdict  = String(row[COL.verdict-1] ||'').trim().toLowerCase();
+    var score    = parseInt(row[COL.score-1])||0;
+    var sheetRow = scanStart + i;
+
+    if (!name) continue;
+    if (active === 'inactive') continue;
+    if (verdict === 'rejected') continue;
+
+    // ── Assign kaiNo if missing ──────────────────────────────────────────
+    if (!kaiNo) {
+      var newKai = prefix + String(nextNum).padStart(6, '0');
+      sheet.getRange(sheetRow, COL.kaiNo).setValue(newKai);
+      kaiNo = newKai;
+      nextNum++;
+      patched++;
+    }
+
+    // ── Re-score if score is 0 or missing ────────────────────────────────
+    if (!score && trade) {
+      try {
+        var pseudoCand = {
+          name: name, trade: trade,
+          experience:  String(row[COL.experience-1]  ||''),
+          gulfExp:     String(row[COL.gulfExp-1]     ||''),
+          education:   String(row[COL.education-1]   ||''),
+          nationality: String(row[COL.nationality-1] ||''),
+          mobile:      String(row[COL.mobile-1]      ||''),
+          email:       String(row[COL.email-1]       ||''),
+          cvLink:      String(row[COL.cvLink-1]      ||''),
+          passportNo:  String(row[33]                ||'') // col 34 passport
+        };
+        var scoreResult = computeBasicScore_(pseudoCand);
+        if (scoreResult && scoreResult.score) {
+          sheet.getRange(sheetRow, COL.score).setValue(scoreResult.score);
+          if (scoreResult.verdict) sheet.getRange(sheetRow, COL.verdict).setValue(scoreResult.verdict);
+        }
+      } catch(scoreErr) {
+        Logger.log('watchNewCandidates: score error for ' + name + ': ' + scoreErr.message);
+      }
+    }
+
+    // ── Queue Top3 if missing ─────────────────────────────────────────────
+    var top3 = String(row[COL.recommendedRoles-1]||'').trim();
+    if (!top3 && trade && kaiNo) {
+      queueForProcessing_(kaiNo, 'TOP3', ss);
+      queued++;
+    }
+  }
+
+  if (patched > 0 || queued > 0) {
+    Logger.log('watchNewCandidates: kaiNo patched=' + patched + ' top3 queued=' + queued);
+  }
+}
+
+// Public wrapper for manual run
+function watchNewCandidatesNow() {
+  watchNewCandidates();
+  Logger.log('watchNewCandidatesNow: done');
+}
