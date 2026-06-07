@@ -11998,7 +11998,7 @@ function detectReplyIntent_(subject, body, hasAttachment, fromEmail, ss) {
  * Checks col 6 (email) and col 25 (kaiNo present = active record).
  */
 function findCandidateByEmail_(ss, email) {
-  if (!email) return null;
+  if (!email || !ss) return null;
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet) return null;
   var data = sheet.getDataRange().getValues();
@@ -12211,8 +12211,14 @@ function updateCandidateWithNewCV_(ss, rowIndex, attachment, fromEmail) {
  */
 function processEmailMessage_(ss, message, sourceLabel) {
   try {
-    // Open fresh SS reference on every call — avoids stale reference errors on long executions
-    var ss = SpreadsheetApp.openById(SS_ID);
+    // Get spreadsheet fresh each call
+    var _ss = SpreadsheetApp.openById(SS_ID);
+    if (!_ss) { Logger.log('FATAL: openById null for SS_ID=' + SS_ID); return 'ERROR'; }
+    var _ssName = '';
+    try { _ssName = _ss.getName(); } catch(nameErr) {
+      Logger.log('FATAL: _ss.getName() failed — ss is not a Spreadsheet: ' + nameErr.message);
+      return 'ERROR';
+    }
 
     var from        = message.getFrom() || '';
     var subject     = message.getSubject() || '';
@@ -12229,16 +12235,16 @@ function processEmailMessage_(ss, message, sourceLabel) {
     var fromEmail = classification.senderEmail;
 
     // Step 2: Detect reply intent
-    var intent = detectReplyIntent_(subject, body, hasAttach, fromEmail, ss);
+    var intent = detectReplyIntent_(subject, body, hasAttach, fromEmail, _ss);
     if (intent === 'IGNORE') return 'IGNORED';
 
     // Step 3: Find existing candidate by sender email
-    var existing = findCandidateByEmail_(ss, fromEmail);
+    var existing = findCandidateByEmail_(_ss, fromEmail);
 
     // ── NOT INTERESTED ─────────────────────────────────────────────────────────
     if (intent === 'NOT_INTERESTED') {
       if (existing) {
-        markCandidateNotInterested_(ss, existing.rowIndex, fromEmail, subject);
+        markCandidateNotInterested_(_ss, existing.rowIndex, fromEmail, subject);
         return 'NOT_INTERESTED';
       }
       return 'IGNORED';
@@ -12247,27 +12253,24 @@ function processEmailMessage_(ss, message, sourceLabel) {
     // ── INFO REPLY ─────────────────────────────────────────────────────────────
     if (intent === 'INFO_REPLY' && !hasAttach) {
       if (existing) {
-        updateCandidateFromInfoReply_(ss, existing.rowIndex, body);
+        updateCandidateFromInfoReply_(_ss, existing.rowIndex, body);
         return 'INFO_UPDATED';
       }
       return 'IGNORED';
     }
 
     // ── CV ATTACHED (CV_UPDATE or NEW_APPLICATION) ─────────────────────────────
-    // Both paths share same CV-parsing logic. The source of truth is the CV content.
     if (hasAttach) {
       var bestCV = selectBestCVAttachment_(attachments);
       if (!bestCV) return 'IGNORED';
 
       // If sender IS a known candidate → update their record in place
       if (existing && intent === 'CV_UPDATE') {
-        updateCandidateWithNewCV_(ss, existing.rowIndex, bestCV, fromEmail);
+        updateCandidateWithNewCV_(_ss, existing.rowIndex, bestCV, fromEmail);
         return 'CV_UPDATED';
       }
 
-      // Sender is NOT in Candidates (associate, agent, third party sending someone else's CV)
-      // OR sender is known but intent = NEW_APPLICATION (shouldn't happen but handle safely)
-      // Parse candidate info FROM THE CV ATTACHMENT, not from email body
+      // Sender is NOT in Candidates → parse CV for candidate details
       var cvText = '';
       try { cvText = extractTextFromAttachment_(bestCV); } catch(e2) { cvText = ''; }
       if (!cvText || cvText.length < 50) return 'IGNORED';
@@ -12275,22 +12278,18 @@ function processEmailMessage_(ss, message, sourceLabel) {
       var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
       var parsed = parseCVTextForCandidate_(cvText, subject, apiKey);
 
-      // Need at minimum a name to create a record
       if (!parsed || !parsed.name) return 'IGNORED';
 
-      // Deduplicate before creating: check by mobile / email / passport from CV
       var cvEmail    = (parsed.email || '').trim();
       var cvPhone    = (parsed.phone || '').trim();
       var cvPassport = (parsed.passportNo || '').trim();
 
-      var dupCheck = checkDuplicateCandidate_(ss, cvPhone, cvEmail, cvPassport);
+      var dupCheck = checkDuplicateCandidate_(_ss, cvPhone, cvEmail, cvPassport);
       if (dupCheck && dupCheck.isDuplicate) {
-        // Candidate already exists — update their record instead of creating duplicate
         var dupRow = dupCheck.rowIndex;
         if (dupRow) {
-          updateCandidateWithNewCV_(ss, dupRow, bestCV, fromEmail);
-          // Note: sourced by this associate
-          var dupSheet = ss.getSheetByName('Candidates');
+          updateCandidateWithNewCV_(_ss, dupRow, bestCV, fromEmail);
+          var dupSheet = _ss.getSheetByName('Candidates');
           if (dupSheet) {
             var existNote = dupSheet.getRange(dupRow, COL.notes).getValue() || '';
             var dupNote = '[' + new Date().toISOString() + '] CV re-submitted via ' + fromEmail;
@@ -12300,12 +12299,10 @@ function processEmailMessage_(ss, message, sourceLabel) {
         }
       }
 
-      // Create new candidate record
-      // CRITICAL: candidateEmail = CV-parsed email only (NEVER fromEmail)
-      // fromEmail = associate/agent who sent it → stored as sourcedBy note only
+      // Create new candidate record — sender email NEVER becomes candidate email
       var kaiNo = generateKaiNumber_();
       var now = new Date();
-      var cSheet = ss.getSheetByName('Candidates');
+      var cSheet = _ss.getSheetByName('Candidates');
       if (!cSheet) return 'IGNORED';
 
       var sourcedByNote = '[' + now.toISOString() + '] CV sourced via email from: ' + fromEmail +
