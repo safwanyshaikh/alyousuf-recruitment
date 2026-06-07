@@ -1405,28 +1405,38 @@ function getRequirementsEnhanced_() {
         if (!mt) return;
         counts[mt] = (counts[mt]||0)+1;
       });
+      var trade4    = String(row[4]||'').trim();
+      var sourcedBy = String(row[15]||'').trim();
+      var dept      = classifyDepartment_(trade4);
       return {
         reqId:         String(row[0]||'').trim(),
         receivedDate:  row[1] instanceof Date ?
                          Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy'):'',
         clientName:    String(row[2]||'Unknown').trim(),
         deployCountry: String(row[3]||'').trim(),
-        jobTitle:      String(row[4]||'').trim(),
-        trade:         String(row[4]||'').trim(),
+        jobTitle:      trade4,
+        trade:         trade4,
         requiredQty:   parseInt(row[5])||0,
         minExperience: parseInt(row[6])||0,
         minAge:        parseInt(row[7])||0,
         maxAge:        parseInt(row[8])||0,
         projectName:   String(row[9]||'').trim(),
+        nationality:   String(row[10]||'').trim(),
         urgency:       String(row[13]||'Normal').trim(),
         status:        String(row[14]||'Open').trim(),
-        sourcedBy:     String(row[15]||'').trim(),
+        sourcedBy:     sourcedBy,
+        postedBy:      sourcedBy,
+        department:    dept,
+        interviewMode: String(row[16]||'').trim(),
         notes:         String(row[19]||'').trim(),
         jdId:          String(row[20]||'').trim(),
         startDate:     row[21] instanceof Date ?
                          Utilities.formatDate(row[21],'Asia/Dubai','yyyy-MM-dd'):String(row[21]||''),
         endDate:       row[22] instanceof Date ?
                          Utilities.formatDate(row[22],'Asia/Dubai','yyyy-MM-dd'):String(row[22]||''),
+        committedQty:  parseInt(row[23])||0,
+        interviewDate: row[24] instanceof Date ?
+                         Utilities.formatDate(row[24],'Asia/Dubai','yyyy-MM-dd'):String(row[24]||''),
         matchCounts:   counts,
         totalMatches:  counts.STRONG+counts.GOOD+counts.POSSIBLE
       };
@@ -1468,8 +1478,8 @@ function createRequirement_(body) {
     '', '', '',
     String(body.urgency       ||'Normal').trim(),
     'Active',
-    String(body.sourcedBy||body.recruiter||'').trim(),
-    String(body.specialReq    ||'').trim(),
+    String(body.sourcedBy||body.recruiter||body.postedBy||'').trim(),
+    String(body.interviewMode ||body.specialReq||'').trim(),  // col 17 — interview mode
     0, 0,
     String(body.notes         ||'').trim(),
     String(body.jdId          ||'').trim(),
@@ -1498,9 +1508,15 @@ function updateRequirement_(body) {
     if (body.trade||body.jobTitle) sheet.getRange(r,5).setValue(body.trade||body.jobTitle);
     if (body.requiredQty)     sheet.getRange(r,6).setValue(parseInt(body.requiredQty)||0);
     if (body.minExperience !== undefined) sheet.getRange(r,7).setValue(parseFloat(body.minExperience)||0);
+    if (body.minAge !== undefined)        sheet.getRange(r,8).setValue(parseInt(body.minAge)||0);
+    if (body.maxAge !== undefined)        sheet.getRange(r,9).setValue(parseInt(body.maxAge)||0);
     if (body.projectName !== undefined)   sheet.getRange(r,10).setValue(body.projectName);
+    if (body.nationality !== undefined)   sheet.getRange(r,11).setValue(body.nationality);
     if (body.urgency)         sheet.getRange(r,14).setValue(body.urgency);
     if (body.status)          sheet.getRange(r,15).setValue(body.status);
+    if (body.sourcedBy || body.recruiter || body.postedBy)
+      sheet.getRange(r,16).setValue(body.sourcedBy||body.recruiter||body.postedBy);
+    if (body.interviewMode !== undefined) sheet.getRange(r,17).setValue(body.interviewMode);
     if (body.notes)           sheet.getRange(r,20).setValue(body.notes);
     if (body.startDate)       sheet.getRange(r,22).setValue(body.startDate);
     if (body.endDate)         sheet.getRange(r,23).setValue(body.endDate);
