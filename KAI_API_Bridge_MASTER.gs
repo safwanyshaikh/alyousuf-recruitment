@@ -116,6 +116,7 @@ function doGet(e) {
     // P1 — Requirement Command Center
     else if (action === 'requirementCommandCenter') out = JSON.stringify(requirementCommandCenter_(params));
     else if (action === 'requirementDashboardCards') out = JSON.stringify(getRequirementDashboardCards_(params));
+    else if (action === 'getMatchSnapshot')          out = JSON.stringify(getMatchSnapshot_(params));
     // P2 — Associate Production Units
     else if (action === 'commitments')          out = JSON.stringify(getCommitments_(params));
     else if (action === 'associateCapacity')    out = JSON.stringify(getAssociateCapacity_(params));
@@ -10214,144 +10215,207 @@ function tuwaiqCampaignStats() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SECTION 39 — BULK JD UPLOAD → REQUIREMENTS CREATION
+// SECTION 39 — JD UPLOAD PIPELINE (PRODUCTION)
+//
+// Architecture (LOCKED — see CLAUDE.md):
+//   JD Upload → _JD_Repository → Parse → Hierarchy → Requirement →
+//   Campaign Assignment → Matching Engine → Match Snapshot → Tracker
 //
 // Endpoint: POST action=bulkCreateRequirementsFromJDs
 //
 // Body:
 //   {
-//     campaignId:   string,      // required
-//     campaignName: string,
-//     clientId:     string,
-//     clientName:   string,
-//     location:     string,      // deploy location (e.g. "Riyadh, Saudi Arabia")
-//     country:      string,
-//     sector:       string,
-//     sourcedBy:    string,
-//     interviewMode: string,     // CAMPING / ONLINE / HYBRID
-//     interviewDate: string,
-//     interviewCities: string,
-//     jds: [
-//       { fileName: string, content: string }  // content = extracted text from PDF/DOCX
-//     ]
+//     campaignId, campaignName, clientId, clientName,
+//     location, country, sector, sourcedBy,
+//     interviewMode, interviewDate, interviewCities,
+//     jds: [{ fileName, content }]   // content = text extracted client-side
 //   }
 //
-// Returns:
-//   { ok, created, skipped, failed, results: [{fileName, reqId, trade, status, reason}] }
-//
-// Flow per JD:
-//   1. Gemini parses JD text → extracts trade, dept, qty, expMin, salary, cert, notes
-//   2. Validates trade via isValidTrade_
-//   3. Calls createRequirement_ with enriched body
-//   4. After all JDs: creates/updates campaign tracker sheet
+// Returns per-JD: { fileName, reqId, trade, status, strong, good, possible, total }
 // ════════════════════════════════════════════════════════════════════════════
 
+// ── JD Repository sheet headers (immortal — never delete rows) ───────────────
+var JDR_HEADERS = [
+  'jdId','campaignId','clientId','clientName',
+  'industry','sector','department','trade','specialization',
+  'requiredQty','salaryMin','salaryMax',
+  'country','city','experienceMin','experienceMax',
+  'educationRequired','certifications',
+  'interviewMode','interviewDate','interviewCities',
+  'originalJDText','parsedJDJSON',
+  'createdBy','createdAt','reqId','status'
+];
+var JDR_COL = {};
+(function(){ JDR_HEADERS.forEach(function(h,i){ JDR_COL[h] = i+1; }); })();
+
+// ── Match Snapshot sheet headers ─────────────────────────────────────────────
+var MS_HEADERS = [
+  'snapshotId','reqId','trade','department','snapshotDate',
+  'strongCount','goodCount','possibleCount','totalScanned','topCandidatesJSON'
+];
+
+// ── MASTER PIPELINE ──────────────────────────────────────────────────────────
 function bulkCreateRequirementsFromJDs_(body) {
   var ss = SpreadsheetApp.openById(SS_ID);
 
-  var campaignId    = String(body.campaignId    ||'').trim();
-  var campaignName  = String(body.campaignName  ||'').trim();
-  var clientId      = String(body.clientId      ||'').trim();
-  var clientName    = String(body.clientName    ||'').trim();
-  var location      = String(body.location      ||'').trim();
-  var country       = String(body.country       ||'Saudi Arabia').trim();
-  var sector        = String(body.sector        ||'').trim();
-  var sourcedBy     = String(body.sourcedBy     ||'').trim();
-  var interviewMode = String(body.interviewMode ||'CAMPING').trim();
-  var interviewDate = String(body.interviewDate ||'').trim();
-  var interviewCities = String(body.interviewCities||'').trim();
-  var jds           = body.jds || [];
+  var campaignId      = String(body.campaignId      ||'').trim();
+  var campaignName    = String(body.campaignName    ||'').trim();
+  var clientId        = String(body.clientId        ||'').trim();
+  var clientName      = String(body.clientName      ||'').trim();
+  var location        = String(body.location        ||'').trim();
+  var country         = String(body.country         ||'Saudi Arabia').trim();
+  var sector          = String(body.sector          ||'').trim();
+  var sourcedBy       = String(body.sourcedBy       ||'').trim();
+  var interviewMode   = String(body.interviewMode   ||'CAMPING').trim();
+  var interviewDate   = String(body.interviewDate   ||'').trim();
+  var interviewCities = String(body.interviewCities ||'').trim();
+  var jds             = body.jds || [];
 
-  if (!campaignId)       return { ok:false, error:'campaignId required' };
+  if (!campaignId)         return { ok:false, error:'campaignId required' };
   if (!jds || !jds.length) return { ok:false, error:'No JD files provided' };
+
+  // Ensure sidecar sheets exist
+  ensureJDRepositorySheet_(ss);
+  ensureMatchSnapshotsSheet_(ss);
 
   var created = 0, skipped = 0, failed = 0;
   var results = [];
 
   for (var i = 0; i < jds.length; i++) {
-    var jd         = jds[i];
-    var fileName   = String(jd.fileName||('JD_' + (i+1))).trim();
-    var jdContent  = String(jd.content ||'').trim();
+    var jd        = jds[i];
+    var fileName  = String(jd.fileName || ('JD_' + (i+1))).trim();
+    var jdContent = String(jd.content  || '').trim();
 
     if (!jdContent) {
-      results.push({ fileName:fileName, status:'FAILED', reason:'Empty content', reqId:'', trade:'' });
+      results.push({ fileName:fileName, status:'FAILED', reason:'Empty content',
+                     reqId:'', trade:'', strong:0, good:0, possible:0, total:0 });
       failed++;
       continue;
     }
 
     try {
-      // Step 1 — Gemini parses the JD text
-      var parsed = parseJDWithGemini_(jdContent, fileName);
+      // ── STEP 1: Store original JD in repository ────────────────────────
+      var jdId = storeJDInRepository_(ss, {
+        fileName:       fileName,
+        content:        jdContent,
+        campaignId:     campaignId,
+        campaignName:   campaignName,
+        clientId:       clientId,
+        clientName:     clientName,
+        country:        country,
+        sector:         sector,
+        interviewMode:  interviewMode,
+        interviewDate:  interviewDate,
+        interviewCities:interviewCities,
+        createdBy:      sourcedBy,
+        status:         'PROCESSING'
+      });
 
+      // ── STEP 2: Parse JD → full Intelligence Hierarchy ────────────────
+      var parsed = parseJDWithGemini_(jdContent, fileName);
       if (!parsed || !parsed.trade) {
-        results.push({ fileName:fileName, status:'FAILED', reason:'Gemini could not extract trade', reqId:'', trade:'' });
+        updateJDRepositoryStatus_(ss, jdId, 'PARSE_FAILED', '');
+        results.push({ fileName:fileName, status:'FAILED', reason:'Trade not detected',
+                       reqId:'', trade:'', strong:0, good:0, possible:0, total:0 });
         failed++;
         continue;
       }
 
-      // Step 2 — Build requirement body matching createRequirement_ signature
+      // Update repo with parsed intelligence
+      updateJDRepositoryParsed_(ss, jdId, parsed);
+
+      // ── STEP 3: Build requirement body (Client→Campaign→Dept→Trade) ───
       var reqBody = {
-        trade:         parsed.trade,
-        jobTitle:      parsed.trade,
-        clientName:    clientName,
-        clientId:      clientId,
-        deployCountry: country,
-        projectName:   campaignName,
-        requiredQty:   parsed.qty        || 1,
-        minExperience: parsed.expMin     || 0,
-        minAge:        parsed.minAge     || 18,
-        maxAge:        parsed.maxAge     || 45,
-        salary:        parsed.salary     || '',
-        notes:         buildJDNotes_(parsed, fileName),
-        sourcedBy:     sourcedBy,
-        interviewMode: interviewMode,
-        interviewDate: interviewDate,
-        urgency:       parsed.urgency    || 'Normal',
-        certRequired:  parsed.certRequired || '',
-        nationality:   parsed.nationality  || '',
-        sector:        sector,
-        campaignId:    campaignId,
-        campaignName:  campaignName,
+        trade:           parsed.trade,
+        jobTitle:        parsed.trade,
+        clientName:      clientName,
+        clientId:        clientId,
+        deployCountry:   country,
+        projectName:     campaignName,
+        requiredQty:     parsed.qty          || 1,
+        minExperience:   parsed.expMin       || 0,
+        minAge:          parsed.minAge       || 18,
+        maxAge:          parsed.maxAge       || 45,
+        salary:          buildSalaryString_(parsed.salaryMin, parsed.salaryMax),
+        salaryMin:       parsed.salaryMin    || 0,
+        salaryMax:       parsed.salaryMax    || 0,
+        notes:           buildJDNotes_(parsed, fileName, jdId),
+        sourcedBy:       sourcedBy,
+        interviewMode:   interviewMode,
+        interviewDate:   interviewDate,
+        urgency:         parsed.urgency      || 'Normal',
+        certRequired:    parsed.certifications || '',
+        nationality:     parsed.nationality  || '',
+        sector:          sector              || parsed.sector || '',
+        department:      parsed.department   || classifyDepartment_(parsed.trade),
+        industry:        parsed.industry     || '',
+        specialization:  parsed.specialization || '',
+        educationRequired: parsed.educationRequired || '',
+        campaignId:      campaignId,
+        campaignName:    campaignName,
         interviewCities: interviewCities,
-        jdId:          fileName,
-        positionId:    parsed.positionId || ''
+        jdId:            jdId,
+        positionId:      parsed.positionId   || '',
+        country:         country,
+        city:            location
       };
 
-      // Step 3 — Create requirement (uses existing createRequirement_ which validates trade)
+      // ── STEP 4: Create requirement ─────────────────────────────────────
       var reqResult = createRequirement_(reqBody);
 
-      if (reqResult.ok) {
-        results.push({
-          fileName:   fileName,
-          status:     'CREATED',
-          reason:     '',
-          reqId:      reqResult.reqId,
-          trade:      parsed.trade,
-          qty:        parsed.qty || 1,
-          salary:     parsed.salary || '',
-          dept:       parsed.department || ''
-        });
-        created++;
-      } else if (reqResult.error === 'INVALID_TRADE') {
-        results.push({ fileName:fileName, status:'QUARANTINED', reason:reqResult.message, reqId:'', trade:parsed.trade });
+      if (!reqResult.ok) {
+        updateJDRepositoryStatus_(ss, jdId, 'REQ_FAILED', '');
+        results.push({ fileName:fileName, status: reqResult.error === 'INVALID_TRADE' ? 'QUARANTINED' : 'FAILED',
+                       reason: reqResult.message || reqResult.error,
+                       reqId:'', trade:parsed.trade, strong:0, good:0, possible:0, total:0 });
         failed++;
-      } else {
-        results.push({ fileName:fileName, status:'FAILED', reason:reqResult.error||'Unknown error', reqId:'', trade:parsed.trade });
-        failed++;
+        continue;
       }
 
+      var reqId = reqResult.reqId;
+
+      // ── STEP 5: Matching Engine — run against full candidate pool ──────
+      var matchResult = runRequirementMatchingEngine_(ss, reqId, parsed.trade,
+        parsed.department || classifyDepartment_(parsed.trade),
+        parsed.expMin || 0);
+
+      // ── STEP 6: Store match snapshot (for dashboard + ranking) ─────────
+      storeMatchSnapshot_(ss, reqId, parsed.trade,
+        parsed.department || classifyDepartment_(parsed.trade), matchResult);
+
+      // ── STEP 7: Mark JD repository entry complete ──────────────────────
+      updateJDRepositoryStatus_(ss, jdId, 'DONE', reqId);
+
+      results.push({
+        fileName:  fileName,
+        status:    'CREATED',
+        reason:    '',
+        reqId:     reqId,
+        jdId:      jdId,
+        trade:     parsed.trade,
+        department:parsed.department || '',
+        qty:       parsed.qty || 1,
+        salary:    buildSalaryString_(parsed.salaryMin, parsed.salaryMax),
+        strong:    matchResult.strong,
+        good:      matchResult.good,
+        possible:  matchResult.possible,
+        total:     matchResult.total
+      });
+      created++;
+
     } catch(e) {
-      results.push({ fileName:fileName, status:'FAILED', reason:'Exception: ' + e.message, reqId:'', trade:'' });
+      Logger.log('bulkCreateRequirementsFromJDs_ error [' + fileName + ']: ' + e.message);
+      results.push({ fileName:fileName, status:'FAILED', reason:'Exception: ' + e.message,
+                     reqId:'', trade:'', strong:0, good:0, possible:0, total:0 });
       failed++;
-      Logger.log('bulkCreateRequirementsFromJDs_ error on ' + fileName + ': ' + e.message);
     }
 
-    // Throttle to avoid GAS quota issues on large batches
-    if ((i+1) % 5 === 0) Utilities.sleep(1000);
+    // Throttle: avoid hitting GAS quota on large batches (NMDC/ZAMIL = 50-80 JDs)
+    if ((i+1) % 5 === 0) Utilities.sleep(1200);
   }
 
-  // Step 4 — Create / update campaign tracker sheet
-  var trackerResult = { ok:false, message:'skipped' };
+  // ── STEP 8: Create campaign tracker sheet ─────────────────────────────────
+  var trackerResult = { message:'skipped' };
   if (created > 0) {
     trackerResult = createCampaignTrackerSheet_(ss, {
       campaignId:      campaignId,
@@ -10364,7 +10428,8 @@ function bulkCreateRequirementsFromJDs_(body) {
     });
   }
 
-  Logger.log('bulkCreateRequirementsFromJDs: created=' + created + ' skipped=' + skipped + ' failed=' + failed);
+  Logger.log('bulkCreateRequirementsFromJDs: created=' + created +
+             ' skipped=' + skipped + ' failed=' + failed);
 
   return {
     ok:      true,
@@ -10376,230 +10441,473 @@ function bulkCreateRequirementsFromJDs_(body) {
   };
 }
 
-// ── GEMINI JD PARSER ─────────────────────────────────────────────────────────
+// ── ENSURE SIDECAR SHEETS ────────────────────────────────────────────────────
+function ensureJDRepositorySheet_(ss) {
+  var sh = ss.getSheetByName('_JD_Repository');
+  if (!sh) {
+    sh = ss.insertSheet('_JD_Repository');
+    sh.appendRow(JDR_HEADERS);
+    sh.getRange(1, 1, 1, JDR_HEADERS.length)
+      .setFontWeight('bold')
+      .setBackground('#1a237e')
+      .setFontColor('#ffffff');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function ensureMatchSnapshotsSheet_(ss) {
+  var sh = ss.getSheetByName('_MatchSnapshots');
+  if (!sh) {
+    sh = ss.insertSheet('_MatchSnapshots');
+    sh.appendRow(MS_HEADERS);
+    sh.getRange(1, 1, 1, MS_HEADERS.length)
+      .setFontWeight('bold')
+      .setBackground('#1a237e')
+      .setFontColor('#ffffff');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+// ── STORE JD IN REPOSITORY ───────────────────────────────────────────────────
+function storeJDInRepository_(ss, opts) {
+  var sh   = ensureJDRepositorySheet_(ss);
+  var jdId = 'JD-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMddHHmmss') +
+             '-' + Math.floor(Math.random()*1000);
+
+  sh.appendRow([
+    jdId,                    // jdId
+    opts.campaignId,         // campaignId
+    opts.clientId,           // clientId
+    opts.clientName,         // clientName
+    '',                      // industry (filled after parse)
+    opts.sector || '',       // sector
+    '',                      // department (filled after parse)
+    '',                      // trade (filled after parse)
+    '',                      // specialization (filled after parse)
+    0,                       // requiredQty (filled after parse)
+    0,                       // salaryMin (filled after parse)
+    0,                       // salaryMax (filled after parse)
+    opts.country || '',      // country
+    '',                      // city (filled after parse)
+    0,                       // experienceMin (filled after parse)
+    0,                       // experienceMax (filled after parse)
+    '',                      // educationRequired (filled after parse)
+    '',                      // certifications (filled after parse)
+    opts.interviewMode || '',// interviewMode
+    opts.interviewDate || '',// interviewDate
+    opts.interviewCities||'',// interviewCities
+    opts.content.substring(0, 10000), // originalJDText (cap at 10k chars)
+    '',                      // parsedJDJSON (filled after parse)
+    opts.createdBy || '',    // createdBy
+    new Date(),              // createdAt
+    '',                      // reqId (filled after requirement created)
+    opts.status || 'PENDING' // status
+  ]);
+
+  return jdId;
+}
+
+// ── UPDATE REPOSITORY AFTER PARSE ────────────────────────────────────────────
+function updateJDRepositoryParsed_(ss, jdId, parsed) {
+  try {
+    var sh   = ensureJDRepositorySheet_(ss);
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][JDR_COL.jdId-1]).trim() === jdId) {
+        sh.getRange(i+1, JDR_COL.industry).setValue(parsed.industry || '');
+        sh.getRange(i+1, JDR_COL.sector).setValue(parsed.sector || '');
+        sh.getRange(i+1, JDR_COL.department).setValue(parsed.department || '');
+        sh.getRange(i+1, JDR_COL.trade).setValue(parsed.trade || '');
+        sh.getRange(i+1, JDR_COL.specialization).setValue(parsed.specialization || '');
+        sh.getRange(i+1, JDR_COL.requiredQty).setValue(parsed.qty || 1);
+        sh.getRange(i+1, JDR_COL.salaryMin).setValue(parsed.salaryMin || 0);
+        sh.getRange(i+1, JDR_COL.salaryMax).setValue(parsed.salaryMax || 0);
+        sh.getRange(i+1, JDR_COL.city).setValue(parsed.city || '');
+        sh.getRange(i+1, JDR_COL.experienceMin).setValue(parsed.expMin || 0);
+        sh.getRange(i+1, JDR_COL.experienceMax).setValue(parsed.expMax || 0);
+        sh.getRange(i+1, JDR_COL.educationRequired).setValue(parsed.educationRequired || '');
+        sh.getRange(i+1, JDR_COL.certifications).setValue(parsed.certifications || '');
+        sh.getRange(i+1, JDR_COL.parsedJDJSON).setValue(JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch(e) {
+    Logger.log('updateJDRepositoryParsed_ error: ' + e.message);
+  }
+}
+
+// ── UPDATE REPOSITORY STATUS ─────────────────────────────────────────────────
+function updateJDRepositoryStatus_(ss, jdId, status, reqId) {
+  try {
+    var sh   = ensureJDRepositorySheet_(ss);
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][JDR_COL.jdId-1]).trim() === jdId) {
+        sh.getRange(i+1, JDR_COL.status).setValue(status);
+        if (reqId) sh.getRange(i+1, JDR_COL.reqId).setValue(reqId);
+        return;
+      }
+    }
+  } catch(e) {
+    Logger.log('updateJDRepositoryStatus_ error: ' + e.message);
+  }
+}
+
+// ── GEMINI JD PARSER (FULL HIERARCHY EXTRACTION) ─────────────────────────────
 function parseJDWithGemini_(jdText, fileName) {
   try {
     var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!apiKey) {
-      Logger.log('parseJDWithGemini_: no GEMINI_API_KEY — using rule-based fallback');
-      return parseJDRuleBased_(jdText, fileName);
-    }
+    if (!apiKey) return parseJDRuleBased_(jdText, fileName);
 
     var prompt =
       'You are a GCC recruitment specialist. Extract structured data from this Job Description.\n' +
-      'Return ONLY valid JSON with these exact keys (no markdown, no explanation):\n' +
+      'Return ONLY valid JSON (no markdown fences, no explanation) with exactly these keys:\n' +
       '{\n' +
-      '  "trade": "exact job title, normalized to trade name (e.g. Electrician, CNC Machinist, Welder)",\n' +
-      '  "department": "department name (e.g. Mechanical, Electrical, Production, NDE/QC, Maintenance)",\n' +
+      '  "trade": "exact normalized job title / trade name",\n' +
+      '  "industry": "top-level industry (Oil & Gas / Manufacturing / Construction / Power & Utilities / Mining / Logistics / Hospitality / Other)",\n' +
+      '  "sector": "sub-sector within industry (e.g. Petrochemical / Steel / Cement / Forging / Casting / NDE / HVAC)",\n' +
+      '  "department": "functional department (Mechanical / Electrical / Instrumentation / Civil / Production / NDE/QC / HSE / Maintenance / HR / Logistics)",\n' +
+      '  "specialization": "specific specialization within trade (e.g. Pipe Fitter – High Pressure / CNC Operator – Lathe)",\n' +
       '  "qty": <number of vacancies, integer, default 1>,\n' +
-      '  "expMin": <minimum years of experience, integer>,\n' +
-      '  "expMax": <maximum years of experience, integer>,\n' +
+      '  "expMin": <minimum years experience, integer>,\n' +
+      '  "expMax": <maximum years experience, integer>,\n' +
       '  "minAge": <minimum age if stated, integer, else 18>,\n' +
       '  "maxAge": <maximum age if stated, integer, else 45>,\n' +
-      '  "salary": "salary range as string (e.g. SAR 2000-4000), empty string if not mentioned",\n' +
+      '  "salaryMin": <minimum salary as integer, 0 if not mentioned>,\n' +
+      '  "salaryMax": <maximum salary as integer, 0 if not mentioned>,\n' +
+      '  "salaryCurrency": "SAR or AED or USD, default SAR",\n' +
+      '  "country": "deployment country",\n' +
+      '  "city": "deployment city",\n' +
       '  "nationality": "preferred nationality if mentioned, else empty string",\n' +
-      '  "certRequired": "required certifications (e.g. ASNT Level II, AWS), empty string if none",\n' +
+      '  "certifications": "required certs (e.g. ASNT Level II UT, AWS CWI, CSWIP 3.1), empty if none",\n' +
+      '  "educationRequired": "education requirement (e.g. Diploma / ITI / B.Tech), empty if not stated",\n' +
       '  "urgency": "Urgent or Normal",\n' +
-      '  "positionId": "client position ID if mentioned (e.g. MU-037), empty string if none",\n' +
-      '  "keySkills": "comma-separated key skills from JD",\n' +
-      '  "education": "education requirement if mentioned"\n' +
+      '  "positionId": "client position code if mentioned (e.g. MU-037), empty if none",\n' +
+      '  "keySkills": "comma-separated key technical skills"\n' +
       '}\n\n' +
       'JD FILE: ' + fileName + '\n\n' +
       'JD TEXT:\n' + jdText.substring(0, 4000);
 
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
-    var payload = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
-    });
-
     var resp = UrlFetchApp.fetch(url, {
       method: 'POST',
       contentType: 'application/json',
-      payload: payload,
+      payload: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 600 }
+      }),
       muteHttpExceptions: true
     });
 
     var json = JSON.parse(resp.getContentText());
-    var raw  = (json.candidates||[])[0];
+    var raw  = ((json.candidates||[])[0]||{}).content;
     if (!raw) return parseJDRuleBased_(jdText, fileName);
 
-    var text = raw.content.parts[0].text.trim();
-    // Strip markdown code fences if present
-    text = text.replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+    var text = raw.parts[0].text.trim()
+      .replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
 
-    var parsed = JSON.parse(text);
-    return parsed;
+    return JSON.parse(text);
 
   } catch(e) {
-    Logger.log('parseJDWithGemini_ error: ' + e.message + ' — using rule-based fallback');
+    Logger.log('parseJDWithGemini_ error: ' + e.message + ' — fallback');
     return parseJDRuleBased_(jdText, fileName);
   }
 }
 
-// ── RULE-BASED FALLBACK (when no Gemini API key) ─────────────────────────────
+// ── RULE-BASED FALLBACK ───────────────────────────────────────────────────────
 function parseJDRuleBased_(jdText, fileName) {
   var result = {
-    trade:         '',
-    department:    '',
-    qty:           1,
-    expMin:        0,
-    expMax:        15,
-    minAge:        18,
-    maxAge:        45,
-    salary:        '',
-    nationality:   '',
-    certRequired:  '',
-    urgency:       'Normal',
-    positionId:    '',
-    keySkills:     '',
-    education:     ''
+    trade:'', industry:'Manufacturing', sector:'', department:'',
+    specialization:'', qty:1, expMin:0, expMax:15,
+    minAge:18, maxAge:45, salaryMin:0, salaryMax:0, salaryCurrency:'SAR',
+    country:'', city:'', nationality:'', certifications:'',
+    educationRequired:'', urgency:'Normal', positionId:'', keySkills:''
   };
 
-  var text = jdText.toLowerCase();
-
-  // Trade: use filename as primary signal (strips extension, replaces _ with space)
-  var nameOnly = fileName.replace(/\.[^.]+$/, '').replace(/[_-]/g,' ').trim();
+  // Trade from filename
+  var nameOnly = fileName.replace(/\.[^.]+$/,'').replace(/[_\-]/g,' ').trim();
   if (nameOnly) result.trade = nameOnly;
 
-  // Qty: look for "X vacancies", "X positions", "qty: X", "no of vacancy: X"
-  var qtyMatch = jdText.match(/(?:qty|quantity|vacancies|vacancy|no\.?\s*of\s*(?:vacancy|position|post)s?)\s*[:\-]?\s*(\d+)/i);
-  if (qtyMatch) result.qty = parseInt(qtyMatch[1]);
+  // Qty
+  var qtyM = jdText.match(/(?:qty|quantity|vacancies?|no\.?\s*of\s*(?:vacancy|position|post)s?)\s*[:\-]?\s*(\d+)/i);
+  if (qtyM) result.qty = parseInt(qtyM[1]);
 
-  // Experience: "X years" or "X+ years" or "minimum X years"
-  var expMatch = jdText.match(/(?:minimum|min\.?|at\s*least)?\s*(\d+)\s*(?:\+|to\s*\d+)?\s*years?\s*(?:of\s*)?(?:experience|exp)/i);
-  if (expMatch) result.expMin = parseInt(expMatch[1]);
+  // Experience
+  var expM = jdText.match(/(?:minimum|min\.?|at\s*least)?\s*(\d+)\s*(?:\+|to\s*(\d+))?\s*years?\s*(?:of\s*)?(?:experience|exp)/i);
+  if (expM) {
+    result.expMin = parseInt(expM[1]);
+    if (expM[2]) result.expMax = parseInt(expM[2]);
+  }
 
-  // Salary: SAR / AED / SR followed by numbers
-  var salMatch = jdText.match(/(?:SAR|AED|SR|salary)\s*[\$:]?\s*(\d[\d,\-\s]*\d)/i);
-  if (salMatch) result.salary = salMatch[0].replace(/\s+/g,' ').trim();
+  // Salary — SAR/AED range
+  var salM = jdText.match(/(?:SAR|AED|SR)\s*(\d{3,6})\s*[-–to]+\s*(\d{3,6})/i);
+  if (salM) {
+    result.salaryMin = parseInt(salM[1]);
+    result.salaryMax = parseInt(salM[2]);
+    result.salaryCurrency = salM[0].toUpperCase().indexOf('AED') !== -1 ? 'AED' : 'SAR';
+  }
 
-  // Age
-  var ageMatch = jdText.match(/(?:age|max\.?\s*age)\s*[:\-]?\s*(\d{2})\s*(?:\-|to)\s*(\d{2})/i);
-  if (ageMatch) { result.minAge = parseInt(ageMatch[1]); result.maxAge = parseInt(ageMatch[2]); }
+  // Age range
+  var ageM = jdText.match(/(?:age|max\.?\s*age)\s*[:\-]?\s*(\d{2})\s*(?:\-|to)\s*(\d{2})/i);
+  if (ageM) { result.minAge = parseInt(ageM[1]); result.maxAge = parseInt(ageM[2]); }
 
-  // Nationality
-  var natMatch = jdText.match(/(?:nationality|preferred)\s*[:\-]?\s*([A-Za-z]+(?:\s*\/\s*[A-Za-z]+)?)/i);
-  if (natMatch && natMatch[1].length < 30) result.nationality = natMatch[1].trim();
+  // Certifications
+  var certM = jdText.match(/\b(ASNT[^,\n]{0,25}|AWS[^,\n]{0,25}|CSWIP[^,\n]{0,25}|PCN[^,\n]{0,20}|ISO\s*\d+[^,\n]{0,15})/i);
+  if (certM) result.certifications = certM[0].trim();
 
-  // Department via classifyDepartment_
+  // Position ID
+  var posM = jdText.match(/\b([A-Z]{2,10}-[A-Z]{0,8}-?\d{2,4})\b/);
+  if (posM) result.positionId = posM[1];
+
+  // Education
+  var eduM = jdText.match(/\b(B\.?Tech|Diploma|ITI|Bachelor|BE|B\.E|M\.Tech|SSLC|HSC)\b/i);
+  if (eduM) result.educationRequired = eduM[0];
+
+  // Department via existing classifier
   if (result.trade) result.department = classifyDepartment_(result.trade);
-
-  // Cert: ASNT, AWS, CSWIP, etc.
-  var certMatch = jdText.match(/\b(ASNT|AWS|CSWIP|PCN|TWI|ISO\s*\d+|EN\s*\d+)\s*[A-Za-z\s]*(?:Level\s*[I1-3]+)?/i);
-  if (certMatch) result.certRequired = certMatch[0].trim();
-
-  // Position ID pattern (e.g. MU-037, PRO-CAST-039)
-  var posIdMatch = jdText.match(/\b([A-Z]{2,10}-[A-Z]{0,6}-?\d{2,4})\b/);
-  if (posIdMatch) result.positionId = posIdMatch[1];
 
   return result;
 }
 
+// ── SALARY STRING BUILDER ─────────────────────────────────────────────────────
+function buildSalaryString_(min, max) {
+  var mn = parseInt(min)||0;
+  var mx = parseInt(max)||0;
+  if (!mn && !mx) return '';
+  if (mn && mx) return 'SAR ' + mn + '-' + mx;
+  if (mn)       return 'SAR ' + mn + '+';
+  return 'SAR up to ' + mx;
+}
+
 // ── BUILD NOTES FROM PARSED JD ────────────────────────────────────────────────
-function buildJDNotes_(parsed, fileName) {
+function buildJDNotes_(parsed, fileName, jdId) {
   var parts = [];
-  if (parsed.positionId)  parts.push('Position ID: ' + parsed.positionId);
-  if (parsed.certRequired) parts.push('Cert: ' + parsed.certRequired);
-  if (parsed.keySkills)    parts.push('Skills: ' + parsed.keySkills);
-  if (parsed.education)    parts.push('Education: ' + parsed.education);
-  parts.push('Source JD: ' + fileName);
+  if (jdId)               parts.push('JD ID: ' + jdId);
+  if (parsed.positionId)  parts.push('Pos ID: ' + parsed.positionId);
+  if (parsed.certifications) parts.push('Cert: ' + parsed.certifications);
+  if (parsed.keySkills)   parts.push('Skills: ' + parsed.keySkills);
+  if (parsed.educationRequired) parts.push('Edu: ' + parsed.educationRequired);
+  if (parsed.specialization) parts.push('Spec: ' + parsed.specialization);
+  parts.push('Source: ' + fileName);
   return parts.join(' | ');
 }
 
-// ── CREATE / UPDATE CAMPAIGN TRACKER SHEET ───────────────────────────────────
-// Generic version of Tuwaiq tracker — works for any campaign.
-// Sheet name: _Tracker_<campaignId> (e.g. _Tracker_CMP-20260607-001)
+// ── REQUIREMENT MATCHING ENGINE ───────────────────────────────────────────────
+// Scans full candidate pool and returns match counts for a requirement.
+// Strong (≥75): exact trade + experience met
+// Good   (50–74): related trade / same department
+// Possible (25–49): transferable / department adjacent
+function runRequirementMatchingEngine_(ss, reqId, trade, department, expMin) {
+  var strong = 0, good = 0, possible = 0, total = 0;
+  var topCandidates = [];
+
+  try {
+    var cSheet = ss.getSheets()[0]; // main candidates sheet (always sheet 0)
+    var data   = cSheet.getDataRange().getValues();
+    var tradeLower = (trade||'').toLowerCase();
+    var deptLower  = (department||'').toLowerCase();
+
+    for (var i = 1; i < data.length; i++) {
+      var row            = data[i];
+      var cTrade         = String(row[COL.trade-1]       ||'').toLowerCase().trim();
+      var cExp           = parseFloat(row[COL.experience-1]) || 0;
+      var cVerdict       = String(row[COL.verdict-1]     ||'').toLowerCase();
+      var cActive        = String(row[COL.active-1]      ||'').toLowerCase();
+      var cName          = String(row[COL.name-1]        ||'').trim();
+      var cKaiNo         = String(row[COL.kaiNo-1]       ||'').trim();
+
+      // Skip inactive / rejected / blank rows
+      if (!cName) continue;
+      if (cActive === 'inactive' || cVerdict === 'rejected') continue;
+
+      total++;
+      var score = 0;
+
+      // Trade scoring
+      if (cTrade === tradeLower) {
+        score += 60;
+      } else if (cTrade.indexOf(tradeLower) !== -1 || tradeLower.indexOf(cTrade) !== -1) {
+        score += 40;
+      } else {
+        var cDept = classifyDepartment_(cTrade).toLowerCase();
+        if (deptLower && (cDept === deptLower || cDept.indexOf(deptLower) !== -1 || deptLower.indexOf(cDept) !== -1)) {
+          score += 20;
+        }
+      }
+
+      // Experience scoring
+      if (expMin > 0) {
+        if (cExp >= expMin)            score += 20;
+        else if (cExp >= expMin * 0.7) score += 10;
+      } else {
+        score += 20;
+      }
+
+      // Verdict bonus
+      if (cVerdict === 'highly recommended' || cVerdict === 'shortlist') score += 10;
+
+      if (score >= 75) {
+        strong++;
+        if (topCandidates.length < 10) {
+          topCandidates.push({ kaiNo:cKaiNo, name:cName, trade:cTrade, exp:cExp, score:score });
+        }
+      } else if (score >= 50) {
+        good++;
+      } else if (score >= 20) {
+        possible++;
+      }
+    }
+  } catch(e) {
+    Logger.log('runRequirementMatchingEngine_ error: ' + e.message);
+  }
+
+  return {
+    strong:        strong,
+    good:          good,
+    possible:      possible,
+    total:         total,
+    topCandidates: topCandidates
+  };
+}
+
+// ── STORE MATCH SNAPSHOT ──────────────────────────────────────────────────────
+function storeMatchSnapshot_(ss, reqId, trade, department, matchResult) {
+  try {
+    var sh  = ensureMatchSnapshotsSheet_(ss);
+    var sid = 'MS-' + reqId + '-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMddHHmm');
+    sh.appendRow([
+      sid,
+      reqId,
+      trade,
+      department,
+      new Date(),
+      matchResult.strong,
+      matchResult.good,
+      matchResult.possible,
+      matchResult.total,
+      JSON.stringify(matchResult.topCandidates||[])
+    ]);
+    return sid;
+  } catch(e) {
+    Logger.log('storeMatchSnapshot_ error: ' + e.message);
+    return '';
+  }
+}
+
+// ── GET MATCH SNAPSHOT (for dashboard / requirement drawer) ───────────────────
+// GET ?action=getMatchSnapshot&reqId=REQ-xxx
+function getMatchSnapshot_(params) {
+  var reqId = String(params.reqId||'').trim();
+  if (!reqId) return { ok:false, error:'reqId required' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sh = ss.getSheetByName('_MatchSnapshots');
+  if (!sh) return { ok:true, found:false, strong:0, good:0, possible:0, total:0 };
+
+  var data = sh.getDataRange().getValues();
+  var latest = null;
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][1]||'').trim() === reqId) {
+      latest = {
+        snapshotId:  String(data[i][0]||''),
+        reqId:       reqId,
+        trade:       String(data[i][2]||''),
+        department:  String(data[i][3]||''),
+        snapshotDate:data[i][4] instanceof Date ? data[i][4].toISOString() : String(data[i][4]||''),
+        strong:      parseInt(data[i][5])||0,
+        good:        parseInt(data[i][6])||0,
+        possible:    parseInt(data[i][7])||0,
+        total:       parseInt(data[i][8])||0,
+        topCandidates: JSON.parse(String(data[i][9]||'[]'))
+      };
+    }
+  }
+
+  if (!latest) return { ok:true, found:false, strong:0, good:0, possible:0, total:0 };
+  latest.ok    = true;
+  latest.found = true;
+  return latest;
+}
+
+// ── CREATE CAMPAIGN TRACKER SHEET (grouped by Department) ────────────────────
+// Sheet name: _Tracker_<campaignId>
 function createCampaignTrackerSheet_(ss, opts) {
   try {
     var sheetName = '_Tracker_' + opts.campaignId;
-    // If already exists, just return (don't wipe existing submissions)
-    var existing = ss.getSheetByName(sheetName);
-    if (existing) {
+    if (ss.getSheetByName(sheetName)) {
       return { ok:true, message:'Tracker already exists: ' + sheetName };
     }
 
     var tracker = ss.insertSheet(sheetName);
 
     // Row 1: campaign header
-    tracker.getRange(1, 1, 1, 22).merge();
-    tracker.getRange(1, 1).setValue(
+    tracker.getRange(1,1,1,22).merge();
+    tracker.getRange(1,1).setValue(
       (opts.campaignName||opts.campaignId) + ' — Submission Tracker' +
       (opts.interviewDate ? ' | Interview: ' + opts.interviewDate : '') +
       (opts.interviewCities ? ' | Cities: ' + opts.interviewCities : '')
-    );
-    tracker.getRange(1, 1)
-      .setFontWeight('bold')
-      .setBackground('#1a237e')
-      .setFontColor('#ffffff')
-      .setFontSize(11);
+    ).setFontWeight('bold').setBackground('#1a237e').setFontColor('#ffffff').setFontSize(11);
 
-    // Row 2: column headers
+    // Row 2: headers
     var headers = [
       'Sr No','KAI No','Position','Position ID','Department',
       'Category','Salary Range','Candidate Name','Age',
       'Passport No','Passport Expiry','ECR Status',
-      'Total Exp (Yrs)','Gulf Exp (Yrs)','Current Location',
+      'Total Exp','Gulf Exp','Current Location',
       'Interview City','Salary Agreed','Remarks',
       'Submission Status','Submitted On','Interview Result','Notes'
     ];
-    tracker.getRange(2, 1, 1, headers.length).setValues([headers]);
-    tracker.getRange(2, 1, 1, headers.length)
-      .setFontWeight('bold')
-      .setBackground('#283593')
-      .setFontColor('#ffffff')
-      .setFontSize(10)
-      .setHorizontalAlignment('center');
-
+    tracker.getRange(2,1,1,headers.length).setValues([headers])
+      .setFontWeight('bold').setBackground('#283593').setFontColor('#ffffff')
+      .setFontSize(10).setHorizontalAlignment('center');
     tracker.setFrozenRows(2);
 
-    // Rows 3+: one row per requirement created
-    var rowNum   = 3;
-    var srNum    = 1;
+    var rowNum  = 3;
+    var srNum   = 1;
     var prevDept = '';
-    var createdResults = (opts.results||[]).filter(function(r){ return r.status === 'CREATED'; });
 
-    // Sort by department for visual grouping
-    createdResults.sort(function(a,b){ return (a.dept||'').localeCompare(b.dept||''); });
+    // Sort results by department (Client→Campaign→Dept→Requirement hierarchy)
+    var created = (opts.results||[]).filter(function(r){ return r.status==='CREATED'; });
+    created.sort(function(a,b){ return (a.department||'').localeCompare(b.department||''); });
 
-    createdResults.forEach(function(r) {
-      // Department separator
-      if (r.dept && r.dept !== prevDept) {
-        tracker.getRange(rowNum, 1, 1, headers.length).merge();
-        tracker.getRange(rowNum, 1).setValue('── ' + (r.dept||'').toUpperCase() + ' ──');
-        tracker.getRange(rowNum, 1, 1, headers.length)
-          .setBackground('#e8eaf6')
-          .setFontWeight('bold')
-          .setFontSize(9);
+    created.forEach(function(r) {
+      // Department separator row
+      if ((r.department||'-') !== prevDept) {
+        tracker.getRange(rowNum,1,1,headers.length).merge();
+        tracker.getRange(rowNum,1).setValue('── ' + (r.department||'General').toUpperCase() + ' ──')
+          .setBackground('#e8eaf6').setFontWeight('bold').setFontSize(9);
         rowNum++;
-        prevDept = r.dept;
+        prevDept = r.department||'-';
       }
 
-      // One row per vacancy head
       var qty = parseInt(r.qty)||1;
       for (var h = 0; h < qty; h++) {
-        tracker.getRange(rowNum, 1).setValue(srNum++);
-        tracker.getRange(rowNum, 3).setValue(r.trade);
-        tracker.getRange(rowNum, 7).setValue(r.salary||'');
-        tracker.getRange(rowNum, 16).setValue(opts.interviewCities ? opts.interviewCities.split(',')[0].trim() : 'TBD');
-        tracker.getRange(rowNum, 19).setValue('Pending');
-        if (h % 2 === 0) tracker.getRange(rowNum, 1, 1, headers.length).setBackground('#fafafa');
+        tracker.getRange(rowNum,1).setValue(srNum++);
+        tracker.getRange(rowNum,3).setValue(r.trade);
+        tracker.getRange(rowNum,5).setValue(r.department||'');
+        tracker.getRange(rowNum,7).setValue(r.salary||'');
+        tracker.getRange(rowNum,16).setValue(opts.interviewCities ?
+          opts.interviewCities.split(',')[0].trim() : 'TBD');
+        tracker.getRange(rowNum,19).setValue('Pending');
+        if (h%2===0) tracker.getRange(rowNum,1,1,headers.length).setBackground('#fafafa');
         rowNum++;
       }
     });
 
     // Column widths
-    var widths = [50,85,200,100,160,120,110,160,45,110,100,85,90,80,130,120,100,150,120,100,110,150];
-    widths.forEach(function(w, idx) { tracker.setColumnWidth(idx+1, w); });
+    [50,85,200,100,160,120,110,160,45,110,100,85,90,80,130,120,100,150,120,100,110,150]
+      .forEach(function(w,i){ tracker.setColumnWidth(i+1,w); });
 
-    // Summary footer
-    var totalHeads = createdResults.reduce(function(s,r){ return s+(parseInt(r.qty)||1); }, 0);
-    tracker.getRange(rowNum+1, 1).setValue('Total Requirements: ' + createdResults.length + ' | Total Heads: ' + totalHeads);
-    tracker.getRange(rowNum+1, 1, 1, 6)
-      .setFontWeight('bold')
-      .setBackground('#e8eaf6');
+    var totalHeads = created.reduce(function(s,r){ return s+(parseInt(r.qty)||1); },0);
+    tracker.getRange(rowNum+1,1).setValue(
+      'Requirements: ' + created.length + ' | Heads: ' + totalHeads
+    ).setFontWeight('bold');
+    tracker.getRange(rowNum+1,1,1,6).setBackground('#e8eaf6');
 
-    return { ok:true, message:'Created tracker: ' + sheetName + ' (' + totalHeads + ' heads)' };
+    return { ok:true, message:'Created ' + sheetName + ' (' + totalHeads + ' heads)' };
 
   } catch(e) {
     Logger.log('createCampaignTrackerSheet_ error: ' + e.message);

@@ -139,10 +139,80 @@ Every new project enriches: Roles, Skills, Certifications, Locations, Industries
 Track per role: Source City/State/Country × Submitted/Interviewed/Selected/Deployed
 Use historical performance to recommend sourcing locations.
 
+## JD Upload Pipeline — Permanent Architecture (LOCKED)
+
+Every JD upload must execute this exact pipeline. No shortcuts. No partial implementation.
+
+```
+JD Upload
+  ↓
+Store Original JD (_JD_Repository — immortal, never deleted)
+  ↓
+JD Parser (Gemini → rule-based fallback)
+  ↓
+Industry → Sector → Department → Trade → Specialization
+  ↓
+Requirement Creation (_Requirements)
+  ↓
+Campaign Assignment (Client → Campaign → Department → Requirement)
+  ↓
+KAI Intelligence Learning (_JD_Repository.parsedJDJSON updated)
+  ↓
+Matching Engine Refresh (runRequirementMatchingEngine_)
+  ↓
+Candidate Ranking Refresh (calculateTopCandidates_ → storeMatchSnapshot_)
+  ↓
+Tracker Update (_Tracker_<campaignId> sheet)
+  ↓
+Return: { reqId, strong, good, possible, total } per JD
+```
+
+**Result the recruiter sees after JD upload (not just "requirement created"):**
+```
+Requirement Created
+125 Candidates Found
+22 Strong Match · 48 Good Match · 55 Possible Match
+```
+
+## Campaign Hierarchy — Permanent Rule (LOCKED)
+
+Requirements are NEVER owned directly by Campaign. The hierarchy is:
+```
+Client
+  └── Campaign
+        └── Department
+              └── Requirement
+```
+
+Example: GAS Arabia → Shutdown 2026 → Mechanical → Pipe Fitter / Welder / Fabricator
+
+Every requirement MUST have: clientId, campaignId, department. All three. No exceptions.
+UI must group requirements by Department within Campaign within Client.
+
+## JD Repository Rule (LOCKED)
+
+`_JD_Repository` is an immortal sidecar sheet. Every JD ever uploaded stays here forever.
+Fields stored per JD: jdId, campaignId, clientId, clientName, industry, sector, department,
+trade, specialization, requiredQty, salaryMin, salaryMax, country, city, experienceMin,
+experienceMax, educationRequired, certifications, interviewMode, interviewDate,
+interviewCities, originalJDText, parsedJDJSON, createdBy, createdAt, reqId, status.
+
+## Match Snapshot Rule (LOCKED)
+
+After every requirement creation, immediately run matching engine and store snapshot.
+`_MatchSnapshots` sheet: snapshotId, reqId, trade, snapshotDate, strongCount, goodCount,
+possibleCount, totalScanned, topCandidatesJSON.
+Recruiter must see match counts on the same screen as "Requirement Created".
+
+## JD Upload Modes (All Three Must Work)
+
+Single JD · Folder Upload · ZIP Upload
+Because NMDC=50 JDs, ZAMIL=80 JDs, GAS=25 JDs. Never upload one-by-one.
+
 ## GAS Bridge (Current Backend)
 - SS_ID: `101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE`
 - Bridge URL: `https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec`
-- Master file: `KAI_API_Bridge_MASTER.gs` (9600+ lines, Sections 1–37)
+- Master file: `KAI_API_Bridge_MASTER.gs` (10,000+ lines, Sections 1–39)
 - Token key in localStorage: `kai_session_token`
 - Stage computed from verdict when col1 is blank/"Pending action"
 
