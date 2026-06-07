@@ -9621,3 +9621,124 @@ function testProcessQueueDry()   { Logger.log(JSON.stringify(processNextInQueue_
 function testProcessQueue()      { Logger.log(JSON.stringify(processNextInQueue_({ limit:'10' }))); }
 function installQueueTrigger()   { installQueueTrigger_(); }
 function removeQueueTrigger()    { removeQueueTrigger_(); }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 37 — CV INGESTION AUDIT
+//
+// Run auditCVIngestion() from the GAS editor to check the last N candidates
+// for pipeline completeness. Catches silent failures before go-live.
+//
+// Checks per candidate:
+//   ✓ kaiNo present
+//   ✓ name present
+//   ✓ trade classified (not blank)
+//   ✓ score > 0
+//   ✓ verdict set (not "Pending action")
+//   ✓ top3Positions populated
+//   ✓ kaiAssessment present (not boilerplate)
+//   ✓ cvLink present (Drive URL)
+//   ✓ mobile or email present
+//   ✓ missingFields not critical (passport + mobile both missing = critical)
+//
+// Output: per-candidate pass/fail table + summary stats
+// ════════════════════════════════════════════════════════════════════════════
+
+function auditCVIngestion() {
+  var limit = 20; // change to audit more candidates
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) {
+    Logger.log('No candidates found'); return;
+  }
+
+  var data   = sheet.getRange(2, 1, sheet.getLastRow()-1, 42).getValues();
+  var active = [];
+
+  // Collect active rows newest-first
+  for (var i = data.length-1; i >= 0 && active.length < limit; i--) {
+    var act = String(data[i][COL.active-1]||'').toUpperCase();
+    if (act === 'SUPERSEDED' || act === 'ARCHIVED') continue;
+    var name = String(data[i][COL.name-1]||'').trim();
+    if (!name) continue;
+    active.push({ rowNum: i+2, row: data[i] });
+  }
+
+  var results = [];
+  var passCount = 0, failCount = 0, warnCount = 0;
+
+  active.forEach(function(item) {
+    var r    = item.row;
+    var fail = [];
+    var warn = [];
+
+    var kaiNo   = String(r[COL.kaiNo-1]||'').trim();
+    var name    = String(r[COL.name-1]||'').trim();
+    var trade   = String(r[COL.trade-1]||'').trim();
+    var score   = parseInt(r[COL.score-1]) || 0;
+    var verdict = String(r[COL.verdict-1]||'').trim();
+    var top3    = String(r[COL.top3Positions-1]||'').trim();
+    var assess  = String(r[COL.kaiAssessment-1]||'').trim();
+    var cvLink  = String(r[COL.cvLink-1]||'').trim();
+    var mobile  = String(r[COL.mobile-1]||'').replace(/^'/,'').trim();
+    var email   = String(r[COL.email-1]||'').trim();
+    var missing = String(r[COL.missingFields-1]||'').trim();
+    var flags   = String(r[COL.flags-1]||'').trim();
+
+    if (!kaiNo)                                         fail.push('NO_KAI_NUMBER');
+    if (!trade)                                         fail.push('NO_TRADE');
+    if (score === 0)                                    fail.push('SCORE_ZERO');
+    if (!verdict || verdict === 'Pending action')       fail.push('VERDICT_UNSET');
+    if (!top3 || top3.length < 5)                      warn.push('NO_TOP3');
+    if (!assess || assess.length < 20)                 warn.push('NO_ASSESSMENT');
+    if (assess.indexOf('intake') >= 0 && assess.length < 50) warn.push('BOILERPLATE_ASSESSMENT');
+    if (!cvLink)                                       warn.push('NO_CV_LINK');
+    if (!mobile && !email)                             fail.push('NO_CONTACT');
+    if (missing.indexOf('passport') >= 0 &&
+        missing.indexOf('mobile') >= 0)                warn.push('CRITICAL_MISSING_FIELDS');
+
+    var status = fail.length > 0 ? 'FAIL' : (warn.length > 0 ? 'WARN' : 'PASS');
+    if (status === 'PASS') passCount++;
+    else if (status === 'FAIL') failCount++;
+    else warnCount++;
+
+    results.push({
+      row:     item.rowNum,
+      kaiNo:   kaiNo || '(none)',
+      name:    name.slice(0,20),
+      trade:   trade || '—',
+      score:   score,
+      hasCV:   !!cvLink,
+      hasTop3: top3.length > 5,
+      source:  flags.slice(0,20) || 'unknown',
+      status:  status,
+      issues:  fail.concat(warn).join(' | ') || '—'
+    });
+  });
+
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('KAI CV INGESTION AUDIT — Last ' + active.length + ' active candidates');
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log(
+    'PASS: ' + passCount + ' | WARN: ' + warnCount + ' | FAIL: ' + failCount +
+    ' | Pass rate: ' + Math.round(passCount/active.length*100) + '%'
+  );
+  Logger.log('──────────────────────────────────────────────────');
+
+  results.forEach(function(r) {
+    Logger.log(
+      '[' + r.status + '] Row ' + r.row + ' | ' + r.kaiNo +
+      ' | ' + r.name + ' | Trade: ' + r.trade +
+      ' | Score: ' + r.score +
+      ' | CV: ' + (r.hasCV ? 'Y' : 'N') +
+      ' | Top3: ' + (r.hasTop3 ? 'Y' : 'N') +
+      ' | Src: ' + r.source +
+      (r.issues !== '—' ? '\n       Issues: ' + r.issues : '')
+    );
+  });
+
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('HEALTH: ' + (passCount/active.length >= 0.85 ? '✓ GOOD (85%+ pass)' :
+             passCount/active.length >= 0.70 ? '⚠ WARNING (70-84% pass)' : '✗ CRITICAL (<70% pass)'));
+  Logger.log('If FAIL rate > 15%: do not go live. Fix ingestion pipeline first.');
+  Logger.log('══════════════════════════════════════════════════');
+}
