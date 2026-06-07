@@ -139,6 +139,8 @@ function doGet(e) {
     else if (action === 'processingQueue')      out = JSON.stringify(getProcessingQueue_(params));
     else if (action === 'processQueue')         out = JSON.stringify(processNextInQueue_(params));
     else if (action === 'retryQueue')           out = JSON.stringify(retryQueue_(params));
+    // S42 — Gmail Error Reprocessor
+    else if (action === 'reprocessGmailErrors') out = JSON.stringify(reprocessGmailErrorsSmart());
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -11548,3 +11550,364 @@ function reprocessGmailErrorsNow() {
   var result = reprocessGmailErrors();
   Logger.log('reprocessGmailErrorsNow: ' + JSON.stringify(result));
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 42B — EMAIL SENDER INTELLIGENCE CONFIG
+//
+// Three-tier classification for every incoming CV email:
+//
+// TIER 1 — INTERNAL DOMAINS (our own company domains)
+//   Sender = staff/internal. Candidate details MUST come from CV content.
+//   Never record sender email as candidate email.
+//
+// TIER 2 — IGNORE LIST (junk, CRM notifications, bounce mail)
+//   Skip entirely. No candidate record created.
+//
+// TIER 3 — EXTERNAL SENDER (personal or agency email)
+//   Could be: candidate themselves, associate, or third-party referral.
+//   Parse CV content first. If CV has different email → sender is associate.
+//   If no email in CV or matches From → From is the candidate.
+// ════════════════════════════════════════════════════════════════════════════
+
+var KAI_EMAIL_CONFIG = {
+
+  // Our own company domains — sender is staff, NEVER a candidate
+  internalDomains: [
+    'alyousufent.com',
+    'alyousufjobs.com',
+    'safco.org',
+    'safcoskillacademy.org'
+  ],
+
+  // Completely ignore emails from these — no parsing, no records
+  ignoreDomains: [
+    'tobu.ai'          // old CRM — all emails are system noise
+  ],
+
+  // Ignore any From address matching these patterns (prefix before @)
+  ignoreAddressPrefixes: [
+    'updates',         // updates@anything
+    'noreply',         // noreply@anything
+    'no-reply',        // no-reply@anything
+    'notification',    // notifications@anything
+    'notifications',
+    'newsletter',
+    'mailer-daemon',
+    'postmaster',
+    'bounce',
+    'donotreply',
+    'do-not-reply',
+    'auto',            // auto@, automated@
+    'automated',
+    'support',         // support bots
+    'helpdesk',
+    'feedback',
+    'info-noreply'
+  ],
+
+  // Subject line patterns that indicate junk — skip regardless of sender
+  junkSubjectPatterns: [
+    /^(out of office|auto.?reply|automatic reply|vacation|away from)/i,
+    /^(delivery status|mail delivery|undelivered|bounce|failed delivery)/i,
+    /^(newsletter|subscription|unsubscribe)/i,
+    /invoice|payment due|order confirm/i
+  ],
+
+  // Personal email service domains — sender could be candidate or associate
+  personalEmailDomains: [
+    'gmail.com', 'yahoo.com', 'yahoo.co.in', 'yahoo.co.uk',
+    'hotmail.com', 'outlook.com', 'live.com', 'icloud.com',
+    'rediffmail.com', 'ymail.com', 'protonmail.com'
+  ]
+};
+
+// ── CLASSIFY EMAIL SENDER ─────────────────────────────────────────────────────
+// Returns: { tier, senderEmail, senderDomain, reason }
+// tier = 'INTERNAL' | 'IGNORE' | 'EXTERNAL_PERSONAL' | 'EXTERNAL_AGENCY'
+function classifyEmailSender_(fromRaw, subject) {
+  // Extract email address from "Name <email>" format
+  var emailMatch = fromRaw.match(/<([^>]+)>/) || fromRaw.match(/([^\s<>]+@[^\s<>]+)/);
+  var senderEmail  = emailMatch ? emailMatch[1].toLowerCase().trim() : fromRaw.toLowerCase().trim();
+  var parts        = senderEmail.split('@');
+  var prefix       = parts[0] || '';
+  var domain       = parts[1] || '';
+
+  // Check junk subject lines first
+  var subj = String(subject||'').trim();
+  for (var j = 0; j < KAI_EMAIL_CONFIG.junkSubjectPatterns.length; j++) {
+    if (KAI_EMAIL_CONFIG.junkSubjectPatterns[j].test(subj)) {
+      return { tier:'IGNORE', senderEmail:senderEmail, senderDomain:domain,
+               reason:'Junk subject: ' + subj.substring(0,60) };
+    }
+  }
+
+  // Check ignore domains
+  for (var i = 0; i < KAI_EMAIL_CONFIG.ignoreDomains.length; i++) {
+    if (domain === KAI_EMAIL_CONFIG.ignoreDomains[i] || domain.indexOf(KAI_EMAIL_CONFIG.ignoreDomains[i]) !== -1) {
+      return { tier:'IGNORE', senderEmail:senderEmail, senderDomain:domain,
+               reason:'Ignore domain: ' + domain };
+    }
+  }
+
+  // Check junk address prefixes
+  for (var p = 0; p < KAI_EMAIL_CONFIG.ignoreAddressPrefixes.length; p++) {
+    if (prefix === KAI_EMAIL_CONFIG.ignoreAddressPrefixes[p] ||
+        prefix.indexOf(KAI_EMAIL_CONFIG.ignoreAddressPrefixes[p]) === 0) {
+      return { tier:'IGNORE', senderEmail:senderEmail, senderDomain:domain,
+               reason:'Junk sender prefix: ' + prefix };
+    }
+  }
+
+  // Check internal domains
+  for (var d = 0; d < KAI_EMAIL_CONFIG.internalDomains.length; d++) {
+    if (domain === KAI_EMAIL_CONFIG.internalDomains[d]) {
+      return { tier:'INTERNAL', senderEmail:senderEmail, senderDomain:domain,
+               reason:'Internal staff: ' + senderEmail };
+    }
+  }
+
+  // Check personal email services
+  for (var pe = 0; pe < KAI_EMAIL_CONFIG.personalEmailDomains.length; pe++) {
+    if (domain === KAI_EMAIL_CONFIG.personalEmailDomains[pe]) {
+      return { tier:'EXTERNAL_PERSONAL', senderEmail:senderEmail, senderDomain:domain,
+               reason:'Personal email: ' + senderEmail };
+    }
+  }
+
+  // Everything else = external agency/company
+  return { tier:'EXTERNAL_AGENCY', senderEmail:senderEmail, senderDomain:domain,
+           reason:'External agency/company: ' + domain };
+}
+
+// ── UPDATED reprocessGmailErrors WITH CLASSIFICATION ─────────────────────────
+// This replaces the logic in reprocessGmailErrors() with classification-aware processing.
+// Call this instead of the original reprocessGmailErrors() going forward.
+function reprocessGmailErrorsSmart() {
+  var ss      = SpreadsheetApp.openById(SS_ID);
+  var apiKey  = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  var processed = 0, skipped = 0, ignored = 0, errors = 0;
+
+  var threads = GmailApp.search('label:karigar/error', 0, 50);
+  Logger.log('reprocessGmailErrorsSmart: ' + threads.length + ' error threads found');
+
+  if (!threads.length) return { ok:true, processed:0, message:'Queue empty' };
+
+  var importedLabel = getOrCreateLabel_('karigar/kai-imported');
+  var ignoredLabel  = getOrCreateLabel_('karigar/kai-ignored');
+  var errorLabel    = GmailApp.getUserLabelByName('karigar/error');
+
+  for (var t = 0; t < threads.length; t++) {
+    var thread = threads[t];
+    try {
+      var messages = thread.getMessages();
+      var lastMsg  = messages[messages.length - 1];
+      var fromRaw  = lastMsg.getFrom();
+      var subject  = lastMsg.getSubject();
+
+      // ── TIER CLASSIFICATION ──────────────────────────────────────────────
+      var classification = classifyEmailSender_(fromRaw, subject);
+
+      if (classification.tier === 'IGNORE') {
+        Logger.log('IGNORE [' + classification.reason + '] ' + subject.substring(0,60));
+        // Relabel so it stops showing as error but don't create candidate
+        if (ignoredLabel)  thread.addLabel(ignoredLabel);
+        if (errorLabel)    thread.removeLabel(errorLabel);
+        ignored++;
+        continue;
+      }
+
+      var body        = lastMsg.getPlainBody().substring(0, 2000);
+      var attachments = lastMsg.getAttachments();
+
+      // Find CV attachment
+      var cvAttachment = null;
+      for (var a = 0; a < attachments.length; a++) {
+        var ct = attachments[a].getContentType().toLowerCase();
+        var fn = attachments[a].getName().toLowerCase();
+        if (ct.indexOf('pdf') !== -1 || ct.indexOf('word') !== -1 ||
+            fn.indexOf('.pdf') !== -1 || fn.indexOf('.doc') !== -1) {
+          cvAttachment = attachments[a];
+          break;
+        }
+      }
+
+      // INTERNAL senders must have CV attachment — no CV = skip
+      if (classification.tier === 'INTERNAL' && !cvAttachment) {
+        Logger.log('SKIP internal email with no CV attachment: ' + subject.substring(0,60));
+        if (ignoredLabel) thread.addLabel(ignoredLabel);
+        if (errorLabel)   thread.removeLabel(errorLabel);
+        skipped++;
+        continue;
+      }
+
+      var cvText = cvAttachment ? extractTextFromAttachment_(cvAttachment) : '';
+
+      // Build combined text with classification context for Gemini
+      var combinedText =
+        'SENDER TIER: ' + classification.tier + '\n' +
+        'SENDER: ' + fromRaw + '\n' +
+        'SUBJECT: ' + subject + '\n\n' +
+        'EMAIL BODY:\n' + body + '\n\n' +
+        (cvText ? 'CV CONTENT:\n' + cvText.substring(0, 3000) : '');
+
+      // INTERNAL sender = candidate is definitely NOT the sender
+      // Pass this context so Gemini/rule-based doesn't use sender email as candidate
+      var parsed = parseEmailForCandidateSmart_(combinedText, classification, apiKey);
+
+      if (!parsed || !parsed.candidateName) {
+        Logger.log('NO_CANDIDATE_FOUND: ' + subject.substring(0,60));
+        skipped++;
+        continue;
+      }
+
+      // Duplicate check
+      var dup = checkDuplicateCandidate_(ss, parsed.candidateMobile, parsed.candidateEmail, parsed.passportNo);
+      if (dup.isDuplicate) {
+        Logger.log('DUPLICATE [' + dup.field + ']: ' + parsed.candidateName + ' → ' + dup.existingKaiNo);
+        if (importedLabel) thread.addLabel(importedLabel);
+        if (errorLabel)    thread.removeLabel(errorLabel);
+        skipped++;
+        continue;
+      }
+
+      // Create candidate record
+      var sheet  = ss.getSheetByName('Candidates');
+      var kaiNo  = generateKaiNumber_(ss);
+      var scoreR = computeBasicScore_({
+        name:        parsed.candidateName,
+        trade:       parsed.trade,
+        experience:  parsed.experience,
+        education:   parsed.education,
+        nationality: parsed.nationality,
+        mobile:      parsed.candidateMobile,
+        email:       parsed.candidateEmail,
+        cvLink:      ''
+      });
+
+      var sourceNote = 'Gmail reprocess | Tier: ' + classification.tier;
+      if (classification.tier === 'INTERNAL') {
+        sourceNote += ' | Submitted by: ' + classification.senderEmail;
+      } else if (parsed.senderIsAssociate) {
+        sourceNote += ' | Associate: ' + classification.senderEmail + ' (' + classification.senderDomain + ')';
+      } else {
+        sourceNote += ' | Direct applicant';
+      }
+
+      var row = [];
+      row[COL.stage-1]           = 'Needs Call';
+      row[COL.applicationDate-1] = new Date();
+      row[COL.nationality-1]     = parsed.nationality    || '';
+      row[COL.name-1]            = parsed.candidateName;
+      row[COL.mobile-1]          = parsed.candidateMobile || '';
+      row[COL.email-1]           = parsed.candidateEmail  || '';
+      row[COL.education-1]       = parsed.education       || '';
+      row[COL.positionApplied-1] = parsed.trade           || '';
+      row[COL.trade-1]           = parsed.trade           || '';
+      row[COL.experience-1]      = parsed.experience      || 0;
+      row[COL.verdict-1]         = scoreR.verdict         || 'ORANGE';
+      row[COL.score-1]           = scoreR.score           || 0;
+      row[COL.active-1]          = 'Active';
+      row[COL.kaiNo-1]           = kaiNo;
+      row[COL.notes-1]           = sourceNote + ' | ' + subject.substring(0,80);
+      while (row.length < 38) row.push('');
+
+      sheet.appendRow(row);
+      queueForProcessing_(kaiNo, 'TOP3', ss);
+
+      if (importedLabel) thread.addLabel(importedLabel);
+      if (errorLabel)    thread.removeLabel(errorLabel);
+
+      Logger.log('CREATED ' + kaiNo + ' | ' + parsed.candidateName +
+                 ' | ' + parsed.trade + ' | Tier: ' + classification.tier);
+      processed++;
+
+    } catch(e) {
+      Logger.log('reprocessGmailErrorsSmart error [' + t + ']: ' + e.message);
+      errors++;
+    }
+
+    Utilities.sleep(500);
+  }
+
+  Logger.log('═══ reprocessGmailErrorsSmart DONE ═══');
+  Logger.log('Processed: ' + processed + ' | Skipped: ' + skipped +
+             ' | Ignored (junk): ' + ignored + ' | Errors: ' + errors);
+  return { ok:true, processed:processed, skipped:skipped, ignored:ignored, errors:errors };
+}
+
+// ── CLASSIFICATION-AWARE CANDIDATE PARSER ─────────────────────────────────────
+function parseEmailForCandidateSmart_(combinedText, classification, apiKey) {
+  try {
+    if (apiKey) {
+      // Build tier-specific instruction for Gemini
+      var tierInstruction = '';
+      if (classification.tier === 'INTERNAL') {
+        tierInstruction = 'CRITICAL: The sender (' + classification.senderEmail + ') is an INTERNAL STAFF MEMBER of Al Yousuf Enterprises. DO NOT use their email as the candidate email. The candidate details are ONLY in the CV content or email body below.';
+      } else if (classification.tier === 'EXTERNAL_AGENCY') {
+        tierInstruction = 'The sender (' + classification.senderEmail + ') is an EXTERNAL AGENCY or COMPANY. They are likely submitting on behalf of a candidate. Extract candidate details from CV content first.';
+      } else {
+        tierInstruction = 'The sender may be the candidate themselves or an associate. Check if the email in the CV matches the From address.';
+      }
+
+      var prompt =
+        'You are a GCC recruitment specialist. Extract the CANDIDATE\'s details from this email+CV.\n\n' +
+        tierInstruction + '\n\n' +
+        'Return ONLY valid JSON (no markdown):\n' +
+        '{\n' +
+        '  "candidateName": "full name of the actual job candidate",\n' +
+        '  "candidateEmail": "candidate\'s OWN personal email (from CV or body — NOT ' + classification.senderEmail + ' if INTERNAL tier)",\n' +
+        '  "candidateMobile": "candidate phone from CV or body",\n' +
+        '  "trade": "job title / trade the candidate is applying for",\n' +
+        '  "experience": <years as number>,\n' +
+        '  "education": "highest qualification",\n' +
+        '  "nationality": "candidate nationality",\n' +
+        '  "passportNo": "passport number if visible, else empty",\n' +
+        '  "senderIsAssociate": <true if sender is not the candidate>,\n' +
+        '  "senderName": "sender name if different from candidate"\n' +
+        '}\n\n' + combinedText.substring(0, 5000);
+
+      var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
+      var resp = UrlFetchApp.fetch(url, {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 400 }
+        }),
+        muteHttpExceptions: true
+      });
+
+      var json   = JSON.parse(resp.getContentText());
+      var rawOut = ((json.candidates||[])[0]||{}).content;
+      if (!rawOut) return parseEmailRuleBased_(combinedText, classification.senderEmail);
+
+      var txt = rawOut.parts[0].text.trim()
+        .replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+      var result = JSON.parse(txt);
+
+      // Safety: if internal, force-clear sender email from candidate email
+      if (classification.tier === 'INTERNAL' &&
+          result.candidateEmail &&
+          result.candidateEmail.toLowerCase() === classification.senderEmail.toLowerCase()) {
+        result.candidateEmail = '';
+      }
+      return result;
+    }
+
+    return parseEmailRuleBased_(combinedText,
+      classification.tier === 'INTERNAL' ? '' : classification.senderEmail);
+
+  } catch(e) {
+    Logger.log('parseEmailForCandidateSmart_ error: ' + e.message);
+    return parseEmailRuleBased_(combinedText,
+      classification.tier === 'INTERNAL' ? '' : classification.senderEmail);
+  }
+}
+
+// Public wrapper — replaces reprocessGmailErrorsNow going forward
+function reprocessGmailErrorsSmartNow() {
+  var result = reprocessGmailErrorsSmart();
+  Logger.log('reprocessGmailErrorsSmartNow result: ' + JSON.stringify(result));
+}
+
+// Add to doPost route — allow manual trigger via API
+// action=reprocessGmailErrors → reprocessGmailErrorsSmart()
