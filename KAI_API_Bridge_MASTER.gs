@@ -12057,8 +12057,8 @@ function markCandidateNotInterested_(ss, rowIndex, fromEmail, subject) {
   if (!sheet) return false;
   var now = new Date().toISOString();
   var note = '[' + now + '] Replied not interested. Subject: ' + subject;
-  // stage → COL.stage (col 1), empStatus → COL.empStatus (col 27 = doNotContact flag), notes → COL.notes (col 23)
-  sheet.getRange(rowIndex, COL.stage).setValue('Not Interested');
+  // stage → 'On Hold' (valid dropdown value), empStatus → 'Do Not Contact' to flag no further outreach
+  sheet.getRange(rowIndex, COL.stage).setValue('On Hold');
   sheet.getRange(rowIndex, COL.empStatus).setValue('Do Not Contact');
   var existingNote = sheet.getRange(rowIndex, COL.notes).getValue() || '';
   sheet.getRange(rowIndex, COL.notes).setValue(existingNote ? existingNote + '\n' + note : note);
@@ -12211,6 +12211,9 @@ function updateCandidateWithNewCV_(ss, rowIndex, attachment, fromEmail) {
  */
 function processEmailMessage_(ss, message, sourceLabel) {
   try {
+    // Open fresh SS reference on every call — avoids stale reference errors on long executions
+    var ss = SpreadsheetApp.openById(SS_ID);
+
     var from        = message.getFrom() || '';
     var subject     = message.getSubject() || '';
     var body        = message.getPlainBody() || '';
