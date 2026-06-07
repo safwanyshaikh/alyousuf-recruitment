@@ -10595,7 +10595,7 @@ function parseJDWithGemini_(jdText, fileName) {
       'JD FILE: ' + fileName + '\n\n' +
       'JD TEXT:\n' + jdText.substring(0, 4000);
 
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
     var resp = UrlFetchApp.fetch(url, {
       method: 'POST',
       contentType: 'application/json',
@@ -11385,7 +11385,7 @@ function parseEmailWithGemini_(text, fromRaw, apiKey) {
     'FROM: ' + fromRaw + '\n\n' +
     text.substring(0, 5000);
 
-  var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
+  var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
   var resp = UrlFetchApp.fetch(url, {
     method: 'POST',
     contentType: 'application/json',
@@ -11869,7 +11869,7 @@ function parseEmailForCandidateSmart_(combinedText, classification, apiKey) {
         '  "senderName": "sender name if different from candidate"\n' +
         '}\n\n' + combinedText.substring(0, 5000);
 
-      var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
+      var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
       var resp = UrlFetchApp.fetch(url, {
         method: 'POST', contentType: 'application/json',
         payload: JSON.stringify({
@@ -12136,7 +12136,7 @@ function updateCandidateWithNewCV_(ss, rowIndex, attachment, fromEmail) {
       'CV text:\n\n' + cvText.substring(0, 8000);
     try {
       var resp = UrlFetchApp.fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey,
         {
           method: 'post',
           contentType: 'application/json',
@@ -12376,7 +12376,7 @@ function parseCVTextForCandidate_(cvText, subjectHint, apiKey) {
       'CV text:\n\n' + cvText.substring(0, 8000);
     try {
       var resp = UrlFetchApp.fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey,
         {
           method: 'post',
           contentType: 'application/json',
@@ -12455,7 +12455,7 @@ function parseCVAttachmentWithGemini_(attachment, subjectHint, apiKey) {
     };
 
     var resp = UrlFetchApp.fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey,
       {
         method: 'post',
         contentType: 'application/json',
