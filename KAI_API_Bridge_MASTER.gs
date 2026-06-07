@@ -11970,9 +11970,14 @@ function detectReplyIntent_(subject, body, hasAttachment, fromEmail, ss) {
 
   var bodyLower = (body || '').toLowerCase();
 
-  // Not-interested signal in body
-  for (var i = 0; i < NOT_INTERESTED_PATTERNS.length; i++) {
-    if (NOT_INTERESTED_PATTERNS[i].test(body)) return 'NOT_INTERESTED';
+  // Not-interested signals only count when this is a REPLY to KAI outreach.
+  // Marketing emails always have "unsubscribe" in the footer — ignore them here.
+  // A genuine reply has Re:/RE: in subject, or a short body (< 500 chars).
+  var isReply = /^re[\s:]/i.test(subject) || (body && body.trim().length < 500);
+  if (isReply) {
+    for (var i = 0; i < NOT_INTERESTED_PATTERNS.length; i++) {
+      if (NOT_INTERESTED_PATTERNS[i].test(body)) return 'NOT_INTERESTED';
+    }
   }
 
   // CV attached → CV_UPDATE if sender known, NEW_APPLICATION if not
@@ -12057,8 +12062,7 @@ function markCandidateNotInterested_(ss, rowIndex, fromEmail, subject) {
   if (!sheet) return false;
   var now = new Date().toISOString();
   var note = '[' + now + '] Replied not interested. Subject: ' + subject;
-  // stage → 'On Hold' (valid dropdown value), empStatus → 'Do Not Contact' to flag no further outreach
-  sheet.getRange(rowIndex, COL.stage).setValue('On Hold');
+  // Only write empStatus (no dropdown validation) — never touch stage column to avoid validation errors
   sheet.getRange(rowIndex, COL.empStatus).setValue('Do Not Contact');
   var existingNote = sheet.getRange(rowIndex, COL.notes).getValue() || '';
   sheet.getRange(rowIndex, COL.notes).setValue(existingNote ? existingNote + '\n' + note : note);
