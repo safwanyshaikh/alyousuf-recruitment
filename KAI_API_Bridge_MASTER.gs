@@ -11182,3 +11182,369 @@ function watchNewCandidatesNow() {
   watchNewCandidates();
   Logger.log('watchNewCandidatesNow: done');
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 42 — GMAIL ERROR REPROCESSOR + SENDER vs CANDIDATE INTELLIGENCE
+//
+// Two problems solved:
+//
+// 1. karigar/error emails: Code.gs failed to process them. CVs sit in Gmail
+//    forever, never reach KAI. This function rescues them.
+//
+// 2. Sender ≠ Candidate: Email may come from associate, sub-agent, or third
+//    party. FROM address is theirs, not the candidate's. Real candidate contact
+//    is inside the CV text or email body. This logic extracts correctly.
+//
+// SENDER CLASSIFICATION:
+//   - Known associate domain / pattern → sender = Associate, candidate = from CV
+//   - Personal email + name matches CV → sender IS the candidate
+//   - Company/bulk sender → sender = Source, candidate = from CV
+//
+// TRIGGER TO SET:
+//   Function: reprocessGmailErrors
+//   Type: Time-driven → Every 15 minutes
+// ════════════════════════════════════════════════════════════════════════════
+
+function reprocessGmailErrors() {
+  var ss      = SpreadsheetApp.openById(SS_ID);
+  var apiKey  = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  var processed = 0, skipped = 0, errors = 0;
+
+  // Search Gmail for karigar/error labeled threads (unprocessed CVs)
+  var threads = GmailApp.search('label:karigar/error', 0, 50);
+  Logger.log('reprocessGmailErrors: found ' + threads.length + ' error threads');
+
+  if (!threads.length) {
+    Logger.log('reprocessGmailErrors: nothing to process');
+    return { ok:true, processed:0, message:'No error emails found' };
+  }
+
+  // Get or create the karigar/kai-imported label
+  var importedLabel = getOrCreateLabel_('karigar/kai-imported');
+  var errorLabel    = GmailApp.getUserLabelByName('karigar/error');
+
+  for (var t = 0; t < threads.length; t++) {
+    var thread = threads[t];
+    try {
+      var messages = thread.getMessages();
+      var lastMsg  = messages[messages.length - 1];
+      var fromRaw  = lastMsg.getFrom();
+      var subject  = lastMsg.getSubject();
+      var body     = lastMsg.getPlainBody().substring(0, 2000);
+      var attachments = lastMsg.getAttachments();
+
+      // Find a CV attachment (PDF, DOC, DOCX)
+      var cvAttachment = null;
+      for (var a = 0; a < attachments.length; a++) {
+        var ct = attachments[a].getContentType().toLowerCase();
+        var fn = attachments[a].getName().toLowerCase();
+        if (ct.indexOf('pdf') !== -1 || ct.indexOf('word') !== -1 ||
+            fn.indexOf('.pdf') !== -1 || fn.indexOf('.doc') !== -1) {
+          cvAttachment = attachments[a];
+          break;
+        }
+      }
+
+      // Extract text from CV if available
+      var cvText = '';
+      if (cvAttachment) {
+        cvText = extractTextFromAttachment_(cvAttachment);
+      }
+
+      // Build combined text for Gemini to parse
+      var combinedText = 'SUBJECT: ' + subject + '\n\n' +
+                         'EMAIL BODY:\n' + body + '\n\n' +
+                         (cvText ? 'CV CONTENT:\n' + cvText.substring(0, 3000) : '');
+
+      if (!combinedText.trim()) { skipped++; continue; }
+
+      // Parse candidate vs sender
+      var parsed = parseEmailForCandidate_(combinedText, fromRaw, apiKey);
+
+      if (!parsed || !parsed.candidateName) {
+        Logger.log('reprocessGmailErrors: no candidate found in thread ' + subject);
+        skipped++;
+        continue;
+      }
+
+      // Check for duplicate before creating
+      var dupResult = checkDuplicateCandidate_(ss, parsed.candidateMobile, parsed.candidateEmail, parsed.passportNo);
+      if (dupResult.isDuplicate) {
+        Logger.log('reprocessGmailErrors: duplicate ' + parsed.candidateName + ' → ' + dupResult.existingKaiNo);
+        // Label as processed anyway so it stops showing as error
+        if (importedLabel) thread.addLabel(importedLabel);
+        if (errorLabel)    thread.removeLabel(errorLabel);
+        skipped++;
+        continue;
+      }
+
+      // Create candidate record
+      var sheet  = ss.getSheetByName('Candidates');
+      var kaiNo  = generateKaiNumber_(ss);
+      var scoreR = computeBasicScore_({
+        name:        parsed.candidateName,
+        trade:       parsed.trade,
+        experience:  parsed.experience,
+        education:   parsed.education,
+        nationality: parsed.nationality,
+        mobile:      parsed.candidateMobile,
+        email:       parsed.candidateEmail,
+        cvLink:      ''
+      });
+
+      // Build row — same structure as uploadCV_
+      var row = [];
+      row[COL.stage-1]           = 'Needs Call';
+      row[COL.applicationDate-1] = new Date();
+      row[COL.nationality-1]     = parsed.nationality    || '';
+      row[COL.name-1]            = parsed.candidateName;
+      row[COL.mobile-1]          = parsed.candidateMobile || '';
+      row[COL.email-1]           = parsed.candidateEmail  || '';
+      row[COL.education-1]       = parsed.education       || '';
+      row[COL.positionApplied-1] = parsed.trade           || '';
+      row[COL.trade-1]           = parsed.trade           || '';
+      row[COL.experience-1]      = parsed.experience      || 0;
+      row[COL.verdict-1]         = scoreR.verdict         || 'ORANGE';
+      row[COL.score-1]           = scoreR.score           || 0;
+      row[COL.active-1]          = 'Active';
+      row[COL.kaiNo-1]           = kaiNo;
+      row[COL.notes-1]           = 'Source: Gmail error reprocess | Sender: ' + fromRaw +
+                                   (parsed.senderIsAssociate ? ' [Associate]' : '') +
+                                   ' | Subject: ' + subject;
+      // Pad row to 38 cols
+      while (row.length < 38) row.push('');
+
+      sheet.appendRow(row);
+
+      // Queue Top3
+      queueForProcessing_(kaiNo, 'TOP3', ss);
+
+      // Relabel in Gmail
+      if (importedLabel) thread.addLabel(importedLabel);
+      if (errorLabel)    thread.removeLabel(errorLabel);
+
+      Logger.log('reprocessGmailErrors: CREATED ' + kaiNo + ' — ' + parsed.candidateName +
+                 ' | Trade: ' + parsed.trade +
+                 (parsed.senderIsAssociate ? ' | Associate: ' + parsed.senderEmail : ''));
+      processed++;
+
+    } catch(e) {
+      Logger.log('reprocessGmailErrors: error on thread ' + t + ': ' + e.message);
+      errors++;
+    }
+
+    Utilities.sleep(500);
+  }
+
+  Logger.log('reprocessGmailErrors DONE: processed=' + processed + ' skipped=' + skipped + ' errors=' + errors);
+  return { ok:true, processed:processed, skipped:skipped, errors:errors };
+}
+
+// ── PARSE EMAIL → CANDIDATE DETAILS (sender-vs-candidate intelligence) ────────
+// Priority order for candidate contact:
+//   1. CV text (most reliable — candidate wrote it themselves)
+//   2. Email body (candidate may have typed details)
+//   3. From address (last resort — may be associate/agent)
+function parseEmailForCandidate_(combinedText, fromRaw, apiKey) {
+  try {
+    if (apiKey) {
+      return parseEmailWithGemini_(combinedText, fromRaw, apiKey);
+    }
+    return parseEmailRuleBased_(combinedText, fromRaw);
+  } catch(e) {
+    Logger.log('parseEmailForCandidate_ error: ' + e.message);
+    return parseEmailRuleBased_(combinedText, fromRaw);
+  }
+}
+
+// ── GEMINI EMAIL PARSER ───────────────────────────────────────────────────────
+function parseEmailWithGemini_(text, fromRaw, apiKey) {
+  var prompt =
+    'You are a GCC recruitment specialist. Parse this email and CV to extract the CANDIDATE\'s details.\n' +
+    'IMPORTANT: The email sender may be an associate, agent, or third party — NOT the candidate.\n' +
+    'Extract the ACTUAL CANDIDATE\'s information from the CV content and email body.\n\n' +
+    'Return ONLY valid JSON (no markdown) with these exact keys:\n' +
+    '{\n' +
+    '  "candidateName": "full name of the candidate (from CV or email body)",\n' +
+    '  "candidateEmail": "candidate\'s OWN email (from CV content or signature, NOT sender email unless clearly the same person)",\n' +
+    '  "candidateMobile": "candidate\'s phone number (from CV or email body)",\n' +
+    '  "trade": "candidate\'s job title / trade",\n' +
+    '  "experience": <years of experience as number>,\n' +
+    '  "education": "highest qualification",\n' +
+    '  "nationality": "candidate nationality",\n' +
+    '  "passportNo": "passport number if visible, else empty string",\n' +
+    '  "senderEmail": "the FROM email address",\n' +
+    '  "senderIsAssociate": <true if sender is clearly different from candidate, false if sender IS the candidate>,\n' +
+    '  "senderName": "name of the sender if different from candidate"\n' +
+    '}\n\n' +
+    'FROM: ' + fromRaw + '\n\n' +
+    text.substring(0, 5000);
+
+  var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'POST',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 400 }
+    }),
+    muteHttpExceptions: true
+  });
+
+  var json = JSON.parse(resp.getContentText());
+  var raw  = ((json.candidates||[])[0]||{}).content;
+  if (!raw) return parseEmailRuleBased_(text, fromRaw);
+
+  var result = raw.parts[0].text.trim()
+    .replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+
+  return JSON.parse(result);
+}
+
+// ── RULE-BASED EMAIL PARSER FALLBACK ─────────────────────────────────────────
+function parseEmailRuleBased_(text, fromRaw) {
+  var result = {
+    candidateName: '', candidateEmail: '', candidateMobile: '',
+    trade: '', experience: 0, education: '', nationality: '',
+    passportNo: '', senderEmail: fromRaw,
+    senderIsAssociate: false, senderName: ''
+  };
+
+  // Extract sender email
+  var fromMatch = fromRaw.match(/<([^>]+)>/) || fromRaw.match(/([^\s]+@[^\s]+)/);
+  result.senderEmail = fromMatch ? fromMatch[1] : fromRaw;
+
+  // Find all emails in combined text
+  var emailMatches = text.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) || [];
+  // Candidate email = first email in CV content that differs from sender
+  emailMatches.forEach(function(em) {
+    if (!result.candidateEmail && em.toLowerCase() !== result.senderEmail.toLowerCase()) {
+      result.candidateEmail = em;
+    }
+  });
+  if (!result.candidateEmail && emailMatches.length) result.candidateEmail = emailMatches[0];
+
+  // Phone numbers
+  var phones = text.match(/(?:\+?[0-9]{1,3}[\s\-]?)?(?:\(?[0-9]{3}\)?[\s\-]?){2}[0-9]{4,}/g) || [];
+  if (phones.length) result.candidateMobile = phones[0].replace(/\s/g,'').trim();
+
+  // Name: look for "Name:" label or first capitalised line in CV
+  var nameM = text.match(/(?:Name|Candidate|Applicant)\s*[:\-]\s*([A-Z][a-zA-Z\s]{3,40})/);
+  if (nameM) result.candidateName = nameM[1].trim();
+
+  // Trade from Subject or CV
+  var tradeM = text.match(/(?:Application for|Position|Post|Applying for|Trade)\s*[:\-]?\s*([A-Za-z\s]{5,50})/i);
+  if (tradeM) result.trade = tradeM[1].trim().replace(/\n.*/,'').substring(0,50);
+
+  // Experience
+  var expM = text.match(/(\d+)\s*(?:\+)?\s*years?\s*(?:of\s*)?(?:experience|exp)/i);
+  if (expM) result.experience = parseInt(expM[1]);
+
+  // Education
+  var eduM = text.match(/\b(B\.?Tech|B\.?E\.?|M\.?Tech|Diploma|ITI|MBA|M\.?Sc|B\.?Sc|Bachelor|Master|SSLC|HSC)\b/i);
+  if (eduM) result.education = eduM[0];
+
+  // Nationality
+  var natM = text.match(/\b(Indian|Pakistani|Bangladeshi|Nepali|Sri Lankan|Filipino|Indonesian|Zambian|Gambian|Egyptian|Sudanese|Yemeni)\b/i);
+  if (natM) result.nationality = natM[0];
+
+  // Passport
+  var ppM = text.match(/\b([A-Z]\d{7}|[A-Z]{2}\d{6,7})\b/);
+  if (ppM) result.passportNo = ppM[0];
+
+  // Is sender different from candidate?
+  result.senderIsAssociate = result.candidateEmail !== '' &&
+    result.candidateEmail.toLowerCase() !== result.senderEmail.toLowerCase();
+
+  return result;
+}
+
+// ── EXTRACT TEXT FROM EMAIL ATTACHMENT ───────────────────────────────────────
+function extractTextFromAttachment_(attachment) {
+  try {
+    var ct = attachment.getContentType().toLowerCase();
+    var fn = attachment.getName().toLowerCase();
+
+    if (ct.indexOf('pdf') !== -1 || fn.indexOf('.pdf') !== -1) {
+      // Save to Drive temporarily, convert to Google Doc, extract text
+      var blob    = attachment.copyBlob();
+      var file    = DriveApp.createFile(blob);
+      var folder  = DriveApp.getRootFolder();
+
+      try {
+        var docFile = Drive.Files.copy(
+          { title: 'kai_tmp_' + file.getId(), mimeType: 'application/vnd.google-apps.document' },
+          file.getId()
+        );
+        var doc  = DocumentApp.openById(docFile.id);
+        var text = doc.getBody().getText();
+        DriveApp.getFileById(docFile.id).setTrashed(true);
+        file.setTrashed(true);
+        return text.substring(0, 5000);
+      } catch(convErr) {
+        file.setTrashed(true);
+        // Fallback: try reading as plain text
+        return attachment.getDataAsString().substring(0, 3000);
+      }
+    }
+
+    if (ct.indexOf('word') !== -1 || fn.indexOf('.doc') !== -1) {
+      // Save temporarily and convert
+      var blob2   = attachment.copyBlob();
+      var file2   = DriveApp.createFile(blob2);
+      try {
+        var docFile2 = Drive.Files.copy(
+          { title: 'kai_tmp_' + file2.getId(), mimeType: 'application/vnd.google-apps.document' },
+          file2.getId()
+        );
+        var doc2  = DocumentApp.openById(docFile2.id);
+        var text2 = doc2.getBody().getText();
+        DriveApp.getFileById(docFile2.id).setTrashed(true);
+        file2.setTrashed(true);
+        return text2.substring(0, 5000);
+      } catch(e2) {
+        file2.setTrashed(true);
+        return '';
+      }
+    }
+
+    // Plain text
+    return attachment.getDataAsString().substring(0, 5000);
+
+  } catch(e) {
+    Logger.log('extractTextFromAttachment_ error: ' + e.message);
+    return '';
+  }
+}
+
+// ── DUPLICATE CHECK ───────────────────────────────────────────────────────────
+function checkDuplicateCandidate_(ss, mobile, email, passportNo) {
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { isDuplicate: false };
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    var cMobile  = String(data[i][COL.mobile-1] ||'').trim();
+    var cEmail   = String(data[i][COL.email-1]  ||'').trim().toLowerCase();
+    var cKaiNo   = String(data[i][COL.kaiNo-1]  ||'').trim();
+    var cPP      = String(data[i][33]            ||'').trim(); // col 34 passport
+
+    if (mobile && cMobile && cMobile === mobile)                        return { isDuplicate:true, existingKaiNo:cKaiNo, field:'mobile' };
+    if (email  && cEmail  && cEmail  === email.toLowerCase())           return { isDuplicate:true, existingKaiNo:cKaiNo, field:'email' };
+    if (passportNo && cPP && cPP === passportNo)                        return { isDuplicate:true, existingKaiNo:cKaiNo, field:'passport' };
+  }
+  return { isDuplicate: false };
+}
+
+// ── HELPER: Get or create Gmail label ────────────────────────────────────────
+function getOrCreateLabel_(name) {
+  var existing = GmailApp.getUserLabelByName(name);
+  if (existing) return existing;
+  try { return GmailApp.createLabel(name); } catch(e) { return null; }
+}
+
+// Public wrappers
+function reprocessGmailErrorsNow() {
+  var result = reprocessGmailErrors();
+  Logger.log('reprocessGmailErrorsNow: ' + JSON.stringify(result));
+}
