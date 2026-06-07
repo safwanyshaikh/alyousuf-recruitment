@@ -11534,9 +11534,9 @@ function checkDuplicateCandidate_(ss, mobile, email, passportNo) {
     var cKaiNo   = String(data[i][COL.kaiNo-1]  ||'').trim();
     var cPP      = String(data[i][33]            ||'').trim(); // col 34 passport
 
-    if (mobile && cMobile && cMobile === mobile)                        return { isDuplicate:true, existingKaiNo:cKaiNo, field:'mobile' };
-    if (email  && cEmail  && cEmail  === email.toLowerCase())           return { isDuplicate:true, existingKaiNo:cKaiNo, field:'email' };
-    if (passportNo && cPP && cPP === passportNo)                        return { isDuplicate:true, existingKaiNo:cKaiNo, field:'passport' };
+    if (mobile && cMobile && cMobile === mobile)                        return { isDuplicate:true, existingKaiNo:cKaiNo, field:'mobile',   rowIndex:i+1 };
+    if (email  && cEmail  && cEmail  === email.toLowerCase())           return { isDuplicate:true, existingKaiNo:cKaiNo, field:'email',    rowIndex:i+1 };
+    if (passportNo && cPP && cPP === passportNo)                        return { isDuplicate:true, existingKaiNo:cKaiNo, field:'passport', rowIndex:i+1 };
   }
   return { isDuplicate: false };
 }
@@ -12300,7 +12300,7 @@ function processEmailMessage_(ss, message, sourceLabel) {
       }
 
       // Create new candidate record — sender email NEVER becomes candidate email
-      var kaiNo = generateKaiNumber_();
+      var kaiNo = generateKaiNumber_(_ss);
       var now = new Date();
       var cSheet = _ss.getSheetByName('Candidates');
       if (!cSheet) return 'IGNORED';
