@@ -134,6 +134,10 @@ function doGet(e) {
     else if (action === 'roles')                out = JSON.stringify(getRoles_(params));
     else if (action === 'users')                out = JSON.stringify(getUsers_(params, token));
     else if (action === 'myContext')            out = JSON.stringify(getMyContext_(params, token));
+    // S36 — Processing Queue
+    else if (action === 'processingQueue')      out = JSON.stringify(getProcessingQueue_(params));
+    else if (action === 'processQueue')         out = JSON.stringify(processNextInQueue_(params));
+    else if (action === 'retryQueue')           out = JSON.stringify(retryQueue_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -197,6 +201,8 @@ function doPost(e) {
     // P5 — Governance (admin-gated inside each handler)
     else if (action === 'updateSetting')        out = JSON.stringify(updateSetting_(body, token));
     else if (action === 'setUserRole')          out = JSON.stringify(setUserRole_(body, token));
+    // S36 — Processing Queue
+    else if (action === 'retryQueue')           out = JSON.stringify(retryQueue_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -1782,6 +1788,10 @@ function uploadCV_(body) {
     uploadSheet.getRange(uploadRowNum, 9).setValue('PARSED');
     uploadSheet.getRange(uploadRowNum, 10).setValue(kaiNo);
     uploadSheet.getRange(uploadRowNum, 11).setValue('Score:' + scoreResult.score + ' | ' + scoreResult.verdict);
+
+    // STEP 7b — Queue enrichment (Top3 + Assessment) — runs async via processQueue
+    queueForProcessing_(kaiNo, 'TOP3', ss);
+    queueForProcessing_(kaiNo, 'ASSESSMENT', ss);
 
     // STEP 8 — Log activity
     logActivity_(ss, {
@@ -3901,6 +3911,9 @@ function whatsappIntake_(body) {
 
   sheet.appendRow(row);
 
+  // Queue Top3 enrichment — no CV yet so only TOP3 based on trade; assessment skipped until CV received
+  queueForProcessing_(kaiNo, 'TOP3', ss);
+
   logActivity_(ss, { kaiNo:kaiNo, rowIndex:sheet.getLastRow()-1, action:'WHATSAPP_INTAKE',
     detail:'Added by ' + recruiter + ' | Trade: ' + trade, actor:recruiter });
 
@@ -5922,14 +5935,12 @@ function convertLeadToCandidate_(body) {
   row[COL.trade-1]           = lTrade;
   row[COL.experience-1]      = parseFloat(lRow[COL_L_.experience-1])||0;
   row[COL.gulfExp-1]         = String(lRow[COL_L_.gulfExp-1]||'').trim();
-  row[COL.verdict-1]         = 'Pending action';
-  row[COL.score-1]           = 0;   // No CV yet — profile completeness will be low
   row[COL.active-1]          = '';
   row[COL.kaiNo-1]           = kaiNo;
   row[COL.currentLocation-1] = String(lRow[COL_L_.currentLocation-1]||'').trim();
   row[COL.lastContact-1]     = now;
 
-  // Compute missing fields (most will be missing — no CV)
+  // Compute profile score + missing fields from available lead data (no CV)
   var pseudoCand = {
     name:    lName,             mobile:   row[COL.mobile-1],
     email:   row[COL.email-1],  trade:    lTrade,
@@ -5939,6 +5950,9 @@ function convertLeadToCandidate_(body) {
     gulfExp:     row[COL.gulfExp-1],
     positionApplied: lTrade
   };
+  var leadScore = computeBasicScore_(pseudoCand);
+  row[COL.verdict-1]         = leadScore.verdict;
+  row[COL.score-1]           = leadScore.score;
   var missing = computeMissingFields_(pseudoCand);
   row[COL.missingFields-1] = missing.map(function(m){ return m.field; }).join(',');
   row[COL.notes-1]         = 'Converted from Lead ' + leadId +
@@ -5958,6 +5972,9 @@ function convertLeadToCandidate_(body) {
   });
 
   cSheet.appendRow(row);
+
+  // Queue Top3 enrichment — candidate has no CV yet so assessment deferred until upload
+  queueForProcessing_(kaiNo, 'TOP3', ss);
 
   // Mark lead as converted
   lSheet.getRange(lRowNum, COL_L_.status).setValue('CONVERTED');
@@ -9182,3 +9199,377 @@ function testPhase5() {
 
   Logger.log('Phase 5 validation complete.');
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 36 — PROCESSING QUEUE (System Hardening — CV Intelligence Pipeline)
+//
+// Every candidate created through any ingestion path is queued for async
+// enrichment. Steps: TOP3 (Gemini top-3 positions) · ASSESSMENT (Gemini KAI
+// assessment text). Queue is a sidecar sheet — Candidates columns unchanged.
+//
+// Lifecycle per item:  PENDING → PROCESSING → DONE
+//                                           → FAILED (retryCount < 5)
+//                                           → ABANDONED (retryCount >= 5)
+//
+// Ingestion paths that enqueue:
+//   uploadCV_           → TOP3 + ASSESSMENT
+//   whatsappIntake_     → TOP3  (no CV = no assessment yet)
+//   convertLeadToCandidate_ → TOP3 (no CV = no assessment yet)
+//   gmailConvert_       → via uploadCV_ → TOP3 + ASSESSMENT
+//
+// Admin endpoints:
+//   GET  ?action=processingQueue  → dashboard view
+//   GET  ?action=processQueue     → run next batch (max 20)
+//   GET  ?action=retryQueue       → reset FAILED → PENDING
+//   POST action=retryQueue        → same
+// ════════════════════════════════════════════════════════════════════════════
+
+var PQ_HEADERS = [
+  'QueueID','KAINo','Step','Status','FailureReason','LastAttempt','RetryCount','CreatedAt'
+];
+var PQ_COL = { id:1, kaiNo:2, step:3, status:4, failureReason:5, lastAttempt:6, retryCount:7, createdAt:8 };
+var PQ_ABANDON_THRESHOLD = 5;
+
+function ensureProcessingQueueSheet_(ss) {
+  var s = ss.getSheetByName('_ProcessingQueue');
+  if (!s) {
+    s = ss.insertSheet('_ProcessingQueue');
+    s.appendRow(PQ_HEADERS);
+    s.getRange(1,1,1,PQ_HEADERS.length)
+     .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#FFFFFF');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+// Write one queue item for a candidate/step. Idempotent — skips if DONE already exists.
+function queueForProcessing_(kaiNo, step, ss) {
+  try {
+    if (!kaiNo || !step) return;
+    ss = ss || SpreadsheetApp.openById(SS_ID);
+    var sheet = ensureProcessingQueueSheet_(ss);
+    var data  = sheet.getDataRange().getValues();
+    // Check for existing non-ABANDONED, non-DONE entry
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][PQ_COL.kaiNo-1]||'').trim() === kaiNo &&
+          String(data[i][PQ_COL.step-1]||'').trim() === step) {
+        var st = String(data[i][PQ_COL.status-1]||'').trim();
+        if (st === 'DONE') return; // already enriched
+        if (st === 'PENDING' || st === 'PROCESSING') return; // already queued
+        // FAILED or ABANDONED — re-enqueue only if not abandoned
+        if (st === 'FAILED') {
+          sheet.getRange(i+1, PQ_COL.status).setValue('PENDING');
+          sheet.getRange(i+1, PQ_COL.failureReason).setValue('');
+          return;
+        }
+      }
+    }
+    var queueId = 'PQ-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMddHHmmss') +
+                  '-' + kaiNo.replace(/[^A-Z0-9]/gi,'').slice(-6);
+    sheet.appendRow([queueId, kaiNo, step, 'PENDING', '', '', 0, new Date()]);
+  } catch(e) {
+    Logger.log('queueForProcessing_ error: ' + e.message);
+  }
+}
+
+// Admin view: queue stats + oldest PENDING + recent FAILED
+// GET ?action=processingQueue&token=...
+function getProcessingQueue_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ensureProcessingQueueSheet_(ss);
+  if (sheet.getLastRow() < 2) return { ok:true, pending:0, processing:0, done:0, failed:0, items:[] };
+
+  var data  = sheet.getRange(2,1,sheet.getLastRow()-1,PQ_HEADERS.length).getValues();
+  var counts = { PENDING:0, PROCESSING:0, DONE:0, FAILED:0, ABANDONED:0 };
+  var items = [];
+  var limit = parseInt(params && params.limit || '50') || 50;
+
+  for (var i = 0; i < data.length; i++) {
+    var st = String(data[i][PQ_COL.status-1]||'').trim();
+    counts[st] = (counts[st]||0) + 1;
+    if ((st === 'PENDING' || st === 'FAILED') && items.length < limit) {
+      items.push({
+        queueId:       String(data[i][PQ_COL.id-1]||''),
+        kaiNo:         String(data[i][PQ_COL.kaiNo-1]||''),
+        step:          String(data[i][PQ_COL.step-1]||''),
+        status:        st,
+        failureReason: String(data[i][PQ_COL.failureReason-1]||''),
+        retryCount:    parseInt(data[i][PQ_COL.retryCount-1]||'0')||0,
+        createdAt:     data[i][PQ_COL.createdAt-1] ? String(data[i][PQ_COL.createdAt-1]) : ''
+      });
+    }
+  }
+
+  return {
+    ok:         true,
+    pending:    counts.PENDING    || 0,
+    processing: counts.PROCESSING || 0,
+    done:       counts.DONE       || 0,
+    failed:     counts.FAILED     || 0,
+    abandoned:  counts.ABANDONED  || 0,
+    total:      data.length,
+    items:      items
+  };
+}
+
+// Reset all FAILED items back to PENDING (skip ABANDONED)
+// GET/POST ?action=retryQueue&token=...
+function retryQueue_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ensureProcessingQueueSheet_(ss);
+  if (sheet.getLastRow() < 2) return { ok:true, reset:0 };
+
+  var data  = sheet.getRange(2,1,sheet.getLastRow()-1,PQ_HEADERS.length).getValues();
+  var reset = 0;
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][PQ_COL.status-1]||'').trim() === 'FAILED') {
+      sheet.getRange(i+2, PQ_COL.status).setValue('PENDING');
+      sheet.getRange(i+2, PQ_COL.failureReason).setValue('');
+      reset++;
+    }
+  }
+  return { ok:true, reset:reset, message:'Reset ' + reset + ' FAILED items to PENDING' };
+}
+
+// Batch enrichment processor. Call via:
+//   GET ?action=processQueue&limit=20&token=...
+//   Or install as a time trigger (installQueueTrigger_)
+//
+// For each PENDING item: looks up candidate, calls Gemini, writes back to Candidates sheet,
+// marks DONE. On error marks FAILED. After PQ_ABANDON_THRESHOLD failures → ABANDONED.
+function processNextInQueue_(params) {
+  params = params || {};
+  var limit  = Math.min(50, parseInt(params.limit||'20') || 20);
+  var dryRun = String(params.dryRun||'') === 'true';
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return { ok:false, error:'GEMINI_API_KEY not set in Script Properties' };
+
+  var ss         = SpreadsheetApp.openById(SS_ID);
+  var qSheet     = ensureProcessingQueueSheet_(ss);
+  var candSheet  = ss.getSheetByName('Candidates');
+  if (!candSheet) return { ok:false, error:'Candidates sheet not found' };
+
+  if (qSheet.getLastRow() < 2) return { ok:true, processed:0, message:'Queue empty' };
+
+  var qData    = qSheet.getRange(2,1,qSheet.getLastRow()-1,PQ_HEADERS.length).getValues();
+  var candData = candSheet.getRange(2,1,candSheet.getLastRow()-1,42).getValues();
+
+  // Build kaiNo → row index map for fast lookup
+  var kaiMap = {};
+  for (var c = 0; c < candData.length; c++) {
+    var k = String(candData[c][COL.kaiNo-1]||'').trim();
+    if (k) kaiMap[k] = c + 2; // 1-based row in Candidates sheet
+  }
+
+  var processed = 0, skipped = 0, errors = [];
+
+  for (var i = 0; i < qData.length; i++) {
+    if (processed >= limit) break;
+
+    var st = String(qData[i][PQ_COL.status-1]||'').trim();
+    if (st !== 'PENDING') { skipped++; continue; }
+
+    var queueRowNum = i + 2;
+    var kaiNo       = String(qData[i][PQ_COL.kaiNo-1]||'').trim();
+    var step        = String(qData[i][PQ_COL.step-1]||'').trim();
+    var retryCount  = parseInt(qData[i][PQ_COL.retryCount-1]||'0') || 0;
+
+    if (retryCount >= PQ_ABANDON_THRESHOLD) {
+      if (!dryRun) qSheet.getRange(queueRowNum, PQ_COL.status).setValue('ABANDONED');
+      skipped++;
+      continue;
+    }
+
+    var candRowNum = kaiMap[kaiNo];
+    if (!candRowNum) {
+      if (!dryRun) {
+        qSheet.getRange(queueRowNum, PQ_COL.status).setValue('FAILED');
+        qSheet.getRange(queueRowNum, PQ_COL.failureReason).setValue('Candidate not found: ' + kaiNo);
+        qSheet.getRange(queueRowNum, PQ_COL.retryCount).setValue(retryCount + 1);
+        qSheet.getRange(queueRowNum, PQ_COL.lastAttempt).setValue(new Date());
+      }
+      errors.push({ kaiNo:kaiNo, step:step, error:'Candidate row not found' });
+      processed++;
+      continue;
+    }
+
+    var candRowIdx = candRowNum - 2; // 0-based index in candData
+    var cand = {
+      trade:           String(candData[candRowIdx][COL.trade-1]||'').trim(),
+      positionApplied: String(candData[candRowIdx][COL.positionApplied-1]||'').trim(),
+      experience:      parseFloat(candData[candRowIdx][COL.experience-1]) || 0,
+      education:       String(candData[candRowIdx][COL.education-1]||'').trim(),
+      gulfExp:         String(candData[candRowIdx][COL.gulfExp-1]||'').trim(),
+      industry:        String(candData[candRowIdx][COL.industry-1]||'').trim(),
+      kaiAssessment:   String(candData[candRowIdx][COL.kaiAssessment-1]||'').trim().slice(0,300),
+      top3Positions:   String(candData[candRowIdx][COL.top3Positions-1]||'').trim()
+    };
+
+    // Mark PROCESSING
+    if (!dryRun) {
+      qSheet.getRange(queueRowNum, PQ_COL.status).setValue('PROCESSING');
+      qSheet.getRange(queueRowNum, PQ_COL.lastAttempt).setValue(new Date());
+    }
+
+    try {
+      if (step === 'TOP3') {
+        if (cand.top3Positions && cand.top3Positions.length > 3) {
+          // Already enriched by another path — mark done, skip Gemini call
+          if (!dryRun) qSheet.getRange(queueRowNum, PQ_COL.status).setValue('DONE');
+          skipped++;
+          continue;
+        }
+        var tradeSrc = cand.trade || cand.positionApplied;
+        if (!tradeSrc) {
+          if (!dryRun) {
+            qSheet.getRange(queueRowNum, PQ_COL.status).setValue('FAILED');
+            qSheet.getRange(queueRowNum, PQ_COL.failureReason).setValue('No trade/position — cannot generate Top 3');
+            qSheet.getRange(queueRowNum, PQ_COL.retryCount).setValue(retryCount + 1);
+          }
+          skipped++;
+          continue;
+        }
+        var top3Prompt =
+          'A GCC recruitment candidate has the following profile:\n' +
+          'Trade/Skill: ' + tradeSrc + '\n' +
+          'Position Applied: ' + (cand.positionApplied || tradeSrc) + '\n' +
+          'Experience: ' + cand.experience + ' years\n' +
+          'Education: ' + (cand.education || 'Not specified') + '\n' +
+          'Gulf Experience: ' + (cand.gulfExp || 'None') + '\n' +
+          'Industry: ' + (cand.industry || 'Not specified') + '\n' +
+          (cand.kaiAssessment ? 'Notes: ' + cand.kaiAssessment + '\n' : '') +
+          '\nList the top 3 GCC job positions this candidate is most qualified for.' +
+          '\nReturn ONLY a comma-separated list of 3 job titles. No explanation. Example:\n' +
+          'Scaffold Supervisor, Rigger, Scaffolder';
+
+        var top3Resp = callGeminiText_(top3Prompt, apiKey, 80);
+        var top3Text = top3Resp.trim().replace(/\n/g,', ').replace(/\s*,\s*/g,', ').replace(/[*#]/g,'').trim();
+
+        if (top3Text.length > 5) {
+          if (!dryRun) {
+            candSheet.getRange(candRowNum, COL.top3Positions).setValue(top3Text);
+            qSheet.getRange(queueRowNum, PQ_COL.status).setValue('DONE');
+          }
+          processed++;
+        } else {
+          throw new Error('Gemini returned empty top3 response');
+        }
+
+      } else if (step === 'ASSESSMENT') {
+        var existingAssess = cand.kaiAssessment;
+        if (existingAssess && existingAssess.length > 20 &&
+            existingAssess.indexOf('WhatsApp intake') < 0 &&
+            existingAssess.indexOf('intake') < 0) {
+          if (!dryRun) qSheet.getRange(queueRowNum, PQ_COL.status).setValue('DONE');
+          skipped++;
+          continue;
+        }
+        var tradeSrcA = cand.trade || cand.positionApplied;
+        var assessPrompt =
+          'Write a 2-sentence GCC recruitment assessment for this candidate:\n' +
+          'Trade: ' + (tradeSrcA || 'Unknown') + '\n' +
+          'Experience: ' + cand.experience + ' years total' +
+          (cand.gulfExp ? ', Gulf experience: ' + cand.gulfExp : '') + '\n' +
+          'Education: ' + (cand.education || 'Not specified') + '\n' +
+          'Focus on suitability for GCC blue-collar/technical deployment.' +
+          ' Be direct and factual. No greeting. No candidate name.';
+
+        var assessText = callGeminiText_(assessPrompt, apiKey, 120).trim();
+
+        if (assessText.length > 20) {
+          if (!dryRun) {
+            candSheet.getRange(candRowNum, COL.kaiAssessment).setValue(assessText);
+            qSheet.getRange(queueRowNum, PQ_COL.status).setValue('DONE');
+          }
+          processed++;
+        } else {
+          throw new Error('Gemini returned empty assessment response');
+        }
+
+      } else {
+        // Unknown step — mark abandoned
+        if (!dryRun) {
+          qSheet.getRange(queueRowNum, PQ_COL.status).setValue('ABANDONED');
+          qSheet.getRange(queueRowNum, PQ_COL.failureReason).setValue('Unknown step: ' + step);
+        }
+        skipped++;
+      }
+
+      Utilities.sleep(300); // throttle Gemini calls
+
+    } catch(e) {
+      errors.push({ kaiNo:kaiNo, step:step, row:queueRowNum, error:e.message });
+      if (!dryRun) {
+        var newRetry = retryCount + 1;
+        qSheet.getRange(queueRowNum, PQ_COL.status).setValue(newRetry >= PQ_ABANDON_THRESHOLD ? 'ABANDONED' : 'FAILED');
+        qSheet.getRange(queueRowNum, PQ_COL.failureReason).setValue(e.message.slice(0,200));
+        qSheet.getRange(queueRowNum, PQ_COL.retryCount).setValue(newRetry);
+      }
+      processed++;
+    }
+  }
+
+  return {
+    ok:        true,
+    processed: processed,
+    skipped:   skipped,
+    errors:    errors.length,
+    errorList: errors.slice(0,10),
+    dryRun:    dryRun,
+    summary:   'Processed ' + processed + ' queue items. Skipped ' + skipped + '. Errors: ' + errors.length
+  };
+}
+
+// Shared Gemini text-only call (no file attachment needed)
+function callGeminiText_(prompt, apiKey, maxTokens) {
+  var resp = UrlFetchApp.fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+    { method:'post', contentType:'application/json', muteHttpExceptions:true,
+      payload: JSON.stringify({
+        contents:[{ parts:[{ text:prompt }] }],
+        generationConfig:{ temperature:0.2, maxOutputTokens: maxTokens || 120 }
+      })
+    }
+  );
+  var result = JSON.parse(resp.getContentText());
+  if (!result.candidates || !result.candidates[0]) throw new Error('Gemini: no candidates in response');
+  return String(result.candidates[0].content.parts[0].text || '').trim();
+}
+
+// Install a time-based trigger to run processNextInQueue_ every 10 minutes.
+// Safe to call multiple times — checks for existing trigger first.
+function installQueueTrigger_() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'runQueueBatch') return;
+  }
+  ScriptApp.newTrigger('runQueueBatch')
+    .timeBased().everyMinutes(10).create();
+  Logger.log('Queue trigger installed: runQueueBatch every 10 min');
+}
+
+function removeQueueTrigger_() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'runQueueBatch') {
+      ScriptApp.deleteTrigger(triggers[i]);
+      Logger.log('Queue trigger removed');
+      return;
+    }
+  }
+  Logger.log('No queue trigger found');
+}
+
+// Time-trigger handler — called by the 10-min trigger
+function runQueueBatch() {
+  var result = processNextInQueue_({ limit: '20' });
+  Logger.log('runQueueBatch: ' + result.summary);
+}
+
+// Public test wrappers
+function testProcessingQueue()   { Logger.log(JSON.stringify(getProcessingQueue_({}))); }
+function testProcessQueueDry()   { Logger.log(JSON.stringify(processNextInQueue_({ limit:'5', dryRun:'true' }))); }
+function testProcessQueue()      { Logger.log(JSON.stringify(processNextInQueue_({ limit:'10' }))); }
+function installQueueTrigger()   { installQueueTrigger_(); }
+function removeQueueTrigger()    { removeQueueTrigger_(); }
