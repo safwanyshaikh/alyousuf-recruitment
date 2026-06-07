@@ -9538,27 +9538,44 @@ function callGeminiText_(prompt, apiKey, maxTokens) {
 }
 
 // Install a time-based trigger to run processNextInQueue_ every 10 minutes.
-// Safe to call multiple times — checks for existing trigger first.
+// Requires script.scriptapp OAuth scope — if this project lacks it, set up manually:
+//   GAS UI → Triggers (⏰ icon, bottom-left) → Add Trigger
+//   Function: runQueueBatch | Event: Time-driven | Every 10 minutes
 function installQueueTrigger_() {
-  var triggers = ScriptApp.getProjectTriggers();
-  for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'runQueueBatch') return;
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      if (triggers[i].getHandlerFunction() === 'runQueueBatch') {
+        Logger.log('Queue trigger already installed — nothing to do.');
+        return;
+      }
+    }
+    ScriptApp.newTrigger('runQueueBatch')
+      .timeBased().everyMinutes(10).create();
+    Logger.log('Queue trigger installed: runQueueBatch every 10 min.');
+  } catch(e) {
+    Logger.log(
+      'Could not install trigger programmatically: ' + e.message + '\n' +
+      'Set up manually in GAS UI:\n' +
+      '  Triggers (⏰) → Add Trigger → runQueueBatch → Time-driven → Every 10 minutes'
+    );
   }
-  ScriptApp.newTrigger('runQueueBatch')
-    .timeBased().everyMinutes(10).create();
-  Logger.log('Queue trigger installed: runQueueBatch every 10 min');
 }
 
 function removeQueueTrigger_() {
-  var triggers = ScriptApp.getProjectTriggers();
-  for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'runQueueBatch') {
-      ScriptApp.deleteTrigger(triggers[i]);
-      Logger.log('Queue trigger removed');
-      return;
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      if (triggers[i].getHandlerFunction() === 'runQueueBatch') {
+        ScriptApp.deleteTrigger(triggers[i]);
+        Logger.log('Queue trigger removed.');
+        return;
+      }
     }
+    Logger.log('No queue trigger found.');
+  } catch(e) {
+    Logger.log('Could not check triggers: ' + e.message + '. Remove manually from GAS Triggers UI.');
   }
-  Logger.log('No queue trigger found');
 }
 
 // Time-trigger handler — called by the 10-min trigger
