@@ -12333,7 +12333,8 @@ function processEmailMessage_(ss, message, sourceLabel) {
 
     return 'IGNORED';
   } catch(e) {
-    Logger.log('processEmailMessage_ error: ' + e.message);
+    Logger.log('processEmailMessage_ error: ' + e.message + ' | STACK: ' + (e.stack || 'no stack') +
+               ' | subject=' + (message ? message.getSubject() : '?'));
     return 'ERROR';
   }
 }
