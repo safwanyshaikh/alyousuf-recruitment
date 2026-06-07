@@ -163,10 +163,11 @@ function doPost(e) {
 
     if      (action === 'updateStage')       out = JSON.stringify(updateStage_(body));
     else if (action === 'saveNote')          out = JSON.stringify(saveNote_(body));
-    else if (action === 'createRequirement')    out = JSON.stringify(createRequirement_(body));
-    else if (action === 'updateRequirement')    out = JSON.stringify(updateRequirement_(body));
-    else if (action === 'deleteRequirement')    out = JSON.stringify(deleteRequirement_(body));
-    else if (action === 'duplicateRequirement') out = JSON.stringify(duplicateRequirement_(body));
+    else if (action === 'createRequirement')          out = JSON.stringify(createRequirement_(body));
+    else if (action === 'updateRequirement')          out = JSON.stringify(updateRequirement_(body));
+    else if (action === 'deleteRequirement')          out = JSON.stringify(deleteRequirement_(body));
+    else if (action === 'duplicateRequirement')       out = JSON.stringify(duplicateRequirement_(body));
+    else if (action === 'bulkCreateRequirementsFromJDs') out = JSON.stringify(bulkCreateRequirementsFromJDs_(body));
     else if (action === 'createJD')          out = JSON.stringify(createJD_(body));
     else if (action === 'uploadCV')          out = JSON.stringify(uploadCV_(body));
     else if (action === 'gmailReply')        out = JSON.stringify(gmailReply_(body));
@@ -10210,4 +10211,398 @@ function tuwaiqCampaignStats() {
   Object.keys(deptMap).forEach(function(d) {
     Logger.log('  ' + d + ': ' + deptMap[d].roles + ' roles, ' + deptMap[d].heads + ' heads');
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 39 — BULK JD UPLOAD → REQUIREMENTS CREATION
+//
+// Endpoint: POST action=bulkCreateRequirementsFromJDs
+//
+// Body:
+//   {
+//     campaignId:   string,      // required
+//     campaignName: string,
+//     clientId:     string,
+//     clientName:   string,
+//     location:     string,      // deploy location (e.g. "Riyadh, Saudi Arabia")
+//     country:      string,
+//     sector:       string,
+//     sourcedBy:    string,
+//     interviewMode: string,     // CAMPING / ONLINE / HYBRID
+//     interviewDate: string,
+//     interviewCities: string,
+//     jds: [
+//       { fileName: string, content: string }  // content = extracted text from PDF/DOCX
+//     ]
+//   }
+//
+// Returns:
+//   { ok, created, skipped, failed, results: [{fileName, reqId, trade, status, reason}] }
+//
+// Flow per JD:
+//   1. Gemini parses JD text → extracts trade, dept, qty, expMin, salary, cert, notes
+//   2. Validates trade via isValidTrade_
+//   3. Calls createRequirement_ with enriched body
+//   4. After all JDs: creates/updates campaign tracker sheet
+// ════════════════════════════════════════════════════════════════════════════
+
+function bulkCreateRequirementsFromJDs_(body) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  var campaignId    = String(body.campaignId    ||'').trim();
+  var campaignName  = String(body.campaignName  ||'').trim();
+  var clientId      = String(body.clientId      ||'').trim();
+  var clientName    = String(body.clientName    ||'').trim();
+  var location      = String(body.location      ||'').trim();
+  var country       = String(body.country       ||'Saudi Arabia').trim();
+  var sector        = String(body.sector        ||'').trim();
+  var sourcedBy     = String(body.sourcedBy     ||'').trim();
+  var interviewMode = String(body.interviewMode ||'CAMPING').trim();
+  var interviewDate = String(body.interviewDate ||'').trim();
+  var interviewCities = String(body.interviewCities||'').trim();
+  var jds           = body.jds || [];
+
+  if (!campaignId)       return { ok:false, error:'campaignId required' };
+  if (!jds || !jds.length) return { ok:false, error:'No JD files provided' };
+
+  var created = 0, skipped = 0, failed = 0;
+  var results = [];
+
+  for (var i = 0; i < jds.length; i++) {
+    var jd         = jds[i];
+    var fileName   = String(jd.fileName||('JD_' + (i+1))).trim();
+    var jdContent  = String(jd.content ||'').trim();
+
+    if (!jdContent) {
+      results.push({ fileName:fileName, status:'FAILED', reason:'Empty content', reqId:'', trade:'' });
+      failed++;
+      continue;
+    }
+
+    try {
+      // Step 1 — Gemini parses the JD text
+      var parsed = parseJDWithGemini_(jdContent, fileName);
+
+      if (!parsed || !parsed.trade) {
+        results.push({ fileName:fileName, status:'FAILED', reason:'Gemini could not extract trade', reqId:'', trade:'' });
+        failed++;
+        continue;
+      }
+
+      // Step 2 — Build requirement body matching createRequirement_ signature
+      var reqBody = {
+        trade:         parsed.trade,
+        jobTitle:      parsed.trade,
+        clientName:    clientName,
+        clientId:      clientId,
+        deployCountry: country,
+        projectName:   campaignName,
+        requiredQty:   parsed.qty        || 1,
+        minExperience: parsed.expMin     || 0,
+        minAge:        parsed.minAge     || 18,
+        maxAge:        parsed.maxAge     || 45,
+        salary:        parsed.salary     || '',
+        notes:         buildJDNotes_(parsed, fileName),
+        sourcedBy:     sourcedBy,
+        interviewMode: interviewMode,
+        interviewDate: interviewDate,
+        urgency:       parsed.urgency    || 'Normal',
+        certRequired:  parsed.certRequired || '',
+        nationality:   parsed.nationality  || '',
+        sector:        sector,
+        campaignId:    campaignId,
+        campaignName:  campaignName,
+        interviewCities: interviewCities,
+        jdId:          fileName,
+        positionId:    parsed.positionId || ''
+      };
+
+      // Step 3 — Create requirement (uses existing createRequirement_ which validates trade)
+      var reqResult = createRequirement_(reqBody);
+
+      if (reqResult.ok) {
+        results.push({
+          fileName:   fileName,
+          status:     'CREATED',
+          reason:     '',
+          reqId:      reqResult.reqId,
+          trade:      parsed.trade,
+          qty:        parsed.qty || 1,
+          salary:     parsed.salary || '',
+          dept:       parsed.department || ''
+        });
+        created++;
+      } else if (reqResult.error === 'INVALID_TRADE') {
+        results.push({ fileName:fileName, status:'QUARANTINED', reason:reqResult.message, reqId:'', trade:parsed.trade });
+        failed++;
+      } else {
+        results.push({ fileName:fileName, status:'FAILED', reason:reqResult.error||'Unknown error', reqId:'', trade:parsed.trade });
+        failed++;
+      }
+
+    } catch(e) {
+      results.push({ fileName:fileName, status:'FAILED', reason:'Exception: ' + e.message, reqId:'', trade:'' });
+      failed++;
+      Logger.log('bulkCreateRequirementsFromJDs_ error on ' + fileName + ': ' + e.message);
+    }
+
+    // Throttle to avoid GAS quota issues on large batches
+    if ((i+1) % 5 === 0) Utilities.sleep(1000);
+  }
+
+  // Step 4 — Create / update campaign tracker sheet
+  var trackerResult = { ok:false, message:'skipped' };
+  if (created > 0) {
+    trackerResult = createCampaignTrackerSheet_(ss, {
+      campaignId:      campaignId,
+      campaignName:    campaignName,
+      clientName:      clientName,
+      location:        location,
+      interviewDate:   interviewDate,
+      interviewCities: interviewCities,
+      results:         results
+    });
+  }
+
+  Logger.log('bulkCreateRequirementsFromJDs: created=' + created + ' skipped=' + skipped + ' failed=' + failed);
+
+  return {
+    ok:      true,
+    created: created,
+    skipped: skipped,
+    failed:  failed,
+    tracker: trackerResult.message,
+    results: results
+  };
+}
+
+// ── GEMINI JD PARSER ─────────────────────────────────────────────────────────
+function parseJDWithGemini_(jdText, fileName) {
+  try {
+    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    if (!apiKey) {
+      Logger.log('parseJDWithGemini_: no GEMINI_API_KEY — using rule-based fallback');
+      return parseJDRuleBased_(jdText, fileName);
+    }
+
+    var prompt =
+      'You are a GCC recruitment specialist. Extract structured data from this Job Description.\n' +
+      'Return ONLY valid JSON with these exact keys (no markdown, no explanation):\n' +
+      '{\n' +
+      '  "trade": "exact job title, normalized to trade name (e.g. Electrician, CNC Machinist, Welder)",\n' +
+      '  "department": "department name (e.g. Mechanical, Electrical, Production, NDE/QC, Maintenance)",\n' +
+      '  "qty": <number of vacancies, integer, default 1>,\n' +
+      '  "expMin": <minimum years of experience, integer>,\n' +
+      '  "expMax": <maximum years of experience, integer>,\n' +
+      '  "minAge": <minimum age if stated, integer, else 18>,\n' +
+      '  "maxAge": <maximum age if stated, integer, else 45>,\n' +
+      '  "salary": "salary range as string (e.g. SAR 2000-4000), empty string if not mentioned",\n' +
+      '  "nationality": "preferred nationality if mentioned, else empty string",\n' +
+      '  "certRequired": "required certifications (e.g. ASNT Level II, AWS), empty string if none",\n' +
+      '  "urgency": "Urgent or Normal",\n' +
+      '  "positionId": "client position ID if mentioned (e.g. MU-037), empty string if none",\n' +
+      '  "keySkills": "comma-separated key skills from JD",\n' +
+      '  "education": "education requirement if mentioned"\n' +
+      '}\n\n' +
+      'JD FILE: ' + fileName + '\n\n' +
+      'JD TEXT:\n' + jdText.substring(0, 4000);
+
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey;
+    var payload = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
+    });
+
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'POST',
+      contentType: 'application/json',
+      payload: payload,
+      muteHttpExceptions: true
+    });
+
+    var json = JSON.parse(resp.getContentText());
+    var raw  = (json.candidates||[])[0];
+    if (!raw) return parseJDRuleBased_(jdText, fileName);
+
+    var text = raw.content.parts[0].text.trim();
+    // Strip markdown code fences if present
+    text = text.replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+
+    var parsed = JSON.parse(text);
+    return parsed;
+
+  } catch(e) {
+    Logger.log('parseJDWithGemini_ error: ' + e.message + ' — using rule-based fallback');
+    return parseJDRuleBased_(jdText, fileName);
+  }
+}
+
+// ── RULE-BASED FALLBACK (when no Gemini API key) ─────────────────────────────
+function parseJDRuleBased_(jdText, fileName) {
+  var result = {
+    trade:         '',
+    department:    '',
+    qty:           1,
+    expMin:        0,
+    expMax:        15,
+    minAge:        18,
+    maxAge:        45,
+    salary:        '',
+    nationality:   '',
+    certRequired:  '',
+    urgency:       'Normal',
+    positionId:    '',
+    keySkills:     '',
+    education:     ''
+  };
+
+  var text = jdText.toLowerCase();
+
+  // Trade: use filename as primary signal (strips extension, replaces _ with space)
+  var nameOnly = fileName.replace(/\.[^.]+$/, '').replace(/[_-]/g,' ').trim();
+  if (nameOnly) result.trade = nameOnly;
+
+  // Qty: look for "X vacancies", "X positions", "qty: X", "no of vacancy: X"
+  var qtyMatch = jdText.match(/(?:qty|quantity|vacancies|vacancy|no\.?\s*of\s*(?:vacancy|position|post)s?)\s*[:\-]?\s*(\d+)/i);
+  if (qtyMatch) result.qty = parseInt(qtyMatch[1]);
+
+  // Experience: "X years" or "X+ years" or "minimum X years"
+  var expMatch = jdText.match(/(?:minimum|min\.?|at\s*least)?\s*(\d+)\s*(?:\+|to\s*\d+)?\s*years?\s*(?:of\s*)?(?:experience|exp)/i);
+  if (expMatch) result.expMin = parseInt(expMatch[1]);
+
+  // Salary: SAR / AED / SR followed by numbers
+  var salMatch = jdText.match(/(?:SAR|AED|SR|salary)\s*[\$:]?\s*(\d[\d,\-\s]*\d)/i);
+  if (salMatch) result.salary = salMatch[0].replace(/\s+/g,' ').trim();
+
+  // Age
+  var ageMatch = jdText.match(/(?:age|max\.?\s*age)\s*[:\-]?\s*(\d{2})\s*(?:\-|to)\s*(\d{2})/i);
+  if (ageMatch) { result.minAge = parseInt(ageMatch[1]); result.maxAge = parseInt(ageMatch[2]); }
+
+  // Nationality
+  var natMatch = jdText.match(/(?:nationality|preferred)\s*[:\-]?\s*([A-Za-z]+(?:\s*\/\s*[A-Za-z]+)?)/i);
+  if (natMatch && natMatch[1].length < 30) result.nationality = natMatch[1].trim();
+
+  // Department via classifyDepartment_
+  if (result.trade) result.department = classifyDepartment_(result.trade);
+
+  // Cert: ASNT, AWS, CSWIP, etc.
+  var certMatch = jdText.match(/\b(ASNT|AWS|CSWIP|PCN|TWI|ISO\s*\d+|EN\s*\d+)\s*[A-Za-z\s]*(?:Level\s*[I1-3]+)?/i);
+  if (certMatch) result.certRequired = certMatch[0].trim();
+
+  // Position ID pattern (e.g. MU-037, PRO-CAST-039)
+  var posIdMatch = jdText.match(/\b([A-Z]{2,10}-[A-Z]{0,6}-?\d{2,4})\b/);
+  if (posIdMatch) result.positionId = posIdMatch[1];
+
+  return result;
+}
+
+// ── BUILD NOTES FROM PARSED JD ────────────────────────────────────────────────
+function buildJDNotes_(parsed, fileName) {
+  var parts = [];
+  if (parsed.positionId)  parts.push('Position ID: ' + parsed.positionId);
+  if (parsed.certRequired) parts.push('Cert: ' + parsed.certRequired);
+  if (parsed.keySkills)    parts.push('Skills: ' + parsed.keySkills);
+  if (parsed.education)    parts.push('Education: ' + parsed.education);
+  parts.push('Source JD: ' + fileName);
+  return parts.join(' | ');
+}
+
+// ── CREATE / UPDATE CAMPAIGN TRACKER SHEET ───────────────────────────────────
+// Generic version of Tuwaiq tracker — works for any campaign.
+// Sheet name: _Tracker_<campaignId> (e.g. _Tracker_CMP-20260607-001)
+function createCampaignTrackerSheet_(ss, opts) {
+  try {
+    var sheetName = '_Tracker_' + opts.campaignId;
+    // If already exists, just return (don't wipe existing submissions)
+    var existing = ss.getSheetByName(sheetName);
+    if (existing) {
+      return { ok:true, message:'Tracker already exists: ' + sheetName };
+    }
+
+    var tracker = ss.insertSheet(sheetName);
+
+    // Row 1: campaign header
+    tracker.getRange(1, 1, 1, 22).merge();
+    tracker.getRange(1, 1).setValue(
+      (opts.campaignName||opts.campaignId) + ' — Submission Tracker' +
+      (opts.interviewDate ? ' | Interview: ' + opts.interviewDate : '') +
+      (opts.interviewCities ? ' | Cities: ' + opts.interviewCities : '')
+    );
+    tracker.getRange(1, 1)
+      .setFontWeight('bold')
+      .setBackground('#1a237e')
+      .setFontColor('#ffffff')
+      .setFontSize(11);
+
+    // Row 2: column headers
+    var headers = [
+      'Sr No','KAI No','Position','Position ID','Department',
+      'Category','Salary Range','Candidate Name','Age',
+      'Passport No','Passport Expiry','ECR Status',
+      'Total Exp (Yrs)','Gulf Exp (Yrs)','Current Location',
+      'Interview City','Salary Agreed','Remarks',
+      'Submission Status','Submitted On','Interview Result','Notes'
+    ];
+    tracker.getRange(2, 1, 1, headers.length).setValues([headers]);
+    tracker.getRange(2, 1, 1, headers.length)
+      .setFontWeight('bold')
+      .setBackground('#283593')
+      .setFontColor('#ffffff')
+      .setFontSize(10)
+      .setHorizontalAlignment('center');
+
+    tracker.setFrozenRows(2);
+
+    // Rows 3+: one row per requirement created
+    var rowNum   = 3;
+    var srNum    = 1;
+    var prevDept = '';
+    var createdResults = (opts.results||[]).filter(function(r){ return r.status === 'CREATED'; });
+
+    // Sort by department for visual grouping
+    createdResults.sort(function(a,b){ return (a.dept||'').localeCompare(b.dept||''); });
+
+    createdResults.forEach(function(r) {
+      // Department separator
+      if (r.dept && r.dept !== prevDept) {
+        tracker.getRange(rowNum, 1, 1, headers.length).merge();
+        tracker.getRange(rowNum, 1).setValue('── ' + (r.dept||'').toUpperCase() + ' ──');
+        tracker.getRange(rowNum, 1, 1, headers.length)
+          .setBackground('#e8eaf6')
+          .setFontWeight('bold')
+          .setFontSize(9);
+        rowNum++;
+        prevDept = r.dept;
+      }
+
+      // One row per vacancy head
+      var qty = parseInt(r.qty)||1;
+      for (var h = 0; h < qty; h++) {
+        tracker.getRange(rowNum, 1).setValue(srNum++);
+        tracker.getRange(rowNum, 3).setValue(r.trade);
+        tracker.getRange(rowNum, 7).setValue(r.salary||'');
+        tracker.getRange(rowNum, 16).setValue(opts.interviewCities ? opts.interviewCities.split(',')[0].trim() : 'TBD');
+        tracker.getRange(rowNum, 19).setValue('Pending');
+        if (h % 2 === 0) tracker.getRange(rowNum, 1, 1, headers.length).setBackground('#fafafa');
+        rowNum++;
+      }
+    });
+
+    // Column widths
+    var widths = [50,85,200,100,160,120,110,160,45,110,100,85,90,80,130,120,100,150,120,100,110,150];
+    widths.forEach(function(w, idx) { tracker.setColumnWidth(idx+1, w); });
+
+    // Summary footer
+    var totalHeads = createdResults.reduce(function(s,r){ return s+(parseInt(r.qty)||1); }, 0);
+    tracker.getRange(rowNum+1, 1).setValue('Total Requirements: ' + createdResults.length + ' | Total Heads: ' + totalHeads);
+    tracker.getRange(rowNum+1, 1, 1, 6)
+      .setFontWeight('bold')
+      .setBackground('#e8eaf6');
+
+    return { ok:true, message:'Created tracker: ' + sheetName + ' (' + totalHeads + ' heads)' };
+
+  } catch(e) {
+    Logger.log('createCampaignTrackerSheet_ error: ' + e.message);
+    return { ok:false, message:'Tracker error: ' + e.message };
+  }
 }
