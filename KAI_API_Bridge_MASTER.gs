@@ -436,6 +436,8 @@ function getAllCandidatesRaw_() {
 
 // GET ?action=candidates&page=1&limit=100&stage=X&trade=X&nationality=X
 //     &gccMobility=X&scoreMin=X&scoreMax=X&verdict=X&q=searchterm
+//     &industry=X&passportStatus=X&ecrStatus=X&hasCV=1&hasContact=1
+//     &experienceMin=X&experienceMax=X&source=X&recruiter=X
 function getCandidates_(params) {
   params = params || {};
   var ss    = SpreadsheetApp.openById(SS_ID);
@@ -445,14 +447,23 @@ function getCandidates_(params) {
   var data = sheet.getRange(2, 1, sheet.getLastRow()-1,
              Math.min(sheet.getLastColumn(), 42)).getValues();
 
-  var fStage  = String(params.stage       ||'').trim().toLowerCase();
-  var fTrade  = String(params.trade       ||'').trim().toLowerCase();
-  var fNat    = String(params.nationality ||'').trim().toLowerCase();
-  var fGCC    = String(params.gccMobility ||'').trim().toUpperCase();
-  var fVerdict= String(params.verdict     ||'').trim().toLowerCase();
-  var fMin    = parseInt(params.scoreMin  ||'0')   || 0;
-  var fMax    = parseInt(params.scoreMax  ||'100') || 100;
-  var fSearch = String(params.q           ||'').trim().toLowerCase();
+  var fStage      = String(params.stage          ||'').trim().toLowerCase();
+  var fTrade      = String(params.trade          ||'').trim().toLowerCase();
+  var fNat        = String(params.nationality    ||'').trim().toLowerCase();
+  var fGCC        = String(params.gccMobility    ||'').trim().toUpperCase();
+  var fVerdict    = String(params.verdict        ||'').trim().toLowerCase();
+  var fMin        = parseInt(params.scoreMin     ||'0')   || 0;
+  var fMax        = parseInt(params.scoreMax     ||'100') || 100;
+  var fSearch     = String(params.q              ||'').trim().toLowerCase();
+  var fIndustry   = String(params.industry       ||'').trim().toLowerCase();
+  var fPpStatus   = String(params.passportStatus ||'').trim().toLowerCase();
+  var fEcr        = String(params.ecrStatus      ||'').trim().toLowerCase();
+  var fHasCV      = String(params.hasCV          ||'').trim();
+  var fHasContact = String(params.hasContact     ||'').trim();
+  var fExpMin     = params.experienceMin !== undefined ? parseFloat(params.experienceMin) : -1;
+  var fExpMax     = params.experienceMax !== undefined ? parseFloat(params.experienceMax) : -1;
+  var fSource     = String(params.source         ||'').trim().toLowerCase();
+  var fRecruiter  = String(params.recruiter      ||'').trim().toLowerCase();
   var page    = Math.max(1, parseInt(params.page  ||'1')  || 1);
   var limit   = Math.min(200, parseInt(params.limit||'100')|| 100);
 
@@ -484,6 +495,42 @@ function getCandidates_(params) {
     var gccMobility = classifyGCCMobility_(gulfExp, loc);
     if (fGCC && gccMobility !== fGCC) return;
 
+    // Banner filter gates
+    var industry = String(row[COL.industry-1]||'').trim();
+    if (fIndustry && industry.toLowerCase().indexOf(fIndustry) < 0) return;
+
+    var expYears = parseFloat(row[COL.experience-1]) || 0;
+    if (fExpMin >= 0 && expYears < fExpMin) return;
+    if (fExpMax >= 0 && expYears > fExpMax) return;
+
+    var cvLink = String(row[COL.cvLink-1]||'').trim();
+    if (fHasCV === '1' && !cvLink) return;
+    if (fHasCV === '0' && cvLink)  return;
+
+    var mobile = String(row[COL.mobile-1]||'').replace(/^'/,'').trim();
+    var email  = String(row[COL.email-1]||'').trim();
+    if (fHasContact === '1' && !mobile && !email) return;
+    if (fHasContact === '0' && (mobile || email)) return;
+
+    var flags = String(row[COL.flags-1]||'').trim();
+    if (fSource && flags.toLowerCase().indexOf(fSource) < 0) return;
+
+    var ecrSt = String(row[COL.ecrStatus-1]||'').trim();
+    if (fEcr && ecrSt.toLowerCase().indexOf(fEcr) < 0) return;
+
+    var recruiterActionVal = String(row[COL.recruiterAction-1]||'').trim();
+    if (fRecruiter && recruiterActionVal.toLowerCase().indexOf(fRecruiter) < 0) return;
+
+    // Passport status gate (computed early for banner filter)
+    var ppExpR0  = row[COL.passportExpiry-1];
+    var ppExp0   = ppExpR0 instanceof Date ? ppExpR0 : null;
+    var ppStat0  = 'Unknown';
+    if (ppExp0 && !isNaN(ppExp0)) {
+      var mLeft0 = (ppExp0 - new Date()) / (1000*60*60*24*30);
+      ppStat0 = mLeft0 > 6 ? 'Valid' : (mLeft0 > 0 ? '<6mo' : 'Expired');
+    }
+    if (fPpStatus && ppStat0.toLowerCase().indexOf(fPpStatus) < 0) return;
+
     if (fSearch) {
       var kaiNo  = String(row[COL.kaiNo-1]||'');
       var mobile = String(row[COL.mobile-1]||'').replace(/^'/,'');
@@ -499,13 +546,8 @@ function getCandidates_(params) {
     var edu     = parseEducation_(String(row[COL.education-1]||''));
     var top3    = parseTop3Positions_(String(row[COL.top3Positions-1]||''));
     var appDt   = row[COL.applicationDate-1];
-    var ppExpR  = row[COL.passportExpiry-1];
-    var ppExp   = ppExpR instanceof Date ? ppExpR : null;
-    var ppStat  = 'Unknown';
-    if (ppExp && !isNaN(ppExp)) {
-      var mLeft = (ppExp - new Date()) / (1000*60*60*24*30);
-      ppStat = mLeft > 6 ? 'Valid' : (mLeft > 0 ? '<6mo' : 'Expired');
-    }
+    var ppExp   = ppExp0;
+    var ppStat  = ppStat0;
 
     records.push({
       rowIndex:         i + 2,
@@ -538,10 +580,12 @@ function getCandidates_(params) {
       passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Dubai','yyyy-MM-dd') : '',
       passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
       ecrStatus:        String(row[COL.ecrStatus-1]||'').trim(),
+      medicalStatus:    String(row[COL.medicalStatus-1]||'').trim(),
       missingFields:    String(row[COL.missingFields-1]||'').trim(),
       deployScore:      parseInt(row[COL.deployScore-1]) || 0,
       top3Positions:    top3,
       flags:            String(row[COL.flags-1]||'').trim(),
+      source:           String(row[COL.flags-1]||'').trim(),
       recruiterAction:  String(row[COL.recruiterAction-1]||'').trim(),
       notes:            String(row[COL.notes-1]||'').trim().slice(0,200),
     });
