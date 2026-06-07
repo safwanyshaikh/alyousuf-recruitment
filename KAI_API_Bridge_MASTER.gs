@@ -9552,7 +9552,7 @@ function removeQueueTrigger_() {
 // Time-trigger handler — called by the 10-min trigger
 function runQueueBatch() {
   var result = processNextInQueue_({ limit: '20' });
-  Logger.log('runQueueBatch: ' + result.summary);
+  Logger.log('runQueueBatch: ' + (result.summary || result.message || result.error || JSON.stringify(result)));
 }
 
 // Public test wrappers
