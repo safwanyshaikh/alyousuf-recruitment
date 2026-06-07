@@ -12271,14 +12271,28 @@ function processEmailMessage_(ss, message, sourceLabel) {
       }
 
       // Sender is NOT in Candidates → parse CV for candidate details
-      var cvText = '';
-      try { cvText = extractTextFromAttachment_(bestCV); } catch(e2) { cvText = ''; }
-      if (!cvText || cvText.length < 50) return 'IGNORED';
-
       var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
-      var parsed = parseCVTextForCandidate_(cvText, subject, apiKey);
 
+      // PRIMARY: send PDF/DOC directly to Gemini (multimodal) — reads name/phone/passport
+      // from inside the document, no Drive OCR needed.
+      var parsed = parseCVAttachmentWithGemini_(bestCV, subject, apiKey);
+
+      // FALLBACK: if multimodal failed, try text extraction then parse
+      if (!parsed || !parsed.name) {
+        var cvText = '';
+        try { cvText = extractTextFromAttachment_(bestCV); } catch(e2) { cvText = ''; }
+        if (cvText && cvText.length >= 50) {
+          parsed = parseCVTextForCandidate_(cvText, subject, apiKey);
+        }
+      }
+
+      // Reject if still no real name, OR if the only "name" we got is just the subject
+      // line (a job-title fallback, not a person). A real name is 2+ words, mostly letters.
       if (!parsed || !parsed.name) return 'IGNORED';
+      if (!looksLikePersonName_(parsed.name)) {
+        Logger.log('Skipped — name looks like a job title, not a person: ' + parsed.name);
+        return 'IGNORED';
+      }
 
       var cvEmail    = (parsed.email || '').trim();
       var cvPhone    = (parsed.phone || '').trim();
@@ -12398,6 +12412,99 @@ function parseCVTextForCandidate_(cvText, subjectHint, apiKey) {
     trade:         '',
     skills:        ''
   };
+}
+
+/**
+ * Parse a CV attachment by sending the file BYTES directly to Gemini (multimodal).
+ * Works on scanned/image-based PDFs that text extraction can't read.
+ * Returns parsed candidate JSON, or null on failure.
+ */
+function parseCVAttachmentWithGemini_(attachment, subjectHint, apiKey) {
+  if (!apiKey || !attachment) return null;
+  try {
+    var contentType = (attachment.getContentType() || '').toLowerCase();
+    // Gemini inline supports PDF and common image types. DOCX is not supported inline.
+    var supported = contentType.indexOf('pdf') !== -1 ||
+                    contentType.indexOf('image') !== -1;
+    if (!supported) return null;
+
+    // Gemini inline limit ~20MB; skip oversized files
+    if (attachment.getSize() > 18 * 1024 * 1024) return null;
+
+    var blob   = attachment.copyBlob();
+    var base64 = Utilities.base64Encode(blob.getBytes());
+
+    var instruction =
+      'You are a CV parser for an overseas recruitment company. ' +
+      'Read this CV document and extract the CANDIDATE (the person whose CV this is). ' +
+      'Return ONLY minified JSON with keys: ' +
+      'name, email, phone, passportNo, nationality, totalExpYears, currentJobTitle, ' +
+      'trade, specialization, skills, education, certifications. ' +
+      'name = the person\'s full name (NOT a job title like "Crane Operator"). ' +
+      'trade = their occupation/role. ' +
+      'Use empty string for any field not found. Do not invent data.';
+
+    var payload = {
+      contents: [{
+        parts: [
+          { text: instruction },
+          { inline_data: { mime_type: contentType, data: base64 } }
+        ]
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 1024 }
+    };
+
+    var resp = UrlFetchApp.fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+      {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      }
+    );
+
+    var json = JSON.parse(resp.getContentText());
+    if (json.error) { Logger.log('Gemini multimodal error: ' + JSON.stringify(json.error).substring(0,200)); return null; }
+
+    var parts = (((json.candidates || [])[0] || {}).content || {}).parts;
+    if (!parts || !parts[0] || !parts[0].text) return null;
+
+    var t = parts[0].text.trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+    var result = JSON.parse(t);
+
+    // Reject if Gemini returned a job-title-shaped name
+    if (result.name && !looksLikePersonName_(result.name)) {
+      // keep the trade if name was actually a trade
+      if (!result.trade) result.trade = result.name;
+      result.name = '';
+    }
+    return result;
+  } catch(e) {
+    Logger.log('parseCVAttachmentWithGemini_ error: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Heuristic: does this string look like a real person's name vs a job title?
+ * Person name = 2-4 words, all alphabetic, not containing trade keywords.
+ */
+function looksLikePersonName_(s) {
+  if (!s) return false;
+  var name = String(s).trim();
+  if (name.length < 3 || name.length > 50) return false;
+
+  // Reject if it contains common job-title / document words
+  var jobWords = /\b(operator|engineer|technician|fitter|welder|rigger|fabricator|inspector|supervisor|foreman|helper|driver|mechanic|electrician|plumber|mason|carpenter|painter|scaffolder|document|resume|cv|curriculum|vitae|field|operation|offshore|onshore|experience|manpower|recruitment|application|position|vacancy)\b/i;
+  if (jobWords.test(name)) return false;
+
+  // Must be 1-4 words, mostly letters (allow . and -)
+  var words = name.split(/\s+/);
+  if (words.length < 1 || words.length > 4) return false;
+  if (!/^[A-Za-z][A-Za-z.\-\s]+$/.test(name)) return false;
+
+  return true;
 }
 
 // ── Backlog clearer: karigar/error ────────────────────────────────────────────
@@ -12538,6 +12645,43 @@ function getOrCreateLabel_(name) {
 function processKarigarErrorBacklog() {
   var result = clearKarigarErrorBacklog();
   Logger.log('processKarigarErrorBacklog done: ' + JSON.stringify(result));
+}
+
+/**
+ * One-shot cleanup: find recently-created candidates whose name looks like a
+ * job title (not a person) and flag them 'NEEDS_REVIEW' in empStatus so a
+ * recruiter can re-source. Run once after deploying the multimodal CV parser.
+ * Scans the last `n` rows (default 100).
+ */
+function flagBadNameCandidates(n) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { flagged: 0 };
+  var lastRow = sheet.getLastRow();
+  var scan = Math.min(n || 100, lastRow - 1);
+  if (scan < 1) return { flagged: 0 };
+
+  var startRow = lastRow - scan + 1;
+  var data = sheet.getRange(startRow, 1, scan, 42).getValues();
+  var flagged = 0;
+  var names = [];
+
+  for (var i = 0; i < data.length; i++) {
+    var nm = String(data[i][COL.name - 1] || '').trim();
+    var kaiNo = String(data[i][COL.kaiNo - 1] || '').trim();
+    if (!nm || !kaiNo) continue;
+    if (!looksLikePersonName_(nm)) {
+      var rowIndex = startRow + i;
+      sheet.getRange(rowIndex, COL.empStatus).setValue('NEEDS_REVIEW');
+      var note = '[' + new Date().toISOString() + '] Name looks like a job title — re-source CV. Was: ' + nm;
+      var existingNote = data[i][COL.notes - 1] || '';
+      sheet.getRange(rowIndex, COL.notes).setValue(existingNote ? existingNote + '\n' + note : note);
+      flagged++;
+      names.push(kaiNo + ': ' + nm);
+    }
+  }
+  Logger.log('flagBadNameCandidates: flagged ' + flagged + ' | ' + JSON.stringify(names));
+  return { flagged: flagged, names: names };
 }
 
 // doPost additions for Section 43:
