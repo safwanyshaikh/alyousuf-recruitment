@@ -9742,3 +9742,472 @@ function auditCVIngestion() {
   Logger.log('If FAIL rate > 15%: do not go live. Fix ingestion pipeline first.');
   Logger.log('══════════════════════════════════════════════════');
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 38 — TUWAIQ BULK CAMPAIGN SETUP
+// Creates: Tuwaiq client, "Tuwaiq Saudi Arabia 2026" campaign, 41 requirements,
+//          _Tuwaiq_Interview_Tracker sheet
+// Run once: setupTuwaiqCampaign()
+// ════════════════════════════════════════════════════════════════════════════
+
+var TUWAIQ_POSITIONS = [
+  // ── MAINTENANCE & UTILITIES ─────────────────────────────────────────────
+  { dept:'Maintenance & Utilities', trade:'Electrician',                     posId:'MU-037',        category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'HV Qualified Electrician',        posId:'MU-038',        category:'Skilled Worker', qty:4, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'Hydraulic Specialist',            posId:'MU-042',        category:'Skilled Worker', qty:1, expMin:3,  expMax:12, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'Instrumentation Automation Technician', posId:'MU-045', category:'Skilled Worker', qty:1, expMin:5, expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'Lead Electrical',                 posId:'MU-046',        category:'Skilled Worker', qty:2, expMin:7,  expMax:20, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'Lead Instrumentation Automation', posId:'MU-048',        category:'Skilled Worker', qty:2, expMin:7,  expMax:20, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'Lead Mechanical',                 posId:'MU-050',        category:'Skilled Worker', qty:3, expMin:7,  expMax:20, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'Mechanical Technician',           posId:'MU-054',        category:'Skilled Worker', qty:3, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Maintenance & Utilities', trade:'Maintenance Supervisor',          posId:'MU-010',        category:'Supervisor',     qty:1, expMin:5,  expMax:15, salary:'SAR 4000-5000', interviewMode:'CAMPING' },
+  // ── CASTING ─────────────────────────────────────────────────────────────
+  { dept:'Casting',  trade:'Shot Blast Operator',                            posId:'PRO-CAST-039',  category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Casting',  trade:'Shakeout Operator',                              posId:'PRO-CAST-041',  category:'Skilled Worker', qty:1, expMin:7,  expMax:20, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Casting',  trade:'Sand Lab Operator',                              posId:'PRO-CAST-002',  category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Casting',  trade:'Pouring Operator',                               posId:'PRO-CAST-030',  category:'Skilled Worker', qty:1, expMin:10, expMax:25, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Casting',  trade:'Moulding Operator',                              posId:'PRO-CAST-034',  category:'Skilled Worker', qty:1, expMin:3,  expMax:12, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Casting',  trade:'Grinding Operator',                              posId:'PRO-CAST-035',  category:'Skilled Worker', qty:4, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Casting',  trade:'Dimension Inspection Operator Casting',          posId:'PRO-CAST-031',  category:'Skilled Worker', qty:2, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  // ── FORGING ─────────────────────────────────────────────────────────────
+  { dept:'Forging',  trade:'Heating Furnace Operator',                       posId:'PRO-FORG-022',  category:'Skilled Worker', qty:2, expMin:3,  expMax:12, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Forging',  trade:'Forging Skilled Worker Press',                   posId:'PRO-FORG-012',  category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Forging',  trade:'Forging Press Operator',                         posId:'PRO-FORG-020',  category:'Skilled Worker', qty:2, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Forging',  trade:'Crane Operator Forging',                         posId:'PRO-FORG-019',  category:'Skilled Worker', qty:1, expMin:3,  expMax:12, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  // ── MACHINING ───────────────────────────────────────────────────────────
+  { dept:'Machining', trade:'CNC Machinist Plano Miller',                    posId:'PRO-MCH-031',   category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Machining', trade:'CNC Machinist Lathe',                           posId:'PRO-MCH-029',   category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Machining', trade:'CNC Machinist HBM',                             posId:'PRO-MCH-030',   category:'Skilled Worker', qty:2, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Machining', trade:'CNC Machinist Deep Hole Drilling',              posId:'PRO-MCH-028',   category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Machining', trade:'Forklift Operator',                             posId:'PRO-MCH-033',   category:'Skilled Worker', qty:1, expMin:4,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Machining', trade:'Auxiliary Operator',                            posId:'PRO-MCH-035',   category:'General Labor',  qty:1, expMin:3,  expMax:12, salary:'SAR 900-1400',  interviewMode:'CAMPING' },
+  // ── HEAT TREATMENT ──────────────────────────────────────────────────────
+  { dept:'Heat Treatment', trade:'Sample Machining Supervisor',              posId:'PRO-HT-019',    category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Heat Treatment', trade:'Heat Treatment Operator',                  posId:'PRO-HT-021',    category:'Skilled Worker', qty:2, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Heat Treatment', trade:'Crane Operator Heat Treatment',            posId:'PRO-HT-019-CR', category:'Skilled Worker', qty:1, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Heat Treatment', trade:'Dimensional Inspector Heat Treatment',     posId:'PRO-HT-023',    category:'Skilled Worker', qty:1, expMin:3,  expMax:12, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  // ── NDE / QC ────────────────────────────────────────────────────────────
+  { dept:'NDE/QC',   trade:'NDE Technician UT ASNT Level II',                posId:'QLTY-017',      category:'Skilled Worker', qty:3, expMin:8,  expMax:20, salary:'SAR 2000-4000', interviewMode:'CAMPING', certRequired:'ASNT Level II UT' },
+  { dept:'NDE/QC',   trade:'QC Inspector Dimensional',                       posId:'QLTY-027',      category:'Skilled Worker', qty:2, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'NDE/QC',   trade:'RT Machine Operator',                            posId:'QLTY-031',      category:'Skilled Worker', qty:2, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  // ── PATTERN SHOP ────────────────────────────────────────────────────────
+  { dept:'Pattern Shop', trade:'Pattern Maker',                              posId:'TEC-028',       category:'General Labor',  qty:2, expMin:5,  expMax:15, salary:'SAR 900-1400',  interviewMode:'CAMPING' },
+  { dept:'Pattern Shop', trade:'Pattern Shop Labour',                        posId:'TEC-030',       category:'General Labor',  qty:2, expMin:3,  expMax:12, salary:'SAR 900-1400',  interviewMode:'CAMPING' },
+  // ── MELTING ─────────────────────────────────────────────────────────────
+  { dept:'Melting',  trade:'Refractory Specialist',                          posId:'PRO-MELT-040',  category:'Engineer',       qty:1, expMin:10, expMax:25, salary:'SAR 6000-11000', interviewMode:'CAMPING' },
+  { dept:'Melting',  trade:'Ingot Casting Supervisor',                       posId:'PRO-MELT-039',  category:'Supervisor',     qty:1, expMin:10, expMax:25, salary:'SAR 4000-5000', interviewMode:'CAMPING' },
+  // ── PRODUCTION CONTROL ──────────────────────────────────────────────────
+  { dept:'Production Control', trade:'Surface Blasting Painting Operator',  posId:'PRO-PC-009',    category:'Skilled Worker', qty:2, expMin:5,  expMax:15, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Production Control', trade:'Packing Specialist',                   posId:'PRO-PC-012',    category:'Skilled Worker', qty:1, expMin:2,  expMax:10, salary:'SAR 2000-4000', interviewMode:'CAMPING' },
+  { dept:'Production Control', trade:'Packing Operator',                     posId:'PRO-PC-008',    category:'Skilled Worker', qty:2, expMin:3,  expMax:12, salary:'SAR 2000-4000', interviewMode:'CAMPING' }
+];
+
+// ── INTERVIEW CITIES FOR TUWAIQ CAMPAIGN ────────────────────────────────────
+var TUWAIQ_INTERVIEW_CITIES = 'Raipur, Vadodara, Mumbai, Coimbatore';
+var TUWAIQ_INTERVIEW_DATES  = 'June 14-18, 2026';
+var TUWAIQ_CLIENT_NAME      = 'Tuwaiq Manufacturing Company';
+var TUWAIQ_CAMPAIGN_NAME    = 'Tuwaiq Saudi Arabia 2026';
+var TUWAIQ_SECTOR           = 'Manufacturing';
+var TUWAIQ_LOCATION         = 'Riyadh, Saudi Arabia';
+var TUWAIQ_SOURCED_BY       = 'Safwan';
+
+// ── MASTER RUNNER ────────────────────────────────────────────────────────────
+function setupTuwaiqCampaign() {
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('TUWAIQ CAMPAIGN SETUP — START');
+  Logger.log('══════════════════════════════════════════════════');
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Step 1 — Create or find Tuwaiq client
+  var clientResult = createTuwaiqClient_(ss);
+  Logger.log('Client: ' + clientResult.message + ' | ID: ' + clientResult.clientId);
+
+  // Step 2 — Create or find campaign
+  var campaignResult = createTuwaiqCampaign_(ss, clientResult.clientId);
+  Logger.log('Campaign: ' + campaignResult.message + ' | ID: ' + campaignResult.campaignId);
+
+  // Step 3 — Bulk create requirements
+  var reqResult = createTuwaiqRequirements_(ss, clientResult.clientId, campaignResult.campaignId);
+  Logger.log('Requirements: created=' + reqResult.created + ' | skipped=' + reqResult.skipped + ' | errors=' + reqResult.errors);
+
+  // Step 4 — Create submission tracker sheet
+  var trackerResult = createTuwaiqSubmissionTracker_(ss, campaignResult.campaignId);
+  Logger.log('Tracker: ' + trackerResult.message);
+
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('TUWAIQ CAMPAIGN SETUP — COMPLETE');
+  Logger.log('Total positions: ' + TUWAIQ_POSITIONS.length);
+  Logger.log('Total heads: ' + TUWAIQ_POSITIONS.reduce(function(s,p){ return s+p.qty; }, 0));
+  Logger.log('Client ID: ' + clientResult.clientId);
+  Logger.log('Campaign ID: ' + campaignResult.campaignId);
+  Logger.log('Tracker sheet: _Tuwaiq_Interview_Tracker');
+  Logger.log('══════════════════════════════════════════════════');
+}
+
+// ── CREATE TUWAIQ CLIENT ─────────────────────────────────────────────────────
+function createTuwaiqClient_(ss) {
+  try {
+    var sheet = ss.getSheetByName('_Clients');
+    if (!sheet) {
+      // Create _Clients sheet with headers if missing
+      sheet = ss.insertSheet('_Clients');
+      sheet.appendRow(['ClientID','ClientName','Sector','Location','Country','ContactPerson','ContactEmail','ContactPhone','Status','Notes','CreatedAt']);
+    }
+
+    var data = sheet.getDataRange().getValues();
+    // Check if Tuwaiq already exists (skip row 0 = headers)
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1]||'').toLowerCase().indexOf('tuwaiq') !== -1) {
+        return { ok:true, clientId: String(data[i][0]), message:'Found existing' };
+      }
+    }
+
+    // Create new client
+    var clientId = 'CLT-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') + '-001';
+    sheet.appendRow([
+      clientId,
+      TUWAIQ_CLIENT_NAME,
+      TUWAIQ_SECTOR,
+      TUWAIQ_LOCATION,
+      'Saudi Arabia',
+      'Tuwaiq HR',
+      '',
+      '',
+      'Active',
+      'Manufacturing company — Forging, Casting, Machining, NDE. Interview window: ' + TUWAIQ_INTERVIEW_DATES,
+      new Date()
+    ]);
+
+    return { ok:true, clientId: clientId, message:'Created new' };
+  } catch(e) {
+    Logger.log('createTuwaiqClient_ error: ' + e.message);
+    return { ok:false, clientId:'CLT-TUWAIQ', message:'Error: ' + e.message };
+  }
+}
+
+// ── CREATE TUWAIQ CAMPAIGN ───────────────────────────────────────────────────
+function createTuwaiqCampaign_(ss, clientId) {
+  try {
+    var sheet = ss.getSheetByName('_Campaigns');
+    if (!sheet) {
+      sheet = ss.insertSheet('_Campaigns');
+      sheet.appendRow(['CampaignID','CampaignName','ClientID','ClientName','Sector','Location','InterviewDates','InterviewCities','HiringMode','Status','TotalHeads','Notes','CreatedAt']);
+    }
+
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1]||'').toLowerCase().indexOf('tuwaiq') !== -1) {
+        return { ok:true, campaignId: String(data[i][0]), message:'Found existing' };
+      }
+    }
+
+    var totalHeads = TUWAIQ_POSITIONS.reduce(function(s,p){ return s+p.qty; }, 0);
+    var campaignId = 'CMP-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') + '-001';
+
+    sheet.appendRow([
+      campaignId,
+      TUWAIQ_CAMPAIGN_NAME,
+      clientId,
+      TUWAIQ_CLIENT_NAME,
+      TUWAIQ_SECTOR,
+      TUWAIQ_LOCATION,
+      TUWAIQ_INTERVIEW_DATES,
+      TUWAIQ_INTERVIEW_CITIES,
+      'CAMPING',
+      'Active',
+      totalHeads,
+      'All positions from Tuwaiq JD package June 2026. ' + TUWAIQ_POSITIONS.length + ' roles, ' + totalHeads + ' total heads.',
+      new Date()
+    ]);
+
+    return { ok:true, campaignId: campaignId, message:'Created new' };
+  } catch(e) {
+    Logger.log('createTuwaiqCampaign_ error: ' + e.message);
+    return { ok:false, campaignId:'CMP-TUWAIQ', message:'Error: ' + e.message };
+  }
+}
+
+// ── BULK CREATE REQUIREMENTS ─────────────────────────────────────────────────
+function createTuwaiqRequirements_(ss, clientId, campaignId) {
+  var created = 0, skipped = 0, errors = 0;
+
+  try {
+    var rSheet = ss.getSheetByName('_Requirements');
+    if (!rSheet) {
+      Logger.log('createTuwaiqRequirements_: _Requirements sheet not found');
+      return { created:0, skipped:0, errors:1 };
+    }
+
+    var existingData = rSheet.getDataRange().getValues();
+    // Build set of existing trades for this campaign to avoid duplicates
+    var existingTrades = {};
+    for (var e = 1; e < existingData.length; e++) {
+      var exTrade    = String(existingData[e][3]||'').trim().toLowerCase();
+      var exCampaign = String(existingData[e][19]||'').trim();
+      if (exCampaign === campaignId) {
+        existingTrades[exTrade] = true;
+      }
+    }
+
+    for (var i = 0; i < TUWAIQ_POSITIONS.length; i++) {
+      var pos = TUWAIQ_POSITIONS[i];
+
+      try {
+        // Skip if already created for this campaign
+        if (existingTrades[pos.trade.toLowerCase()]) {
+          skipped++;
+          Logger.log('  SKIP (exists): ' + pos.trade);
+          continue;
+        }
+
+        // Build requirement row matching _Requirements sheet structure:
+        // ReqID | CreatedAt | ClientID | Trade | Department | Qty | Status |
+        // MinAge | MaxAge | Salary | Nationality | Notes | OpenQty |
+        // Location | Country | SourcedBy | InterviewMode | Sector |
+        // CampaignName | CampaignID | ClientName | ExpMin | ExpMax |
+        // CommittedQty | InterviewDate | CertRequired | InterviewCities
+        var reqId = 'REQ-TUW-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+                    '-' + String(i+1).padStart(3,'0');
+
+        var certNote = pos.certRequired ? 'Required cert: ' + pos.certRequired + '. ' : '';
+        var notes    = certNote + 'Position ID: ' + pos.posId + ' | Category: ' + pos.category;
+
+        rSheet.appendRow([
+          reqId,                    // A: ReqID
+          new Date(),               // B: CreatedAt
+          clientId,                 // C: ClientID
+          pos.trade,                // D: Trade
+          pos.dept,                 // E: Department
+          pos.qty,                  // F: Qty (total)
+          'Open',                   // G: Status
+          18,                       // H: MinAge
+          45,                       // I: MaxAge
+          pos.salary,               // J: Salary
+          'Indian',                 // K: Nationality preference
+          notes,                    // L: Notes
+          pos.qty,                  // M: OpenQty (starts = total qty)
+          TUWAIQ_LOCATION,          // N: Location
+          'Saudi Arabia',           // O: Country
+          TUWAIQ_SOURCED_BY,        // P: SourcedBy
+          pos.interviewMode,        // Q: InterviewMode
+          TUWAIQ_SECTOR,            // R: Sector
+          TUWAIQ_CAMPAIGN_NAME,     // S: CampaignName
+          campaignId,               // T: CampaignID
+          TUWAIQ_CLIENT_NAME,       // U: ClientName
+          pos.expMin,               // V: ExpMin
+          pos.expMax,               // W: ExpMax
+          0,                        // X: CommittedQty (starts at 0)
+          TUWAIQ_INTERVIEW_DATES,   // Y: InterviewDate
+          pos.certRequired || '',   // Z: CertRequired
+          TUWAIQ_INTERVIEW_CITIES,  // AA: InterviewCities
+          pos.posId,                // AB: PositionID (client's)
+          pos.category              // AC: Category (Skilled Worker / Supervisor / Engineer / General Labor)
+        ]);
+
+        existingTrades[pos.trade.toLowerCase()] = true;
+        created++;
+        Logger.log('  CREATED [' + reqId + ']: ' + pos.trade + ' × ' + pos.qty);
+
+      } catch(posErr) {
+        errors++;
+        Logger.log('  ERROR for ' + pos.trade + ': ' + posErr.message);
+      }
+
+      // Throttle to avoid hitting GAS quota on large batches
+      if ((i+1) % 10 === 0) Utilities.sleep(500);
+    }
+
+  } catch(e) {
+    Logger.log('createTuwaiqRequirements_ fatal: ' + e.message);
+    errors++;
+  }
+
+  return { created:created, skipped:skipped, errors:errors };
+}
+
+// ── CREATE SUBMISSION TRACKER SHEET ─────────────────────────────────────────
+function createTuwaiqSubmissionTracker_(ss, campaignId) {
+  try {
+    var TRACKER_NAME = '_Tuwaiq_Interview_Tracker';
+    var existing = ss.getSheetByName(TRACKER_NAME);
+    if (existing) {
+      return { ok:true, message:'Tracker sheet already exists — skipped' };
+    }
+
+    var tracker = ss.insertSheet(TRACKER_NAME);
+
+    // ── ROW 1: Campaign header ───────────────────────────────────────────
+    tracker.getRange(1, 1, 1, 20).merge();
+    tracker.getRange(1, 1).setValue(
+      TUWAIQ_CAMPAIGN_NAME + ' — Candidate Submission Tracker | Interview: ' +
+      TUWAIQ_INTERVIEW_DATES + ' | Cities: ' + TUWAIQ_INTERVIEW_CITIES
+    );
+    tracker.getRange(1, 1).setFontWeight('bold').setBackground('#1a237e').setFontColor('#ffffff').setFontSize(11);
+
+    // ── ROW 2: Column headers ────────────────────────────────────────────
+    var headers = [
+      'Sr No',           // A
+      'KAI No',          // B — internal reference (not shared with client)
+      'Position',        // C
+      'Position ID',     // D — client's position ID (e.g. MU-037)
+      'Department',      // E
+      'Category',        // F — Skilled Worker / Supervisor / Engineer / General Labor
+      'Salary Range',    // G — from client JD
+      'Candidate Name',  // H
+      'Age',             // I
+      'Passport No',     // J
+      'Passport Expiry', // K
+      'ECR Status',      // L
+      'Total Exp (Yrs)', // M
+      'Gulf Exp (Yrs)',  // N
+      'Current Location',// O
+      'Interview City',  // P
+      'Salary Agreed',   // Q
+      'Remarks',         // R
+      'Submission Status',// S
+      'Submitted On',    // T
+      'Interview Result',// U
+      'Selected / Rejected',// V
+      'Notes'            // W
+    ];
+
+    tracker.getRange(2, 1, 1, headers.length).setValues([headers]);
+    tracker.getRange(2, 1, 1, headers.length)
+      .setFontWeight('bold')
+      .setBackground('#283593')
+      .setFontColor('#ffffff')
+      .setFontSize(10)
+      .setHorizontalAlignment('center');
+
+    // ── ROW 3 onwards: One row per position (grouped by dept) ────────────
+    var rowNum = 3;
+    var prevDept = '';
+    var deptColors = {
+      'Maintenance & Utilities': '#e8f5e9',
+      'Casting':                 '#fff3e0',
+      'Forging':                 '#fce4ec',
+      'Machining':               '#e3f2fd',
+      'Heat Treatment':          '#f3e5f5',
+      'NDE/QC':                  '#fff8e1',
+      'Pattern Shop':            '#e0f7fa',
+      'Melting':                 '#fbe9e7',
+      'Production Control':      '#f1f8e9'
+    };
+
+    for (var p = 0; p < TUWAIQ_POSITIONS.length; p++) {
+      var pos = TUWAIQ_POSITIONS[p];
+
+      // Department separator row when dept changes
+      if (pos.dept !== prevDept) {
+        tracker.getRange(rowNum, 1, 1, headers.length).merge();
+        tracker.getRange(rowNum, 1).setValue('── ' + pos.dept.toUpperCase() + ' ──');
+        tracker.getRange(rowNum, 1, 1, headers.length)
+          .setBackground(deptColors[pos.dept] || '#f5f5f5')
+          .setFontWeight('bold')
+          .setFontSize(9);
+        rowNum++;
+        prevDept = pos.dept;
+      }
+
+      // One template row per vacancy head
+      for (var h = 0; h < pos.qty; h++) {
+        tracker.getRange(rowNum, 3).setValue(pos.trade);       // C: Position
+        tracker.getRange(rowNum, 4).setValue(pos.posId);       // D: Position ID
+        tracker.getRange(rowNum, 5).setValue(pos.dept);        // E: Department
+        tracker.getRange(rowNum, 6).setValue(pos.category);    // F: Category
+        tracker.getRange(rowNum, 7).setValue(pos.salary);      // G: Salary Range
+        tracker.getRange(rowNum, 16).setValue('TBD');          // P: Interview City
+        tracker.getRange(rowNum, 19).setValue('Pending');      // S: Submission Status
+
+        // Shade alternating rows lightly
+        if (h % 2 === 0) {
+          tracker.getRange(rowNum, 1, 1, headers.length).setBackground('#fafafa');
+        }
+        rowNum++;
+      }
+    }
+
+    // ── Fix Sr No column with proper sequential numbers ──────────────────
+    var srStart = 3;
+    var srNum = 1;
+    var allVals = tracker.getRange(srStart, 1, rowNum - srStart, 1).getValues();
+    var srRange = tracker.getRange(srStart, 1, rowNum - srStart, 1);
+    var srData = srRange.getValues();
+    // Re-number only non-dept-separator rows (check col C for position name)
+    var tradeCols = tracker.getRange(srStart, 3, rowNum - srStart, 1).getValues();
+    for (var x = 0; x < tradeCols.length; x++) {
+      if (tradeCols[x][0] && String(tradeCols[x][0]).indexOf('──') === -1) {
+        srData[x][0] = srNum++;
+      } else {
+        srData[x][0] = '';  // blank for dept separator rows
+      }
+    }
+    srRange.setValues(srData);
+
+    // ── Freeze header rows, set column widths ────────────────────────────
+    tracker.setFrozenRows(2);
+    tracker.setColumnWidth(1,  50);  // A: Sr No
+    tracker.setColumnWidth(2,  85);  // B: KAI No
+    tracker.setColumnWidth(3,  200); // C: Position
+    tracker.setColumnWidth(4,  100); // D: Position ID
+    tracker.setColumnWidth(5,  160); // E: Department
+    tracker.setColumnWidth(6,  120); // F: Category
+    tracker.setColumnWidth(7,  110); // G: Salary Range
+    tracker.setColumnWidth(8,  160); // H: Candidate Name
+    tracker.setColumnWidth(9,  45);  // I: Age
+    tracker.setColumnWidth(10, 110); // J: Passport No
+    tracker.setColumnWidth(11, 100); // K: Passport Expiry
+    tracker.setColumnWidth(12, 85);  // L: ECR Status
+    tracker.setColumnWidth(13, 90);  // M: Total Exp
+    tracker.setColumnWidth(14, 80);  // N: Gulf Exp
+    tracker.setColumnWidth(15, 130); // O: Current Location
+    tracker.setColumnWidth(16, 120); // P: Interview City
+    tracker.setColumnWidth(17, 100); // Q: Salary Agreed
+    tracker.setColumnWidth(18, 150); // R: Remarks
+    tracker.setColumnWidth(19, 120); // S: Submission Status
+    tracker.setColumnWidth(20, 100); // T: Submitted On
+    tracker.setColumnWidth(21, 110); // U: Interview Result
+    tracker.setColumnWidth(22, 120); // V: Selected/Rejected
+    tracker.setColumnWidth(23, 150); // W: Notes
+
+    // ── Summary block below ──────────────────────────────────────────────
+    tracker.getRange(rowNum + 1, 1).setValue('SUMMARY');
+    tracker.getRange(rowNum + 1, 1, 1, 4).setFontWeight('bold').setBackground('#e8eaf6');
+    tracker.getRange(rowNum + 2, 1).setValue('Total Positions:');
+    tracker.getRange(rowNum + 2, 2).setValue(TUWAIQ_POSITIONS.length);
+    tracker.getRange(rowNum + 3, 1).setValue('Total Heads Required:');
+    tracker.getRange(rowNum + 3, 2).setValue(TUWAIQ_POSITIONS.reduce(function(s,p){ return s+p.qty; }, 0));
+    tracker.getRange(rowNum + 4, 1).setValue('Campaign:');
+    tracker.getRange(rowNum + 4, 2).setValue(TUWAIQ_CAMPAIGN_NAME);
+    tracker.getRange(rowNum + 5, 1).setValue('Interview Window:');
+    tracker.getRange(rowNum + 5, 2).setValue(TUWAIQ_INTERVIEW_DATES);
+    tracker.getRange(rowNum + 6, 1).setValue('Interview Cities:');
+    tracker.getRange(rowNum + 6, 2).setValue(TUWAIQ_INTERVIEW_CITIES);
+    tracker.getRange(rowNum + 7, 1).setValue('Generated On:');
+    tracker.getRange(rowNum + 7, 2).setValue(new Date());
+
+    return { ok:true, message:'Created tracker sheet with ' + (rowNum - 3) + ' rows (incl. dept separators)' };
+
+  } catch(e) {
+    Logger.log('createTuwaiqSubmissionTracker_ error: ' + e.message);
+    return { ok:false, message:'Error: ' + e.message };
+  }
+}
+
+// ── QUICK STATS: run anytime to log Tuwaiq campaign counts ──────────────────
+function tuwaiqCampaignStats() {
+  Logger.log('Tuwaiq positions defined: ' + TUWAIQ_POSITIONS.length);
+  Logger.log('Total heads: ' + TUWAIQ_POSITIONS.reduce(function(s,p){ return s+p.qty; }, 0));
+
+  var deptMap = {};
+  TUWAIQ_POSITIONS.forEach(function(p) {
+    if (!deptMap[p.dept]) deptMap[p.dept] = { roles:0, heads:0 };
+    deptMap[p.dept].roles++;
+    deptMap[p.dept].heads += p.qty;
+  });
+
+  Object.keys(deptMap).forEach(function(d) {
+    Logger.log('  ' + d + ': ' + deptMap[d].roles + ' roles, ' + deptMap[d].heads + ' heads');
+  });
+}
