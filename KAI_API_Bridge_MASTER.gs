@@ -12488,23 +12488,29 @@ function parseCVAttachmentWithGemini_(attachment, subjectHint, apiKey) {
 
 /**
  * Heuristic: does this string look like a real person's name vs a job title?
- * Person name = 2-4 words, all alphabetic, not containing trade keywords.
+ * GCC context: Arabic / South Asian names can be 5-6 words.
+ * Rule: reject if 2+ words are job-title keywords — that's a subject line, not a name.
  */
 function looksLikePersonName_(s) {
   if (!s) return false;
   var name = String(s).trim();
-  if (name.length < 3 || name.length > 50) return false;
+  if (name.length < 3 || name.length > 80) return false;
 
-  // Reject if it contains common job-title / document words
-  var jobWords = /\b(operator|engineer|technician|fitter|welder|rigger|fabricator|inspector|supervisor|foreman|helper|driver|mechanic|electrician|plumber|mason|carpenter|painter|scaffolder|document|resume|cv|curriculum|vitae|field|operation|offshore|onshore|experience|manpower|recruitment|application|position|vacancy)\b/i;
-  if (jobWords.test(name)) return false;
-
-  // Must be 1-4 words, mostly letters (allow . and -)
-  var words = name.split(/\s+/);
-  if (words.length < 1 || words.length > 4) return false;
+  // Must be letters, spaces, dots, hyphens only — no digits
   if (!/^[A-Za-z][A-Za-z.\-\s]+$/.test(name)) return false;
 
-  return true;
+  var words = name.split(/\s+/);
+  // Arabic/South Asian names: "Abdul Basit Mian Ghullab Khan" = 5 words — allow up to 7
+  if (words.length < 1 || words.length > 7) return false;
+
+  // Count how many words are trade/job-title keywords
+  var jobWord = /^(operator|engineer|technician|fitter|welder|rigger|fabricator|inspector|supervisor|foreman|helper|driver|mechanic|electrician|plumber|mason|carpenter|painter|scaffolder|field|operation|offshore|onshore|experience|manpower|recruitment|application|position|vacancy|document|resume|curriculum|vitae|apply|applying|looking|post|job|power|plant|instrument|procurement|structural|commissioning|piping|coating|painting|auto|lead|assistant|maintenance|construction|fabrication|installation|erection|testing|commissioning|rotating|static|scaffold)$/i;
+  var jobCount = 0;
+  for (var w = 0; w < words.length; w++) {
+    if (jobWord.test(words[w])) jobCount++;
+  }
+  // 2+ job keywords = almost certainly an email subject, not a person's name
+  return jobCount <= 1;
 }
 
 // ── Backlog clearer: karigar/error ────────────────────────────────────────────
@@ -12682,6 +12688,33 @@ function flagBadNameCandidates(n) {
   }
   Logger.log('flagBadNameCandidates: flagged ' + flagged + ' | ' + JSON.stringify(names));
   return { flagged: flagged, names: names };
+}
+
+/**
+ * Unflag candidates whose names actually ARE real people but were incorrectly
+ * marked NEEDS_REVIEW by the old strict looksLikePersonName_ (max 4 words).
+ * Pass a list of KAI numbers to clear.
+ */
+function unflagCandidatesByKaiNo(kaiNos) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return 0;
+  var data  = sheet.getDataRange().getValues();
+  var list  = kaiNos || ['AYE-KAI-2026-006826', 'AYE-KAI-2026-006869'];
+  var fixed = 0;
+  for (var i = 1; i < data.length; i++) {
+    var kaiNo = String(data[i][COL.kaiNo - 1] || '').trim();
+    if (list.indexOf(kaiNo) !== -1) {
+      sheet.getRange(i + 1, COL.empStatus).setValue('');
+      var note = '[' + new Date().toISOString() + '] NEEDS_REVIEW cleared — confirmed real person name';
+      var existingNote = data[i][COL.notes - 1] || '';
+      sheet.getRange(i + 1, COL.notes).setValue(existingNote ? existingNote + '\n' + note : note);
+      fixed++;
+      Logger.log('Unflaged: ' + kaiNo + ' | ' + data[i][COL.name - 1]);
+    }
+  }
+  Logger.log('unflagCandidatesByKaiNo: fixed ' + fixed);
+  return fixed;
 }
 
 // doPost additions for Section 43:
