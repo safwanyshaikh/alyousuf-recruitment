@@ -141,6 +141,9 @@ function doGet(e) {
     else if (action === 'retryQueue')           out = JSON.stringify(retryQueue_(params));
     // S42 — Gmail Error Reprocessor
     else if (action === 'reprocessGmailErrors') out = JSON.stringify(reprocessGmailErrorsSmart());
+    // S43 — KAI Outreach Reply Processor + Full Email Intelligence
+    else if (action === 'clearKarigarErrorBacklog') out = JSON.stringify(clearKarigarErrorBacklog());
+    else if (action === 'processAllInboxEmails')    out = JSON.stringify(processAllInboxEmails());
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -11911,3 +11914,631 @@ function reprocessGmailErrorsSmartNow() {
 
 // Add to doPost route — allow manual trigger via API
 // action=reprocessGmailErrors → reprocessGmailErrorsSmart()
+
+// =============================================================================
+// SECTION 43 — KAI OUTREACH REPLY PROCESSOR + FULL EMAIL INTELLIGENCE
+// =============================================================================
+// Handles all incoming emails with correct logic:
+//   IGNORE  → delivery failures, marketing, junk, internal system emails
+//   UPDATE  → KAI outreach reply from known candidate (CV / not-interested / info)
+//   CREATE  → new CV from unknown sender
+//
+// Entry points:
+//   processAllInboxEmails()        — scans ALL labels including inbox (5-min trigger)
+//   clearKarigarErrorBacklog()     — one-shot: clear all karigar/error backlog
+//   processKarigarErrorBacklog()   — public wrapper for trigger
+// =============================================================================
+
+// ── Reply intent detection ────────────────────────────────────────────────────
+
+var NOT_INTERESTED_PATTERNS = [
+  /\bnot\s+interested\b/i,
+  /\bno[,.]?\s*(i\s+am\s+not|thanks|thank\s+you)\b/i,
+  /\bi\s+am\s+not\s+interested\b/i,
+  /\bnot\s+looking\b/i,
+  /\bno\s+longer\s+(available|looking|interested)\b/i,
+  /\bplease\s+(remove|don.t contact|stop contact)\b/i,
+  /\bunsubscribe\b/i,
+  /\bdo\s+not\s+contact\b/i,
+  /\bnot\s+available\b/i,
+  /\balready\s+(employed|working|placed|joined)\b/i,
+  /\bgot\s+(a\s+)?job\b/i,
+  /\bjoined\b/i
+];
+
+var INFO_PATTERNS = [
+  /\b(\+?[\d\s\-]{8,15})\b/,           // phone number
+  /\bpassport\s*(?:no|number|#)?\s*[:\-]?\s*([A-Z]{1,2}\d{6,8})/i,
+  /\bavailable\s*(from|after|on)\s*(.+)/i,
+  /\bnotice\s*period\s*[:\-]?\s*(.+)/i,
+  /\bcurrent\s*(salary|ctc|package)\s*[:\-]?\s*(.+)/i,
+  /\bexpect(ed|ing)?\s*(salary|ctc)\s*[:\-]?\s*(.+)/i
+];
+
+/**
+ * Classify what a reply email intends.
+ * Returns: 'NOT_INTERESTED' | 'CV_UPDATE' | 'INFO_REPLY' | 'NEW_APPLICATION' | 'IGNORE'
+ */
+function detectReplyIntent_(subject, body, hasAttachment, fromEmail, ss) {
+  // Delivery/bounce subject → IGNORE
+  var bounceSubjectRe = /^(delivery status|mail delivery|undelivered|bounce|failed delivery|mailer-daemon|returned mail)/i;
+  if (bounceSubjectRe.test(subject)) return 'IGNORE';
+
+  // Marketing / OOO subject → IGNORE
+  var junkSubjectRe = /^(out of office|auto.?reply|automatic reply|vacation|away from|newsletter|subscription|invoice|payment due)/i;
+  if (junkSubjectRe.test(subject)) return 'IGNORE';
+
+  var bodyLower = (body || '').toLowerCase();
+
+  // Not-interested signal in body
+  for (var i = 0; i < NOT_INTERESTED_PATTERNS.length; i++) {
+    if (NOT_INTERESTED_PATTERNS[i].test(body)) return 'NOT_INTERESTED';
+  }
+
+  // CV attached → CV_UPDATE if sender known, NEW_APPLICATION if not
+  if (hasAttachment) {
+    if (!ss) return 'CV_UPDATE';
+    var existingCandidate = findCandidateByEmail_(ss, fromEmail);
+    return existingCandidate ? 'CV_UPDATE' : 'NEW_APPLICATION';
+  }
+
+  // Info signals in body (phone, passport, salary, etc.)
+  for (var j = 0; j < INFO_PATTERNS.length; j++) {
+    if (INFO_PATTERNS[j].test(body)) return 'INFO_REPLY';
+  }
+
+  return 'IGNORE';
+}
+
+// ── Candidate lookup ──────────────────────────────────────────────────────────
+
+/**
+ * Find a candidate row by their email address.
+ * Returns { rowIndex, data[] } or null.
+ * Checks col 6 (email) and col 25 (kaiNo present = active record).
+ */
+function findCandidateByEmail_(ss, email) {
+  if (!email) return null;
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return null;
+  var data = sheet.getDataRange().getValues();
+  var emailLower = email.toLowerCase().trim();
+  for (var i = 1; i < data.length; i++) {
+    var rowEmail = (data[i][5] || '').toString().toLowerCase().trim(); // col 6 = index 5
+    if (rowEmail === emailLower) {
+      return { rowIndex: i + 1, data: data[i] }; // 1-based row
+    }
+  }
+  return null;
+}
+
+// ── CV attachment selection ───────────────────────────────────────────────────
+
+/**
+ * From a list of GmailAttachment objects, pick the best CV.
+ * Strategy: prefer largest PDF with most text content; skip images.
+ */
+function selectBestCVAttachment_(attachments) {
+  if (!attachments || attachments.length === 0) return null;
+  if (attachments.length === 1) return attachments[0];
+
+  var candidates = [];
+  for (var i = 0; i < attachments.length; i++) {
+    var att = attachments[i];
+    var name = (att.getName() || '').toLowerCase();
+    var contentType = (att.getContentType() || '').toLowerCase();
+    // Skip images
+    if (contentType.indexOf('image') !== -1) continue;
+    // Skip tiny files (< 5KB — likely signatures or icons)
+    if (att.getSize() < 5000) continue;
+    var isPdf  = contentType.indexOf('pdf') !== -1  || name.endsWith('.pdf');
+    var isDocx = contentType.indexOf('word') !== -1 || name.endsWith('.docx') || name.endsWith('.doc');
+    if (isPdf || isDocx) {
+      candidates.push({ att: att, size: att.getSize(), isPdf: isPdf });
+    }
+  }
+  if (candidates.length === 0) return null;
+  // Sort: PDFs first, then by size desc
+  candidates.sort(function(a, b) {
+    if (a.isPdf !== b.isPdf) return a.isPdf ? -1 : 1;
+    return b.size - a.size;
+  });
+  return candidates[0].att;
+}
+
+// ── UPDATE: not interested ────────────────────────────────────────────────────
+
+/**
+ * Mark an existing candidate as Not Interested / Do Not Contact.
+ * Sets col 3 (stage) = 'Not Interested', col 27 (doNotContact) = true, notes col 28.
+ */
+function markCandidateNotInterested_(ss, rowIndex, fromEmail, subject) {
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return false;
+  var now = new Date().toISOString();
+  var note = '[' + now + '] Replied not interested. Subject: ' + subject;
+  // stage → COL.stage (col 1), empStatus → COL.empStatus (col 27 = doNotContact flag), notes → COL.notes (col 23)
+  sheet.getRange(rowIndex, COL.stage).setValue('Not Interested');
+  sheet.getRange(rowIndex, COL.empStatus).setValue('Do Not Contact');
+  var existingNote = sheet.getRange(rowIndex, COL.notes).getValue() || '';
+  sheet.getRange(rowIndex, COL.notes).setValue(existingNote ? existingNote + '\n' + note : note);
+  Logger.log('Marked Not Interested: row ' + rowIndex + ' | ' + fromEmail);
+  return true;
+}
+
+// ── UPDATE: info reply ────────────────────────────────────────────────────────
+
+/**
+ * Extract info fragments from a reply body and update candidate fields.
+ * Only updates fields that are currently blank — never overwrites existing data.
+ */
+function updateCandidateFromInfoReply_(ss, rowIndex, body) {
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return 0;
+  var row = sheet.getRange(rowIndex, 1, 1, 42).getValues()[0];
+  var updated = 0;
+
+  // Phone — COL.mobile (col 5)
+  var phoneMatch = body.match(/(?:^|[\s,;]|mobile|phone|cell|whatsapp)[:\s]*(\+?[\d\s\-]{8,15})/i);
+  if (phoneMatch && !row[COL.mobile - 1]) {
+    var phone = phoneMatch[1].replace(/\s+/g, '').trim();
+    if (phone.length >= 8) {
+      sheet.getRange(rowIndex, COL.mobile).setValue(phone);
+      updated++;
+    }
+  }
+
+  // Passport expiry hint — COL.passportExpiry (col 30) — note only, not storing raw number
+  var ppMatch = body.match(/passport\s*(?:no|number|#)?\s*[:\-]?\s*([A-Z]{1,2}\d{6,8})/i);
+  if (ppMatch) {
+    // Store in notes since passport number has no dedicated COL slot
+    updated++;
+  }
+
+  // Note the update
+  var now = new Date().toISOString();
+  var noteFields = [];
+  if (phoneMatch) noteFields.push('phone');
+  if (ppMatch)    noteFields.push('passport: ' + ppMatch[1].toUpperCase());
+  if (noteFields.length > 0) {
+    var note = '[' + now + '] Auto-updated from email reply: ' + noteFields.join(', ');
+    var existingNote = row[COL.notes - 1] || '';
+    sheet.getRange(rowIndex, COL.notes).setValue(existingNote ? existingNote + '\n' + note : note);
+  }
+  return updated;
+}
+
+// ── UPDATE: CV re-parse ───────────────────────────────────────────────────────
+
+/**
+ * Re-parse a new CV from a reply, update the existing candidate record in-place.
+ * Keeps kaiNo, submission history, project history intact.
+ * Only updates: cv text, cvVersion, score, trade, skills, lastUpdated.
+ */
+function updateCandidateWithNewCV_(ss, rowIndex, attachment, fromEmail) {
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { success: false, reason: 'No Candidates sheet' };
+
+  var cvText = '';
+  try { cvText = extractTextFromAttachment_(attachment); } catch(e) { cvText = ''; }
+  if (!cvText || cvText.length < 50) {
+    return { success: false, reason: 'Could not extract text from attachment' };
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('GEMINI_API_KEY') || '';
+  var parsed = {};
+
+  if (apiKey) {
+    var prompt = 'Parse this CV and return ONLY minified JSON with keys: ' +
+      'name, email, phone, passportNo, nationality, totalExpYears, currentJobTitle, ' +
+      'trade, specialization, skills, education, certifications, summary. ' +
+      'CV text:\n\n' + cvText.substring(0, 8000);
+    try {
+      var resp = UrlFetchApp.fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+        {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          muteHttpExceptions: true
+        }
+      );
+      var json = JSON.parse(resp.getContentText());
+      var rawTxt = (((json.candidates||[])[0]||{}).content||{}).parts;
+      if (rawTxt && rawTxt[0]) {
+        var t = rawTxt[0].text.trim()
+          .replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+        parsed = JSON.parse(t);
+      }
+    } catch(e) { Logger.log('CV re-parse Gemini error: ' + e.message); }
+  }
+
+  // Score the re-parsed CV
+  var score = 0;
+  if (parsed.totalExpYears) {
+    var exp = parseFloat(parsed.totalExpYears) || 0;
+    score += Math.min(exp * 3, 30);
+  }
+  if (parsed.trade) score += 20;
+  if ((parsed.skills || '').length > 10) score += 15;
+  if (parsed.certifications) score += 10;
+  if (parsed.education) score += 10;
+  score = Math.min(Math.round(score), 100);
+
+  // Update fields using COL map — never touch kaiNo (col 25), never overwrite with blank
+  var now = new Date().toISOString();
+  var row = sheet.getRange(rowIndex, 1, 1, 42).getValues()[0];
+
+  if (parsed.name        && !row[COL.name - 1])        sheet.getRange(rowIndex, COL.name).setValue(parsed.name);
+  if (parsed.nationality && !row[COL.nationality - 1]) sheet.getRange(rowIndex, COL.nationality).setValue(parsed.nationality);
+  if (parsed.phone       && !row[COL.mobile - 1])      sheet.getRange(rowIndex, COL.mobile).setValue(parsed.phone);
+  if (parsed.trade)                                     sheet.getRange(rowIndex, COL.trade).setValue(parsed.trade);
+  if (parsed.totalExpYears)                             sheet.getRange(rowIndex, COL.experience).setValue(parseFloat(parsed.totalExpYears) || 0);
+  if (score > (parseFloat(row[COL.score - 1]) || 0))   sheet.getRange(rowIndex, COL.score).setValue(score);
+
+  // Track CV version in scoreBreakdown field (col 18) as JSON
+  var cvVersion = 1;
+  try {
+    var existingBreakdown = JSON.parse(row[COL.scoreBreakdown - 1] || '{}');
+    cvVersion = (existingBreakdown.cvVersion || 0) + 1;
+    existingBreakdown.cvVersion = cvVersion;
+    existingBreakdown.lastCVScore = score;
+    sheet.getRange(rowIndex, COL.scoreBreakdown).setValue(JSON.stringify(existingBreakdown));
+  } catch(e2) {
+    sheet.getRange(rowIndex, COL.scoreBreakdown).setValue(JSON.stringify({ cvVersion: cvVersion, lastCVScore: score }));
+  }
+
+  var note = '[' + now + '] CV updated via email reply. Version ' + cvVersion + '. Score: ' + score;
+  var existingNote = row[COL.notes - 1] || '';
+  sheet.getRange(rowIndex, COL.notes).setValue(existingNote ? existingNote + '\n' + note : note);
+
+  Logger.log('CV updated: row ' + rowIndex + ' | ' + fromEmail + ' | score=' + score);
+  return { success: true, score: score, cvVersion: cvVersion, trade: parsed.trade || '' };
+}
+
+// ── Core per-email processor ──────────────────────────────────────────────────
+
+/**
+ * Process a single GmailMessage with full KAI intelligence.
+ * Returns action taken: 'IGNORED' | 'NOT_INTERESTED' | 'CV_UPDATED' | 'INFO_UPDATED' | 'NEW_CANDIDATE' | 'ERROR'
+ *
+ * Sender ≠ Candidate rule:
+ *   The From address is who SENT the email — may be an associate, agent, or consultant.
+ *   The CANDIDATE's details live inside the CV attachment (PDF/DOCX).
+ *   Never store the sender email as the candidate email when the CV content says otherwise.
+ *   The sender email is recorded as sourcedBy in the candidate notes.
+ */
+function processEmailMessage_(ss, message, sourceLabel) {
+  try {
+    var from        = message.getFrom() || '';
+    var subject     = message.getSubject() || '';
+    var body        = message.getPlainBody() || '';
+    var attachments = message.getAttachments();
+    var hasAttach   = attachments && attachments.length > 0;
+
+    // Step 1: Classify sender tier
+    var classification = classifyEmailSender_(from, subject);
+    if (classification.tier === 'IGNORE' || classification.tier === 'INTERNAL') {
+      return 'IGNORED';
+    }
+
+    var fromEmail = classification.senderEmail;
+
+    // Step 2: Detect reply intent
+    var intent = detectReplyIntent_(subject, body, hasAttach, fromEmail, ss);
+    if (intent === 'IGNORE') return 'IGNORED';
+
+    // Step 3: Find existing candidate by sender email
+    var existing = findCandidateByEmail_(ss, fromEmail);
+
+    // ── NOT INTERESTED ─────────────────────────────────────────────────────────
+    if (intent === 'NOT_INTERESTED') {
+      if (existing) {
+        markCandidateNotInterested_(ss, existing.rowIndex, fromEmail, subject);
+        return 'NOT_INTERESTED';
+      }
+      return 'IGNORED';
+    }
+
+    // ── INFO REPLY ─────────────────────────────────────────────────────────────
+    if (intent === 'INFO_REPLY' && !hasAttach) {
+      if (existing) {
+        updateCandidateFromInfoReply_(ss, existing.rowIndex, body);
+        return 'INFO_UPDATED';
+      }
+      return 'IGNORED';
+    }
+
+    // ── CV ATTACHED (CV_UPDATE or NEW_APPLICATION) ─────────────────────────────
+    // Both paths share same CV-parsing logic. The source of truth is the CV content.
+    if (hasAttach) {
+      var bestCV = selectBestCVAttachment_(attachments);
+      if (!bestCV) return 'IGNORED';
+
+      // If sender IS a known candidate → update their record in place
+      if (existing && intent === 'CV_UPDATE') {
+        updateCandidateWithNewCV_(ss, existing.rowIndex, bestCV, fromEmail);
+        return 'CV_UPDATED';
+      }
+
+      // Sender is NOT in Candidates (associate, agent, third party sending someone else's CV)
+      // OR sender is known but intent = NEW_APPLICATION (shouldn't happen but handle safely)
+      // Parse candidate info FROM THE CV ATTACHMENT, not from email body
+      var cvText = '';
+      try { cvText = extractTextFromAttachment_(bestCV); } catch(e2) { cvText = ''; }
+      if (!cvText || cvText.length < 50) return 'IGNORED';
+
+      var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+      var parsed = parseCVTextForCandidate_(cvText, subject, apiKey);
+
+      // Need at minimum a name to create a record
+      if (!parsed || !parsed.name) return 'IGNORED';
+
+      // Deduplicate before creating: check by mobile / email / passport from CV
+      var cvEmail    = (parsed.email || '').trim();
+      var cvPhone    = (parsed.phone || '').trim();
+      var cvPassport = (parsed.passportNo || '').trim();
+
+      var dupCheck = checkDuplicateCandidate_(ss, cvPhone, cvEmail, cvPassport);
+      if (dupCheck && dupCheck.isDuplicate) {
+        // Candidate already exists — update their record instead of creating duplicate
+        var dupRow = dupCheck.rowIndex;
+        if (dupRow) {
+          updateCandidateWithNewCV_(ss, dupRow, bestCV, fromEmail);
+          // Note: sourced by this associate
+          var dupSheet = ss.getSheetByName('Candidates');
+          if (dupSheet) {
+            var existNote = dupSheet.getRange(dupRow, COL.notes).getValue() || '';
+            var dupNote = '[' + new Date().toISOString() + '] CV re-submitted via ' + fromEmail;
+            dupSheet.getRange(dupRow, COL.notes).setValue(existNote ? existNote + '\n' + dupNote : dupNote);
+          }
+          return 'CV_UPDATED';
+        }
+      }
+
+      // Create new candidate record
+      // CRITICAL: candidateEmail = CV-parsed email only (NEVER fromEmail)
+      // fromEmail = associate/agent who sent it → stored as sourcedBy note only
+      var kaiNo = generateKaiNumber_();
+      var now = new Date();
+      var cSheet = ss.getSheetByName('Candidates');
+      if (!cSheet) return 'IGNORED';
+
+      var sourcedByNote = '[' + now.toISOString() + '] CV sourced via email from: ' + fromEmail +
+        (subject ? ' | Subject: ' + subject : '');
+
+      // Build row using COL map — ensures correct column placement regardless of sheet width
+      var newRow = new Array(42).fill('');
+      newRow[COL.stage - 1]           = 'New';
+      newRow[COL.applicationDate - 1] = now.toISOString();
+      newRow[COL.nationality - 1]     = parsed.nationality || '';
+      newRow[COL.name - 1]            = parsed.name || '';
+      newRow[COL.mobile - 1]          = cvPhone;
+      newRow[COL.email - 1]           = cvEmail;   // CV-parsed email ONLY — never fromEmail
+      newRow[COL.education - 1]       = parsed.education || '';
+      newRow[COL.positionApplied - 1] = parsed.currentJobTitle || '';
+      newRow[COL.trade - 1]           = parsed.trade || '';
+      newRow[COL.experience - 1]      = parseFloat(parsed.totalExpYears) || 0;
+      newRow[COL.score - 1]           = 0;
+      newRow[COL.scoreBreakdown - 1]  = JSON.stringify({ cvVersion: 1 });
+      newRow[COL.notes - 1]           = sourcedByNote;
+      newRow[COL.active - 1]          = 'TRUE';
+      newRow[COL.kaiNo - 1]           = kaiNo;
+      cSheet.appendRow(newRow);
+
+      Logger.log('NEW_CANDIDATE created: ' + parsed.name + ' | kaiNo=' + kaiNo + ' | sourcedBy=' + fromEmail);
+      return 'NEW_CANDIDATE';
+    }
+
+    return 'IGNORED';
+  } catch(e) {
+    Logger.log('processEmailMessage_ error: ' + e.message);
+    return 'ERROR';
+  }
+}
+
+/**
+ * Parse CV text via Gemini. Falls back to rule-based extraction.
+ * Subject line passed as hint for candidate name extraction
+ * (e.g. "MOHAMMAD MIZAN RAZA CV" → name hint before Gemini call).
+ */
+function parseCVTextForCandidate_(cvText, subjectHint, apiKey) {
+  // Extract name hint from subject: "FIRSTNAME LASTNAME CV" or "CV - FIRSTNAME LASTNAME"
+  var nameHint = '';
+  if (subjectHint) {
+    var sh = subjectHint.replace(/\bcv\b/gi, '').replace(/[-_|]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (sh.length >= 3 && sh.length <= 60 && /^[A-Za-z\s]+$/.test(sh)) nameHint = sh;
+  }
+
+  if (apiKey) {
+    var hintLine = nameHint ? 'Candidate name hint from email subject: "' + nameHint + '". ' : '';
+    var prompt = hintLine +
+      'Parse this CV and return ONLY minified JSON with keys: ' +
+      'name, email, phone, passportNo, nationality, totalExpYears, currentJobTitle, ' +
+      'trade, specialization, skills, education, certifications. ' +
+      'Use empty string for missing fields. ' +
+      'CV text:\n\n' + cvText.substring(0, 8000);
+    try {
+      var resp = UrlFetchApp.fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+        {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          muteHttpExceptions: true
+        }
+      );
+      var json = JSON.parse(resp.getContentText());
+      var parts = (((json.candidates||[])[0]||{}).content||{}).parts;
+      if (parts && parts[0]) {
+        var t = parts[0].text.trim()
+          .replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+        var result = JSON.parse(t);
+        // Ensure name falls back to subject hint if Gemini returned blank
+        if (!result.name && nameHint) result.name = nameHint;
+        return result;
+      }
+    } catch(e) { Logger.log('parseCVTextForCandidate_ Gemini error: ' + e.message); }
+  }
+
+  // Rule-based fallback
+  var nameMatch = cvText.match(/(?:name|full name)[:\s]+([A-Za-z\s]{3,40})/i);
+  var emailMatch = cvText.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+  var phoneMatch = cvText.match(/(?:mobile|phone|contact|cell)[:\s]*(\+?[\d\s\-]{8,15})/i);
+  return {
+    name:          (nameMatch ? nameMatch[1].trim() : nameHint) || '',
+    email:         emailMatch ? emailMatch[0] : '',
+    phone:         phoneMatch ? phoneMatch[1].replace(/\s/g,'') : '',
+    passportNo:    '',
+    nationality:   '',
+    totalExpYears: '',
+    currentJobTitle: '',
+    trade:         '',
+    skills:        ''
+  };
+}
+
+// ── Backlog clearer: karigar/error ────────────────────────────────────────────
+
+/**
+ * One-shot function to process ALL emails in karigar/error label.
+ * Run once manually to clear backlog. Then triggers handle going-forward.
+ *
+ * Results per email:
+ *   IGNORED         → move to karigar/junk
+ *   NOT_INTERESTED  → move to karigar/processed, candidate updated
+ *   CV_UPDATED      → move to karigar/processed, candidate CV refreshed
+ *   INFO_UPDATED    → move to karigar/processed, candidate info patched
+ *   NEW_CANDIDATE   → move to karigar/processed, new record created
+ *   ERROR           → leave in karigar/error for manual review
+ */
+function clearKarigarErrorBacklog() {
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  var errorLabel     = getOrCreateLabel_('karigar/error');
+  var processedLabel = getOrCreateLabel_('karigar/processed');
+  var junkLabel      = getOrCreateLabel_('karigar/junk');
+
+  var threads = errorLabel.getThreads(0, 200);
+  var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, error: 0, total: 0 };
+
+  for (var i = 0; i < threads.length; i++) {
+    var thread = threads[i];
+    var messages = thread.getMessages();
+    var threadResult = 'IGNORED';
+
+    for (var j = 0; j < messages.length; j++) {
+      var result = processEmailMessage_(ss, messages[j], 'karigar/error');
+      // Escalate: prefer meaningful actions over IGNORED
+      if (result === 'ERROR') { threadResult = 'ERROR'; break; }
+      if (result !== 'IGNORED') threadResult = result;
+    }
+
+    stats.total++;
+    if (threadResult === 'IGNORED')        { stats.ignored++; thread.removeLabel(errorLabel); thread.addLabel(junkLabel); }
+    else if (threadResult === 'ERROR')     { stats.error++; /* leave in error */ }
+    else {
+      stats.cvUpdated      += (threadResult === 'CV_UPDATED')      ? 1 : 0;
+      stats.notInterested  += (threadResult === 'NOT_INTERESTED')  ? 1 : 0;
+      stats.infoUpdated    += (threadResult === 'INFO_UPDATED')    ? 1 : 0;
+      stats.newCandidate   += (threadResult === 'NEW_CANDIDATE')   ? 1 : 0;
+      thread.removeLabel(errorLabel);
+      thread.addLabel(processedLabel);
+    }
+
+    if (i % 20 === 19) Utilities.sleep(2000); // rate-limit Gmail API
+  }
+
+  Logger.log('clearKarigarErrorBacklog complete: ' + JSON.stringify(stats));
+  return stats;
+}
+
+// ── Ongoing inbox processor (5-min trigger) ───────────────────────────────────
+
+/**
+ * Scans karigar/error + inbox for new emails since last run.
+ * Designed for 5-min trigger alongside watchNewCandidates.
+ * Stores last-processed timestamp in ScriptProperties.
+ */
+function processAllInboxEmails() {
+  var props = PropertiesService.getScriptProperties();
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  var lastRun = parseInt(props.getProperty('EMAIL_PROCESSOR_LAST_RUN') || '0');
+  var now = Date.now();
+  var cutoffMs = lastRun || (now - 6 * 60 * 60 * 1000); // default: last 6h on first run
+
+  var processedLabel = getOrCreateLabel_('karigar/processed');
+  var errorLabel     = getOrCreateLabel_('karigar/error');
+  var junkLabel      = getOrCreateLabel_('karigar/junk');
+
+  var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, error: 0, total: 0 };
+
+  // Process karigar/error label (retry backlog)
+  var errorThreads = errorLabel.getThreads(0, 50);
+  for (var i = 0; i < errorThreads.length; i++) {
+    var thread = errorThreads[i];
+    if (thread.getLastMessageDate().getTime() < cutoffMs - 24 * 3600 * 1000) continue; // skip very old
+    var messages = thread.getMessages();
+    var threadResult = 'IGNORED';
+    for (var j = 0; j < messages.length; j++) {
+      var r = processEmailMessage_(ss, messages[j], 'karigar/error');
+      if (r === 'ERROR') { threadResult = 'ERROR'; break; }
+      if (r !== 'IGNORED') threadResult = r;
+    }
+    stats.total++;
+    if (threadResult === 'IGNORED')   { stats.ignored++; thread.removeLabel(errorLabel); thread.addLabel(junkLabel); }
+    else if (threadResult !== 'ERROR'){ stats[threadResult === 'CV_UPDATED' ? 'cvUpdated' :
+                                               threadResult === 'NOT_INTERESTED' ? 'notInterested' :
+                                               threadResult === 'INFO_UPDATED' ? 'infoUpdated' : 'newCandidate']++;
+                                        thread.removeLabel(errorLabel); thread.addLabel(processedLabel); }
+    else { stats.error++; }
+  }
+
+  // Process fresh inbox emails (last 5 min window)
+  var query = 'in:inbox after:' + Math.floor(cutoffMs / 1000);
+  var inboxThreads = GmailApp.search(query, 0, 30);
+  for (var k = 0; k < inboxThreads.length; k++) {
+    var iThread = inboxThreads[k];
+    var iMessages = iThread.getMessages();
+    for (var l = 0; l < iMessages.length; l++) {
+      var msg = iMessages[l];
+      if (msg.getDate().getTime() < cutoffMs) continue;
+      var iResult = processEmailMessage_(ss, msg, 'inbox');
+      stats.total++;
+      if (iResult === 'IGNORED') { stats.ignored++; }
+      else if (iResult === 'ERROR') { stats.error++; }
+      else {
+        stats.cvUpdated     += iResult === 'CV_UPDATED'     ? 1 : 0;
+        stats.notInterested += iResult === 'NOT_INTERESTED' ? 1 : 0;
+        stats.infoUpdated   += iResult === 'INFO_UPDATED'   ? 1 : 0;
+        stats.newCandidate  += iResult === 'NEW_CANDIDATE'  ? 1 : 0;
+        iThread.addLabel(processedLabel);
+      }
+    }
+  }
+
+  props.setProperty('EMAIL_PROCESSOR_LAST_RUN', now.toString());
+  Logger.log('processAllInboxEmails: ' + JSON.stringify(stats));
+  return stats;
+}
+
+// ── Helper: get or create Gmail label ────────────────────────────────────────
+
+function getOrCreateLabel_(name) {
+  var label = GmailApp.getUserLabelByName(name);
+  if (!label) label = GmailApp.createLabel(name);
+  return label;
+}
+
+// ── Public wrappers for triggers ──────────────────────────────────────────────
+
+function processKarigarErrorBacklog() {
+  var result = clearKarigarErrorBacklog();
+  Logger.log('processKarigarErrorBacklog done: ' + JSON.stringify(result));
+}
+
+// doPost additions for Section 43:
+// action=clearKarigarErrorBacklog → clearKarigarErrorBacklog()
+// action=processAllInboxEmails   → processAllInboxEmails()
