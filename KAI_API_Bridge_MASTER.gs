@@ -10914,3 +10914,164 @@ function createCampaignTrackerSheet_(ss, opts) {
     return { ok:false, message:'Tracker error: ' + e.message };
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SECTION 40 — KAI NUMBER BACKFILL
+//
+// Root cause: Original Code.gs email-intake pipeline never wrote kaiNo (col 25).
+// All candidates ingested before the bridge was built have NO_KAI_NUMBER.
+//
+// Run order:
+//   1. backfillKaiNumbers()     — assigns AYE-KAI-YYYY-NNNNNN to all blank rows
+//   2. backfillQueueTop3()      — queues TOP3 for any active candidate missing it
+//   3. auditCVIngestion()       — re-run to confirm pass rate is now acceptable
+// ════════════════════════════════════════════════════════════════════════════
+
+function backfillKaiNumbers() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) { Logger.log('backfillKaiNumbers: Candidates sheet not found'); return; }
+
+  Logger.log('backfillKaiNumbers — scanning sheet...');
+  var data = sheet.getDataRange().getValues();
+  var lastRow = data.length;
+
+  // Step 1 — Find current max KAI number across all existing records
+  var year   = new Date().getFullYear();
+  var prefix = 'AYE-KAI-' + year + '-';
+  var maxNum = 0;
+
+  for (var i = 1; i < lastRow; i++) {
+    var existing = String(data[i][COL.kaiNo-1]||'').trim();
+    if (existing) {
+      var m = existing.match(/AYE-KAI-\d{4}-(\d+)/);
+      if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1]);
+    }
+  }
+
+  Logger.log('backfillKaiNumbers: current max = ' + maxNum);
+
+  // Step 2 — Assign kaiNo to all rows missing one
+  var nextNum  = maxNum + 1;
+  var patched  = 0;
+  var skipped  = 0;
+
+  // Collect all updates first, then write in batch (much faster than one-by-one)
+  var updates = []; // { rowIndex (1-based), kaiNo }
+
+  for (var r = 1; r < lastRow; r++) {
+    var name    = String(data[r][COL.name-1]   ||'').trim();
+    var active  = String(data[r][COL.active-1] ||'').trim();
+    var kaiCol  = String(data[r][COL.kaiNo-1]  ||'').trim();
+
+    // Skip blank rows and rows that already have a kaiNo
+    if (!name)  { skipped++; continue; }
+    if (kaiCol) { skipped++; continue; }
+
+    var newKai = prefix + String(nextNum).padStart(6, '0');
+    updates.push({ rowIndex: r + 1, kaiNo: newKai }); // rowIndex is 1-based sheet row
+    nextNum++;
+    patched++;
+  }
+
+  // Batch write — write 500 at a time to avoid timeout
+  var BATCH = 500;
+  for (var b = 0; b < updates.length; b += BATCH) {
+    var chunk = updates.slice(b, b + BATCH);
+    chunk.forEach(function(u) {
+      sheet.getRange(u.rowIndex, COL.kaiNo).setValue(u.kaiNo);
+    });
+    Logger.log('backfillKaiNumbers: wrote rows ' + (b+1) + ' – ' + Math.min(b+BATCH, updates.length));
+    if (b + BATCH < updates.length) Utilities.sleep(1000); // throttle between batches
+  }
+
+  Logger.log('══════════════════════════════════════');
+  Logger.log('backfillKaiNumbers COMPLETE');
+  Logger.log('Patched: ' + patched + ' | Skipped (blank/existing): ' + skipped);
+  Logger.log('New KAI numbers: ' + prefix + String(maxNum+1).padStart(6,'0') +
+             ' → ' + prefix + String(nextNum-1).padStart(6,'0'));
+  Logger.log('Next available: ' + prefix + String(nextNum).padStart(6,'0'));
+  Logger.log('══════════════════════════════════════');
+  Logger.log('Run backfillQueueTop3() next.');
+}
+
+// ── QUEUE TOP3 FOR ACTIVE CANDIDATES MISSING IT ──────────────────────────────
+function backfillQueueTop3() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) { Logger.log('backfillQueueTop3: Candidates sheet not found'); return; }
+
+  var data    = sheet.getDataRange().getValues();
+  var queued  = 0;
+  var skipped = 0;
+
+  Logger.log('backfillQueueTop3 — scanning for missing Top3...');
+
+  for (var i = 1; i < data.length; i++) {
+    var name      = String(data[i][COL.name-1]             ||'').trim();
+    var active    = String(data[i][COL.active-1]           ||'').trim().toLowerCase();
+    var kaiNo     = String(data[i][COL.kaiNo-1]            ||'').trim();
+    var top3      = String(data[i][COL.recommendedRoles-1] ||'').trim();
+    var verdict   = String(data[i][COL.verdict-1]          ||'').trim().toLowerCase();
+
+    if (!name || !kaiNo) { skipped++; continue; }
+    if (active === 'inactive') { skipped++; continue; }
+    if (verdict === 'rejected') { skipped++; continue; }
+    if (top3)  { skipped++; continue; } // already has Top3
+
+    queueForProcessing_(kaiNo, 'TOP3', ss);
+    queued++;
+
+    // Throttle every 100 queues
+    if (queued % 100 === 0) {
+      Logger.log('backfillQueueTop3: queued ' + queued + ' so far...');
+      Utilities.sleep(500);
+    }
+  }
+
+  Logger.log('══════════════════════════════════════');
+  Logger.log('backfillQueueTop3 COMPLETE');
+  Logger.log('Queued for Top3: ' + queued);
+  Logger.log('Skipped (inactive/already done): ' + skipped);
+  Logger.log('═══════════════════════════════════════');
+  Logger.log('Now: set up runQueueBatch trigger (every 10 min) to process the queue.');
+  Logger.log('Then run auditCVIngestion() to check pass rate.');
+}
+
+// ── QUICK FIX: backfill only last N rows (for partial fix without full scan) ──
+function backfillKaiNumbersLastN() {
+  var N     = 500; // change this if needed
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) { Logger.log('Candidates sheet not found'); return; }
+
+  var lr   = sheet.getLastRow();
+  var data = sheet.getRange(Math.max(2, lr - N + 1), 1, Math.min(N, lr-1), 38).getValues();
+
+  var year   = new Date().getFullYear();
+  var prefix = 'AYE-KAI-' + year + '-';
+
+  // Find max across ENTIRE sheet first
+  var allKai = sheet.getRange(2, COL.kaiNo, lr-1, 1).getValues();
+  var maxNum = 0;
+  allKai.forEach(function(r) {
+    var m = String(r[0]||'').match(/AYE-KAI-\d{4}-(\d+)/);
+    if (m && parseInt(m[1]) > maxNum) maxNum = parseInt(m[1]);
+  });
+
+  var nextNum = maxNum + 1;
+  var patched = 0;
+  var startRow = Math.max(2, lr - N + 1);
+
+  data.forEach(function(row, idx) {
+    var name  = String(row[COL.name-1]  ||'').trim();
+    var kaiNo = String(row[COL.kaiNo-1] ||'').trim();
+    if (!name || kaiNo) return;
+    var newKai = prefix + String(nextNum).padStart(6,'0');
+    sheet.getRange(startRow + idx, COL.kaiNo).setValue(newKai);
+    nextNum++;
+    patched++;
+  });
+
+  Logger.log('backfillKaiNumbersLastN: patched ' + patched + ' of last ' + N + ' rows');
+}
