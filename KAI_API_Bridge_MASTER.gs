@@ -12290,11 +12290,21 @@ function processEmailMessage_(ss, message, sourceLabel) {
         }
       }
 
-      // Reject if still no real name, OR if the only "name" we got is just the subject
-      // line (a job-title fallback, not a person). A real name is 2+ words, mostly letters.
-      if (!parsed || !parsed.name) return 'IGNORED';
+      // Extract position from subject — always saved as positionApplied regardless of name quality
+      // "Mechanical Technician", "Field Operator UAE", "Apply for Pipe Fitter" → positionApplied
+      var subjectPosition = subject
+        .replace(/^(re|fw|fwd|cv|resume|application|applying|apply for|for the post of|for|document from|document)\s*[:–\-]?\s*/i, '')
+        .replace(/\s*-\s*al yousuf.*$/i, '')
+        .trim()
+        .substring(0, 100);
+
+      // Reject if no real name extracted from CV content
+      if (!parsed || !parsed.name) {
+        Logger.log('Skipped — no name in CV: subject=' + subject);
+        return 'IGNORED';
+      }
       if (!looksLikePersonName_(parsed.name)) {
-        Logger.log('Skipped — name looks like a job title, not a person: ' + parsed.name);
+        Logger.log('Skipped — name looks like job title: ' + parsed.name + ' | subject=' + subject);
         return 'IGNORED';
       }
 
@@ -12302,6 +12312,7 @@ function processEmailMessage_(ss, message, sourceLabel) {
       var cvPhone    = (parsed.phone || '').trim();
       var cvPassport = (parsed.passportNo || '').trim();
 
+      // Dedup by CV content (mobile/email/passport)
       var dupCheck = checkDuplicateCandidate_(_ss, cvPhone, cvEmail, cvPassport);
       if (dupCheck && dupCheck.isDuplicate) {
         var dupRow = dupCheck.rowIndex;
@@ -12316,6 +12327,17 @@ function processEmailMessage_(ss, message, sourceLabel) {
           return 'CV_UPDATED';
         }
       }
+
+      // Dedup by sender+name: if same associate already submitted this person today, skip
+      // Prevents 3 identical records when one associate sends the same CV in multiple emails
+      var todayStr = new Date().toISOString().substring(0, 10);
+      var senderDayKey = fromEmail + '|' + parsed.name.toLowerCase().trim() + '|' + todayStr;
+      var cache = CacheService.getScriptCache();
+      if (cache.get(senderDayKey)) {
+        Logger.log('Dedup: same sender+name today, skipping: ' + parsed.name + ' from ' + fromEmail);
+        return 'IGNORED';
+      }
+      cache.put(senderDayKey, '1', 86400); // cache for 24 hours
 
       // Create new candidate record — sender email NEVER becomes candidate email
       var kaiNo = generateKaiNumber_(_ss);
@@ -12335,8 +12357,9 @@ function processEmailMessage_(ss, message, sourceLabel) {
       newRow[COL.mobile - 1]          = cvPhone;
       newRow[COL.email - 1]           = cvEmail;   // CV-parsed email ONLY — never fromEmail
       newRow[COL.education - 1]       = parsed.education || '';
-      newRow[COL.positionApplied - 1] = parsed.currentJobTitle || '';
-      newRow[COL.trade - 1]           = parsed.trade || '';
+      // positionApplied: prefer CV's currentJobTitle, fall back to cleaned email subject
+      newRow[COL.positionApplied - 1] = parsed.currentJobTitle || subjectPosition || '';
+      newRow[COL.trade - 1]           = parsed.trade || subjectPosition || '';
       newRow[COL.experience - 1]      = parseFloat(parsed.totalExpYears) || 0;
       newRow[COL.score - 1]           = 0;
       newRow[COL.scoreBreakdown - 1]  = JSON.stringify({ cvVersion: 1 });
@@ -12491,30 +12514,46 @@ function parseCVAttachmentWithGemini_(attachment, subjectHint, apiKey) {
 }
 
 /**
- * Heuristic: does this string look like a real person's name vs a job title?
- * GCC context: Arabic / South Asian names can be 5-6 words.
- * Rule: reject if 2+ words are job-title keywords — that's a subject line, not a name.
+ * Heuristic: does this string look like a real person's name vs a job title / email subject?
+ * GCC context: Arabic/South Asian names can be 5-6 words (Abdul Basit Mian Ghullab Khan).
+ *
+ * Rejects:
+ *   - All-caps abbreviations: WPR, QC, HR (≤4 chars all-caps)
+ *   - Trade adjective + job noun: "Mechanical Technician", "QC Inspector Civil"
+ *   - Prefix phrases: "Document from X", "Resume for X", "Apply for X"
+ *   - 2+ job-title keywords in any word position
  */
 function looksLikePersonName_(s) {
   if (!s) return false;
   var name = String(s).trim();
   if (name.length < 3 || name.length > 80) return false;
 
+  // Reject pure abbreviations / acronyms (2-4 ALL CAPS letters like WPR, QC, HR, CV)
+  if (/^[A-Z]{2,4}$/.test(name)) return false;
+
   // Must be letters, spaces, dots, hyphens only — no digits
   if (!/^[A-Za-z][A-Za-z.\-\s]+$/.test(name)) return false;
 
   var words = name.split(/\s+/);
-  // Arabic/South Asian names: "Abdul Basit Mian Ghullab Khan" = 5 words — allow up to 7
   if (words.length < 1 || words.length > 7) return false;
 
-  // Count how many words are trade/job-title keywords
-  var jobWord = /^(operator|engineer|technician|fitter|welder|rigger|fabricator|inspector|supervisor|foreman|helper|driver|mechanic|electrician|plumber|mason|carpenter|painter|scaffolder|field|operation|offshore|onshore|experience|manpower|recruitment|application|position|vacancy|document|resume|curriculum|vitae|apply|applying|looking|post|job|power|plant|instrument|procurement|structural|commissioning|piping|coating|painting|auto|lead|assistant|maintenance|construction|fabrication|installation|erection|testing|commissioning|rotating|static|scaffold)$/i;
+  // Hard reject: starts with a document/action word (these are email subjects, not names)
+  var prefixReject = /^(document|resume|cv|apply|applying|application|looking|post|job|re|fw|fwd|for|from)$/i;
+  if (prefixReject.test(words[0])) return false;
+
+  // Count job-title and trade-adjective keywords
+  // Trade adjectives (mechanical, civil, etc.) + job nouns together = job title pair
+  var jobWord = /^(operator|engineer|technician|fitter|welder|rigger|fabricator|inspector|supervisor|foreman|helper|driver|mechanic|electrician|plumber|mason|carpenter|painter|scaffolder|field|operation|offshore|onshore|experience|manpower|recruitment|application|position|vacancy|document|resume|curriculum|vitae|apply|applying|looking|post|job|power|plant|instrument|procurement|structural|commissioning|piping|coating|painting|auto|lead|assistant|maintenance|construction|fabrication|installation|erection|testing|rotating|static|scaffold|mechanical|civil|electrical|chemical|process|quality|control|safety|hse|qc|qa|ndt|ccnp|pmi|mep|hvac|fire|offshore|onshore|crane|rigging|blasting|coating|welding|fitting|turning|machining|grinding|cutting)$/i;
   var jobCount = 0;
   for (var w = 0; w < words.length; w++) {
     if (jobWord.test(words[w])) jobCount++;
   }
-  // 2+ job keywords = almost certainly an email subject, not a person's name
-  return jobCount <= 1;
+  // Even 1 job keyword in a 2-word name is suspicious: "Mechanical Technician", "QC Inspector"
+  // Allow 1 job keyword only if name has 4+ words (e.g. "Mohammad Engineer Ali Khan" could be a real name)
+  if (words.length <= 3 && jobCount >= 1) return false;
+  if (words.length > 3  && jobCount >= 2) return false;
+
+  return true;
 }
 
 // ── Backlog clearer: karigar/error ────────────────────────────────────────────
