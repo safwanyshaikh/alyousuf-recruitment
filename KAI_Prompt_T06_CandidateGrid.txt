@@ -1,0 +1,157 @@
+KAI RECRUITMENT OS — TASK 06: Candidate Grid Defaults + Server-Side Filtering
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+Move ALL filtering, sorting, and pagination to the GAS API (server-side).
+The Lovable UI must only send filter params and render results — no local array
+filtering, no local sorting, no local pagination slicing. Performance target:
+first page of Indian candidates loads in under 2 seconds.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 1 — DEFAULT NATIONALITY = INDIAN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On Candidates screen mount:
+  1. Read localStorage key `kai_nationality_filter`
+  2. If it exists, use that value for the nationality dropdown
+  3. If it does NOT exist, default to `"Indian"`
+  4. Whenever the user changes the nationality dropdown, write the new value to
+     localStorage key `kai_nationality_filter`
+
+The dropdown must have an "All Nationalities" option (empty string value "").
+Default selected = "Indian" unless localStorage has a saved preference.
+
+Do NOT clear this on logout — it is a UI preference, not a session token.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 2 — API CALL: PASS ALL FILTERS SERVER-SIDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Every time the Candidates grid fetches data, build the URL like this:
+
+  const params = new URLSearchParams({
+    action: 'candidates',
+    token: sessionToken,
+    page: currentPage,          // starts at 1
+    limit: 100,
+    sort: 'newest',             // always pass sort=newest
+  });
+
+  // Only append filters if they have a value
+  if (nationalityFilter)  params.append('nationality', nationalityFilter);
+  if (stageFilter)        params.append('stage', stageFilter);
+  if (tradeFilter)        params.append('trade', tradeFilter);
+  if (searchQuery)        params.append('q', searchQuery);
+  if (scoreMin !== 0)     params.append('scoreMin', scoreMin);
+  if (scoreMax !== 100)   params.append('scoreMax', scoreMax);
+
+  const url = `${GAS_URL}?${params.toString()}`;
+  const res  = await fetch(url, { redirect: 'follow' });
+  const json = await res.json();
+
+GAS returns:
+  {
+    ok: true,
+    records: [...],      // already filtered + sorted + paginated
+    total: 4200,         // total matching (for the active filter)
+    page: 1,
+    limit: 100,
+    totalPages: 42,
+    activeCount: 4200,
+    excludedCount: 1317,
+    totalCount: 5517
+  }
+
+CRITICAL: Do NOT filter, sort, or slice records after receiving them.
+Render json.records as-is. Pagination state = json.page, json.totalPages, json.total.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 3 — CANDIDATE NAME COLUMN FORMAT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The primary name column in the candidates grid must show:
+
+  Line 1 (bold):   Full Name
+  Line 2 (muted):  [Nationality] [separator] [Location] [separator] [Age]
+
+Rules for line 2:
+  - Use " | " as separator between populated segments
+  - Skip any segment that is blank — do NOT show a dash or placeholder
+  - Age: show as "32y" format; omit if age === 0
+  - Location: use candidate.currentLocation field; omit if empty string
+  - Nationality: use candidate.nationality field; omit if empty string
+
+Examples:
+  candidate = { name: "Ravi Kumar", nationality: "Indian", currentLocation: "Hyderabad", age: 34 }
+  → Line 1: Ravi Kumar
+  → Line 2: Indian | Hyderabad | 34y
+
+  candidate = { name: "Ahmed Ali", nationality: "Pakistani", currentLocation: "", age: 0 }
+  → Line 1: Ahmed Ali
+  → Line 2: Pakistani
+  (no location, no age — only 1 segment, no separators)
+
+  candidate = { name: "John Doe", nationality: "", currentLocation: "Dubai", age: 29 }
+  → Line 1: John Doe
+  → Line 2: Dubai | 29y
+
+  candidate = { name: "Test User", nationality: "", currentLocation: "", age: 0 }
+  → Line 1: Test User
+  → Line 2: (empty — show nothing, no line 2 at all)
+
+Implementation (TypeScript helper):
+  function buildCandidateSubline(c: Candidate): string {
+    const parts: string[] = [];
+    if (c.nationality)      parts.push(c.nationality);
+    if (c.currentLocation)  parts.push(c.currentLocation);
+    if (c.age && c.age > 0) parts.push(`${c.age}y`);
+    return parts.join(' | ');
+  }
+
+Render in JSX:
+  <div>
+    <p className="font-medium text-sm">{candidate.name}</p>
+    {buildCandidateSubline(candidate) && (
+      <p className="text-xs text-muted-foreground">{buildCandidateSubline(candidate)}</p>
+    )}
+  </div>
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 4 — PAGINATION CONTROLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Show pagination controls at the bottom of the candidates grid:
+  ← Prev   Page 1 of 42   Next →
+
+State:
+  - currentPage: number (starts at 1)
+  - totalPages: from json.totalPages
+  - total: from json.total (e.g. "4,200 candidates")
+
+Behaviour:
+  - Clicking Prev / Next changes currentPage and re-fetches
+  - When any filter changes, reset currentPage to 1 before fetching
+  - Disable "Prev" on page 1, disable "Next" on last page
+
+Show record count above or below the grid:
+  "Showing 1–100 of 4,200 Indian candidates"
+  (adapt text based on whether nationality filter is active)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT CHANGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Do NOT change the GAS URL
+- Do NOT change the token logic (localStorage key: kai_session_token)
+- Do NOT change the POST pattern for saveNote, updateStage (those remain text/plain;charset=utf-8)
+- Do NOT add mock/fallback data — if API fails, show an error state
+- Do NOT show KI Number (kaiNo) in the grid — drawer only
+- Do NOT show passport expiry in the grid — drawer only
+- Do NOT add columns to the grid without being asked
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec

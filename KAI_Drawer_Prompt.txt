@@ -1,0 +1,430 @@
+================================================================
+KAI SPRINT 2 — CANDIDATE DRAWER
+Full 5-Tab Slide Panel Implementation
+================================================================
+
+Do NOT change the Candidate grid, login, or any other screen.
+Only implement the Candidate Drawer that slides in when a row
+is clicked on the Candidates screen.
+
+================================================================
+WHAT EXISTS TODAY
+================================================================
+
+The Candidate grid is working and loads real data from the GAS API.
+Row click currently shows a placeholder panel: "Drawer: {name}"
+
+Replace that placeholder with the full drawer described below.
+Preserve the existing row click handler — just replace the panel content.
+
+================================================================
+API
+================================================================
+
+GAS_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec"
+
+Token: localStorage.getItem('kai_session_token')
+
+FETCH SINGLE CANDIDATE (on drawer open):
+  GET {GAS_URL}?action=candidate&token={token}&rowIndex={candidate.rowIndex}
+  Response fields listed in FIELD REFERENCE section below.
+
+FETCH ACTIVITY LOG (History tab):
+  GET {GAS_URL}?action=activityLog&token={token}&rowIndex={candidate.rowIndex}
+  Response: { ok, log: [{timestamp, action, detail, actor}], count }
+
+FETCH CANDIDATE SLOTS (History tab — project history):
+  GET {GAS_URL}?action=slots&token={token}&rowIndex={candidate.rowIndex}
+  Response: { ok, slots: [{slotId, reqId, candidateName, slotStatus, addedAt}], count }
+
+SAVE NOTE (Notes tab):
+  POST body: { action: 'saveNote', token, rowIndex, note, recruiter: 'current-user' }
+
+UPDATE STAGE (from More menu):
+  POST body: { action: 'updateStage', token, rowIndex, newStage, recruiter: 'current-user' }
+
+================================================================
+DRAWER LAYOUT
+================================================================
+
+Width:   480px on desktop screens (≥ 1024px)
+         640px on large screens (≥ 1440px)
+         Full screen (100vw) on mobile (< 768px)
+
+Position: Fixed, right side, full height
+Overlay:  Semi-transparent dark backdrop behind drawer
+Close:    Click backdrop, click X button, or press Escape key
+Animation: Slides in from right, 250ms ease-out
+
+Structure (top to bottom):
+  ┌─────────────────────────────────────────────────────┐
+  │ HEADER: Name  [← Close]  [⭐ Shortlist]  [⋮ More]  │
+  ├─────────────────────────────────────────────────────┤
+  │ IDENTITY BAR: KAI No  |  Stage chip  |  Score       │
+  ├─────────────────────────────────────────────────────┤
+  │ QUICK ACTIONS: [📞 Call]  [💬 WhatsApp]  [✉ Email] │
+  ├─────────────────────────────────────────────────────┤
+  │ TABS: [Profile] [Assessment] [Documents] [History] [Notes] │
+  ├─────────────────────────────────────────────────────┤
+  │ TAB CONTENT (scrollable independently)              │
+  └─────────────────────────────────────────────────────┘
+
+================================================================
+HEADER
+================================================================
+
+Left:   ← Close button (chevron-left icon)
+Centre: Candidate full name, bold 18px
+Right:  [⭐ Shortlist] button (amber)
+        [⋮] More button → dropdown:
+          🔄 Update Stage
+          📤 Submit to Client
+          📋 Request Documents
+          📝 Add Note (scrolls to Notes tab)
+          🚫 Reject
+
+================================================================
+IDENTITY BAR (always visible — does not scroll)
+================================================================
+
+Three items in a row:
+  1. KAI No: Show value from kaiNo field (e.g. "AYE-KAI-2026-000001")
+     If kaiNo is empty: show "—"
+  2. Stage chip: same colour coding as the grid
+     New → grey, Review → blue, Needs Call → orange,
+     Shortlisted → amber, Client Sent → purple,
+     Selected → dark green, Deployed → dark green darker,
+     On Hold → amber, Rejected → red
+  3. Score: "{score}% {tier}" where tier is:
+     STRONG → green text, GOOD → blue text,
+     POSSIBLE → amber text, REVIEW → grey text
+     If score = 0: show "Unscored" in grey
+
+================================================================
+QUICK ACTIONS BAR
+================================================================
+
+Show buttons only when the relevant field is not empty:
+  📞 Call      → visible if mobile not empty → href tel:{mobile}
+  💬 WhatsApp  → visible if mobile not empty → https://wa.me/{mobile}
+  ✉  Email     → visible if email not empty  → mailto:{email}
+  📤 Submit    → always visible → shows toast "Submit to Client — coming soon"
+
+================================================================
+TABS
+================================================================
+
+Five tabs: Profile | Assessment | Documents | History | Notes
+
+Active tab: underline indicator + bold text
+Default active tab: Profile
+
+================================================================
+TAB 1 — PROFILE
+================================================================
+
+Show loading skeleton while fetching.
+
+SECTION: Personal Information
+  Name:              {name}
+  Nationality:       {nationality || "—"}
+  Age:               {age > 0 ? age + "Y" : "—"}
+  Date of Birth:     {dob || "—"}
+  Current Location:  {currentLocation || "—"}
+  Employment Status: {empStatus || "—"}
+  Notice Period:     {noticeDays > 0 ? noticeDays + " days" : "—"}
+
+SECTION: Professional Information
+  Trade:             {trade || "—"}
+  Industry:          {industry || "—"}
+  Total Experience:  {experience > 0 ? experience + " years" : "—"}
+  Gulf Experience:   {gulfExp || "—"}  (raw text — show as-is)
+  GCC Mobility:      {gccMobility}
+    Display human label:
+      INDIA_AVAILABLE   → "India Available"
+      SAUDI_LOCAL       → "Saudi Local Transfer"
+      UAE_LOCAL         → "UAE Local Transfer"
+      QATAR_LOCAL       → "Qatar Local Transfer"
+      KUWAIT_LOCAL      → "Kuwait Local Transfer"
+      BAHRAIN_LOCAL     → "Bahrain Local Transfer"
+      OMAN_LOCAL        → "Oman Local Transfer"
+      GCC_TRANSFERABLE  → "GCC Transferable"
+  Position Applied:  {positionApplied || "—"}
+
+SECTION: Top Positions (show only if top3Positions.count > 0)
+  Title: "Top Positions"
+  List each position from top3Positions.full array:
+    1. {position}
+    2. {position}
+    etc.
+
+SECTION: Education
+  Level:   {educationLevel || "—"}
+  Subject: {educationSubject || "—"}
+  Raw:     {educationRaw || "—"}  (grey smaller text, only if different from level+subject)
+
+SECTION: Missing Fields (show only if missingFields is not empty)
+  Amber background strip:
+  ⚠ Missing: {missingFields}
+  (missingFields is a comma-separated string — display as chips or plain text)
+
+================================================================
+TAB 2 — ASSESSMENT
+================================================================
+
+SECTION: Score Overview
+  Large score display:
+    {score} / 100     [STRONG MATCH badge in green]
+
+  Score Breakdown (parse from scoreBreakdown field):
+    Format of scoreBreakdown string: "Tech:22 | GCC:23 | Clarity:20 | TradeFit:25 | Age:0"
+    Parse each component and display as:
+
+    Technical Fit:    {tech} / 25   [progress bar]
+    GCC Experience:   {gcc}  / 25   [progress bar]
+    CV Clarity:       {clarity} / 25 [progress bar]
+    Trade Fit:        {tradeFit} / 25 [progress bar]
+    Age Fit:          {age} / 5     [progress bar]
+
+    If scoreBreakdown is empty or unparseable: show only the total score bar.
+    Progress bar: filled = (value/max) × 100%, green fill, grey track
+
+SECTION: KAI Full Assessment
+  Title: "KAI Assessment"
+  Show the full kaiAssessment text verbatim — NO truncation in drawer.
+  Use a slightly smaller font (13px), line-height 1.5.
+  Preserve line breaks.
+  If kaiAssessment empty: show "No AI assessment available" in grey.
+
+SECTION: Recommended Roles (show only if recommendedRoles not empty)
+  Title: "Recommended Roles"
+  Split recommendedRoles by comma or newline and show as bullet list.
+
+SECTION: Recruiter Action (show only if recruiterAction not empty)
+  Title: "Suggested Next Action"
+  Yellow/amber background box.
+  Text: {recruiterAction}
+  Label: "KAI Recommendation" in smaller grey text above
+
+SECTION: Technical Review (show only if techReview not empty)
+  Title: "Technical Review"
+  Text: {techReview}
+
+================================================================
+TAB 3 — DOCUMENTS
+================================================================
+
+SECTION: Passport
+  Passport No:    {passportNo || "—"}
+  Expiry:         {passportExpiry || "—"}
+  Status:         {passportStatus}
+    Valid     → green text
+    <6mo      → amber text (warning)
+    Expired   → red text
+    Unknown   → grey text
+  ECR Status:     {ecrStatus || "—"}
+  Medical Status: {medicalStatus || "—"}
+
+SECTION: CV
+  If cvLink is not empty:
+    Three buttons in a row:
+      [👁 Preview] → window.open(cvLink, '_blank')
+      [↗ Open in Drive] → window.open(cvLink, '_blank')
+      [⬇ Download] → <a href={cvLink} download target="_blank">
+
+    Below buttons: embed iframe if cvLink appears to be a PDF:
+      <iframe src={cvLink} width="100%" height="350px" frameBorder="0" />
+      Show "Preview may not load for all file types" in grey below iframe.
+
+  If cvLink is empty:
+    Grey box: "No CV uploaded"
+    [📎 Upload CV] button → show toast "Upload CV — coming soon"
+
+SECTION: Deployability Score (show only if deployScore > 0)
+  "{deployScore} / 100"
+  Simple progress bar, blue fill.
+
+================================================================
+TAB 4 — HISTORY
+================================================================
+
+On tab activate: fetch activity log and slots (if not already fetched).
+Show skeleton while loading.
+
+SUB-SECTION: Project History
+  Title: "Project History"
+  If slots.count > 0: show table:
+    Columns: Requirement | Status | Added Date
+    Each row: {slot.reqId} | {slot.slotStatus} | {slot.addedAt}
+    slotStatus colour:
+      ADDED → grey, SHORTLISTED → amber, SUBMITTED → blue,
+      INTERVIEWED → purple, SELECTED → green, DEPLOYED → dark green,
+      REJECTED → red
+  If slots.count = 0: show "Not linked to any requirement yet" in grey.
+
+SUB-SECTION: Activity Timeline
+  Title: "Activity Timeline"
+  Newest entries first.
+  Each entry:
+    [timestamp]   [action label]
+    [detail text]
+    By: [actor]
+
+  action label display mapping:
+    STAGE_CHANGE → "Stage Changed"
+    NOTE         → "Note Added"
+    SLOT_ADDED   → "Added to Requirement"
+    SLOT_STATUS  → "Slot Status Updated"
+    AUTO_REPLY   → "Auto Reply Sent"
+    (other)      → show raw action value
+
+  If count = 0: show "No activity recorded yet" in grey.
+  If count > 10: show first 10 with [Show all {count} entries] toggle.
+
+================================================================
+TAB 5 — NOTES
+================================================================
+
+EXISTING NOTES (from candidate.notes field):
+  If notes not empty: show in grey box with smaller text.
+  Label above: "Internal Notes"
+  If empty: show nothing.
+
+ADD NEW NOTE:
+  Textarea placeholder: "Add a recruiter note..."
+  Rows: 4
+  [Save Note] button (blue, full width)
+
+  On save:
+    1. Validate note is not empty
+    2. POST { action: 'saveNote', token, rowIndex, note, recruiter: 'current-user' }
+    3. On success: show green toast "Note saved", clear textarea
+    4. On error: show red toast with error message
+
+================================================================
+FIELD REFERENCE (from API response)
+================================================================
+
+From GET ?action=candidate&rowIndex=N:
+
+  rowIndex          (number)  — use for all subsequent API calls
+  kaiNo             (string)  — show in identity bar (NOT in grid)
+  name              (string)
+  nationality       (string)
+  age               (number)  — 0 if unknown
+  dob               (string)  — "yyyy-MM-dd" format
+  stage             (string)  — display stage (already computed server-side)
+  stageRaw          (string)  — original stage value
+  trade             (string)
+  score             (number)  — 0-100
+  confidenceTier    (string)  — STRONG | GOOD | POSSIBLE | REVIEW
+  verdict           (string)  — original AI verdict
+  positionApplied   (string)
+  industry          (string)
+  experience        (number)  — years
+  gulfExp           (string)  — raw text
+  gccMobility       (string)  — enum: INDIA_AVAILABLE | SAUDI_LOCAL | UAE_LOCAL etc.
+  currentLocation   (string)
+  empStatus         (string)
+  noticeDays        (number)
+  educationRaw      (string)
+  educationLevel    (string)  — Degree | Diploma | ITI / Certificate | etc.
+  educationSubject  (string)
+  mobile            (string)
+  email             (string)
+  cvLink            (string)
+  kaiAssessment     (string)  — full AI assessment text
+  scoreBreakdown    (string)  — "Tech:22 | GCC:23 | Clarity:20 | TradeFit:25 | Age:0"
+  recommendedRoles  (string)  — comma-separated
+  recruiterAction   (string)
+  techReview        (string)
+  applicationDate   (string)  — "yyyy-MM-dd"
+  passportStatus    (string)  — Valid | <6mo | Expired | Unknown
+  passportExpiry    (string)  — "yyyy-MM-dd"
+  passportNo        (string)
+  ecrStatus         (string)  — ECNR | ECR | blank
+  medicalStatus     (string)
+  missingFields     (string)
+  deployScore       (number)
+  top3Positions     (object)  — { first, rest[], count, full[] }
+  flags             (string)
+  notes             (string)
+
+================================================================
+STAGE UPDATE FLOW (from More menu → Update Stage)
+================================================================
+
+1. Click ⋮ → click "🔄 Update Stage"
+2. Show a small dropdown or modal with stage options:
+   New | Review | Needs Call | Shortlisted | Client Sent |
+   Selected | Deployed | On Hold | Rejected
+3. User selects new stage
+4. POST { action: 'updateStage', token, rowIndex, newStage, recruiter: 'current-user' }
+5. On success:
+   a. Update stage chip in the drawer identity bar
+   b. Update the corresponding row's stage chip in the main grid
+   c. Show green toast "Stage updated to: {newStage}"
+6. On error: show red toast with error
+
+================================================================
+SHORTLIST BUTTON FLOW
+================================================================
+
+Clicking ⭐ Shortlist in the header:
+1. POST { action: 'updateStage', token, rowIndex, newStage: 'Shortlisted', recruiter: 'current-user' }
+2. On success:
+   a. Change ⭐ button label/colour to show it's active (amber fill)
+   b. Update stage chip in drawer and in grid row
+   c. Show green toast "Shortlisted: {name}"
+
+================================================================
+LOADING + ERROR STATES
+================================================================
+
+On drawer open:
+  Show skeleton immediately (header + tabs, content area as grey blocks)
+  Fetch single candidate API call
+  On success: populate all tabs
+  On error: show error banner "Could not load candidate: {error}" with [Retry] button
+
+History tab:
+  Fetch activity log + slots when tab is first activated (lazy load)
+  Show skeleton in history tab while loading
+
+================================================================
+TYPESCRIPT / REACT IMPLEMENTATION NOTES
+================================================================
+
+Create or update these files:
+
+1. CandidateDrawer.tsx — main drawer component
+   Props: { candidate: {rowIndex, name, kaiNo, ...} | null, onClose: () => void }
+   Manages: activeTab state, detailData state, activityLog state, slots state
+
+2. useDrawerData.ts (hook) — handles the two API fetches:
+   a. fetchDetail(rowIndex): GET ?action=candidate → sets detailData
+   b. fetchHistory(rowIndex): GET ?action=activityLog + GET ?action=slots → sets log + slots
+   Only calls (b) when History tab is first activated.
+
+3. DrawerScoreBreakdown.tsx — parses scoreBreakdown string, renders progress bars
+
+4. DrawerIdentityBar.tsx — KAI No + stage chip + score
+
+Ensure the drawer is rendered at the page root level (not inside the table),
+so it overlays the entire screen correctly.
+
+================================================================
+RULES
+================================================================
+
+1. KAI Number IS shown in the drawer (identity bar). It is NOT shown in the grid.
+2. Passport expiry IS shown in the drawer (Documents tab). NOT in the grid.
+3. Full kaiAssessment text IS shown in the drawer. Only snippet in the grid.
+4. The drawer does not modify the candidate data in the grid except for stage.
+5. On stage change: update the grid row's stage chip without re-fetching the full list.
+6. Escape key closes the drawer.
+7. Drawer renders on top of everything — z-index: 50 minimum.
+8. Mobile: drawer takes full screen width and height. Tab bar scrolls horizontally.
+9. Do NOT change gasApi.ts BASE_URL, the grid, or any other screen.
+
+================================================================

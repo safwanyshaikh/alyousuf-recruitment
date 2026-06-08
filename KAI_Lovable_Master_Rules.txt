@@ -1,0 +1,427 @@
+KAI OS – LOVABLE MASTER RULES (DO NOT IMPLEMENT UNTIL EXPLICITLY ASSIGNED)
+
+CRITICAL RULE
+
+Do not implement any new feature automatically.
+
+Store every item below in project memory as APPROVED BACKLOG.
+
+Only implement when Safwan explicitly references the task and says:
+
+"START TASK"
+or
+"IMPLEMENT NOW"
+
+Until then:
+
+* Store
+* Analyse
+* Validate dependencies
+* Wait
+
+Never start coding future items without instruction.
+
+---
+
+## LOVABLE BACKLOG (APPROVED)
+
+NAVIGATION
+
+1. KAI OS logo must act as Home button.
+2. Active Jobs must always be accessible from sidebar.
+3. User must never get trapped inside a screen.
+4. Home navigation required from every page.
+
+---
+
+ACTIVE JOBS vs CAMPAIGNS
+
+ACTIVE JOBS
+
+* Small requirements
+* Day-to-day hiring
+* No fixed interview schedule
+* Continuous sourcing
+* Continuous submissions
+
+CAMPAIGNS
+
+* Mass hiring
+* Interview drives
+* Client visit events
+* Online interview campaigns
+* Fixed dates
+* Fixed locations
+* Large quantities
+
+JD Parser should eventually ask:
+
+"Create Active Job or Campaign?"
+
+when quantity crosses configured threshold.
+
+---
+
+JD AUTOMATION
+
+Upload JD
+↓
+Gemini Parse
+↓
+Requirement Auto Create
+↓
+Department Classification
+↓
+Trade Classification
+↓
+Skills Extraction
+↓
+Certification Extraction
+↓
+Candidate Matching
+
+Exclude:
+
+* Agency address
+* Service charges
+* Commercial terms
+* Contact details
+* Client email signatures
+
+Generate recruiter-focused summary only.
+
+Maximum 5-8 lines.
+
+No newspaper-style descriptions.
+
+---
+
+MATCH DRAWER IMPROVEMENTS
+
+ADD:
+
+Search Candidate
+
+Search by:
+
+* Name
+* Trade
+* Position Applied
+* Passport Number
+* KAI Number
+
+Filters remain:
+
+* Strong
+* Good
+* Possible
+* Nationality
+* Location
+* Sort
+* Hide Assigned
+
+---
+
+CANDIDATE MASTER SCREEN
+
+ADD ACTION
+
+Current:
+
+Call
+WhatsApp
+Shortlist
+Request Documents
+Submit To Client
+
+Required:
+
+Call
+WhatsApp
+Shortlist
+Request Documents
+Add To Requirement
+
+Remove direct Submit To Client.
+
+Reason:
+
+Submission must only happen through:
+
+Requirement
+↓
+Submission List
+↓
+Submit To Client
+
+No shortcut workflow.
+
+---
+
+ADD TO REQUIREMENT
+
+Candidate
+↓
+Add To Requirement
+↓
+Select Requirement Modal
+↓
+Assign
+
+Requirement list searchable.
+
+---
+
+CANDIDATE REUSE SYSTEM
+
+Inspired by ChatGPT Project Movement.
+
+Candidate must be reusable across:
+
+* Requirements
+* Campaigns
+* Clients
+
+One candidate
+Many assignments
+
+Never duplicate candidate.
+
+Assignment history must be maintained.
+
+---
+
+ACTIVITY INTELLIGENCE
+
+Future foundation:
+
+Track:
+
+* CV Viewed
+* Profile Opened
+* Requirement Assigned
+* Submitted
+* Shortlisted
+* Rejected
+* Deployed
+
+Maintain candidate activity timeline.
+
+---
+
+REVERSE PIPELINE
+
+Pipeline stages must support:
+
+Forward
+Backward
+
+Recruiters make mistakes.
+
+No one-way workflow.
+
+Every stage must support rollback.
+
+---
+
+BULK CV UPLOAD
+
+Required:
+
+Upload up to 10 CVs minimum.
+
+Future scalable.
+
+System should:
+
+* Parse
+* Detect duplicates
+* Generate KAI Number
+* Show missing fields
+
+No rejection for incomplete data.
+
+Mark as Missing.
+
+---
+
+EXCEL IMPORT INTELLIGENCE
+
+Agency uploads existing database.
+
+System should:
+
+* Read headers
+* Auto map columns
+* Detect missing fields
+* Import usable records
+
+Never punish missing fields.
+
+Missing ≠ Negative Score.
+
+---
+
+LOCATION LOGIC
+
+India:
+
+Mumbai
+Delhi
+Chennai
+
+GCC:
+
+Dubai, UAE
+Ajman, UAE
+Doha, Qatar
+Dammam, Saudi Arabia
+Riyadh, Saudi Arabia
+Salalah, Oman
+
+Do not force street-level addresses.
+
+City + Country is enough.
+
+---
+
+RECRUITER PROFILE
+
+Replace generic profile.
+
+Store:
+
+* Name
+* Designation
+* Mobile
+* Email
+* Office Address
+* Interview Venue Templates
+
+Future use:
+
+WhatsApp
+Emails
+Interview Invitations
+Notifications
+
+---
+
+AGENCY PROFILE
+
+Fetch from eMigrate registry.
+
+Store:
+
+* Agency Name
+* RA Number
+* License Number
+* Registered Address
+* Registered Phone
+* Registered Email
+* Status
+* Validity
+
+Agency profile should become trust layer.
+
+---
+
+TAXONOMY DASHBOARD
+
+Show:
+
+Total Taxonomies
+
+New This Month
+
+New This Week
+
+Growth Trend
+
+Not just static count.
+
+---
+
+BILLING SCREEN
+
+Show plans visually.
+
+Starter
+Growth
+Enterprise
+
+Tile-based layout.
+
+Current billing screen incomplete.
+
+---
+
+KAI SCORE
+
+Review entire purpose.
+
+Current implementation unclear.
+
+Either:
+
+* Define clearly
+
+or
+
+* Remove
+
+No meaningless widgets.
+
+---
+
+NOTIFICATION CENTER
+
+Audit existing bell icon.
+
+Verify:
+
+* What generates notifications
+* Which events trigger alerts
+* Whether notifications work
+
+If not functional, redesign later.
+
+---
+
+AUTOMATION PRINCIPLE
+
+KAI is not an ATS.
+
+KAI is not CRM.
+
+KAI is Recruitment Operating System.
+
+Target:
+
+10% Manual
+90% Automated
+
+Every future feature must reduce recruiter effort.
+
+Never add screens just for data entry.
+
+Automation first.
+
+---
+
+IMPLEMENTATION PRIORITY
+
+P1 Submission Workflow
+P2 Match Filters
+P3 Add To Requirement
+P4 Bulk Upload
+P5 Associate Import
+P6 Campaign Module
+P7 Activity Intelligence
+P8 Candidate Collections
+P9 Analytics
+P10 Automation Layer
+
+Store all items.
+
+Do not implement until explicit instruction.
