@@ -160,9 +160,41 @@ CANDIDATE = PERMANENT ASSET RULE:
 
 SEARCH SCOPE FOR UNIVERSAL SEARCH (CHANGE 2):
 The `q` parameter sent to GAS must search across ALL of:
-  name · kaiNo · passport · mobile · email · trade · positionApplied ·
-  requirementId · associateName · recruiterName · campaignName · companyName
+  name · kaiNo · passport · mobile · email · trade · specialization ·
+  positionApplied · nationality · currentLocation · requirementId ·
+  submissionNumber · associateName · recruiterName · campaignName ·
+  companyName · clientName
 The GAS backend handles the actual field matching — the UI only sends `q`.
+Search is ALWAYS server-side. NEVER filter the local records array.
+
+SEARCH RESET RULE (critical — prevents "Page 47, 0 results" confusion):
+When the search query changes (user types or clears):
+  1. Reset currentPage to 1
+  2. Re-fetch with the new `q` value
+  3. Update the record count label to show search context:
+     - With search: "Showing 1–100 of 243 results for "welder""
+     - Without search: "Showing 1–100 of 5,820 candidates"
+When search is cleared (empty string), the count label reverts to the
+default candidate count. NEVER show "0 results" on page 47 — always
+reset to page 1 before showing zero-result state.
+
+SERVER-SIDE ARCHITECTURE (LOCKED — never bypass):
+  Search    → server-side (q param)
+  Filters   → server-side (trade, industry, nationality, etc.)
+  Sort      → server-side (sort=newest, always)
+  Pagination → server-side (page + limit params)
+NEVER fetch all candidates to the browser and filter locally.
+Render only what GAS returns in json.records.
+
+DRAWER-ONLY FIELDS (NEVER show in grid — grid = speed, drawer = intelligence):
+  - KAI Number (kaiNo)
+  - Passport Number
+  - Passport Expiry Date
+  - Full KAI Assessment text
+  - Activity History / Timeline
+  - Audit Trail
+  - All submission history
+  - All requirement assignments
 
 FILTER BEHAVIOUR (unchanged from existing implementation):
 - Every filter change → reset currentPage to 1 → re-fetch
