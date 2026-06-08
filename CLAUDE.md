@@ -212,9 +212,30 @@ Because NMDC=50 JDs, ZAMIL=80 JDs, GAS=25 JDs. Never upload one-by-one.
 ## GAS Bridge (Current Backend)
 - SS_ID: `101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE`
 - Bridge URL: `https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec`
-- Master file: `KAI_API_Bridge_MASTER.gs` (10,000+ lines, Sections 1–39)
+- Master file: `KAI_API_Bridge_MASTER.gs` (12,500+ lines, Sections 1–43)
 - Token key in localStorage: `kai_session_token`
 - Stage computed from verdict when col1 is blank/"Pending action"
+- GEMINI_API_KEY stored in Script Properties (not in code)
+- Model: `gemini-2.5-flash-lite` across all Gemini calls
+
+## Active Triggers (KAI-API-Bridge project)
+- `processAllInboxEmails` — every 5 min — Gmail CV intake + reply processing
+- `watchNewCandidates` — every 5 min — assigns kaiNo to new rows missing it
+- `runQueueBatch` — every 10 min — processes enrichment queue
+- `enrichTop3Positions` — every 10 min — scores top 3 matching roles
+
+## Email Intelligence (Section 43 — LIVE)
+Three-tier classification for every incoming email:
+- IGNORE: bounces, marketing, OOO, internal domains, junk prefixes → karigar/junk
+- UPDATE: known candidate reply → CV re-parsed (same KAI ID, never duplicate)
+- CREATE: new CV from unknown sender → Gemini reads PDF → real name extracted
+
+Sender ≠ Candidate rule (LOCKED):
+- From address may be associate/agent — NEVER stored as candidate email
+- Candidate email/phone/passport extracted from CV content only
+- Associate email stored as sourcedBy note only
+
+Gmail labels: karigar/processed · karigar/error · karigar/junk
 
 ## Do NOT
 - Redesign KAI as a generic ATS
