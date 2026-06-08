@@ -144,6 +144,9 @@ function doGet(e) {
     // S43 — KAI Outreach Reply Processor + Full Email Intelligence
     else if (action === 'clearKarigarErrorBacklog') out = JSON.stringify(clearKarigarErrorBacklog());
     else if (action === 'processAllInboxEmails')    out = JSON.stringify(processAllInboxEmails());
+    // T16.5 — Trade & Position Lookup (autocomplete dictionaries)
+    else if (action === 'tradeLookup')              out = JSON.stringify(getTradeLookup_(params));
+    else if (action === 'positionLookup')           out = JSON.stringify(getPositionLookup_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -758,6 +761,115 @@ function getLocationAudit_() {
     return (!best || f.populated > best.populated) ? f : best;
   }, null);
   return result;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// T16.5 — TRADE LOOKUP & POSITION LOOKUP (autocomplete dictionaries)
+// GET ?action=tradeLookup&q=ins&token=T
+//   Returns { ok:true, matches:[...], total:N } — flat sorted list of all
+//   trade keywords from TRADE_FAMILIES that contain the query string.
+//   Cached 6 hours. No candidate data read — pure dictionary lookup.
+//
+// GET ?action=positionLookup&q=eng&token=T
+//   Returns { ok:true, matches:[...], total:N } — distinct top3Positions
+//   values from the full candidate dataset, filtered by query string.
+//   Cached 1 hour (data-derived, refreshes as candidates are added).
+// ════════════════════════════════════════════════════════════════════
+
+function getTradeLookup_(params) {
+  var q = String(params.q || '').toLowerCase().trim();
+  if (q.length < 2) return { ok: true, matches: [], total: 0 };
+
+  var cacheKey = 'tradeLookup_all';
+  var cache = CacheService.getScriptCache();
+  var allTermsJson = cache.get(cacheKey);
+  var allTerms;
+
+  if (allTermsJson) {
+    allTerms = JSON.parse(allTermsJson);
+  } else {
+    // Build flat deduplicated sorted list from TRADE_FAMILIES dictionary
+    var seen = {};
+    var list = [];
+    for (var fam in TRADE_FAMILIES) {
+      var kws = TRADE_FAMILIES[fam];
+      for (var i = 0; i < kws.length; i++) {
+        var kw = kws[i].trim();
+        if (kw && !seen[kw.toLowerCase()]) {
+          seen[kw.toLowerCase()] = true;
+          // Capitalise first letter for display
+          list.push(kw.charAt(0).toUpperCase() + kw.slice(1));
+        }
+      }
+    }
+    list.sort();
+    allTerms = list;
+    cache.put(cacheKey, JSON.stringify(allTerms), 21600); // 6 hours
+  }
+
+  var matches = allTerms.filter(function(t) {
+    return t.toLowerCase().indexOf(q) >= 0;
+  });
+
+  return { ok: true, matches: matches.slice(0, 20), total: matches.length };
+}
+
+function getPositionLookup_(params) {
+  var q = String(params.q || '').toLowerCase().trim();
+  if (q.length < 2) return { ok: true, matches: [], total: 0 };
+
+  var cacheKey = 'positionLookup_distinct';
+  var cache = CacheService.getScriptCache();
+  var allPositionsJson = cache.get(cacheKey);
+  var allPositions;
+
+  if (allPositionsJson) {
+    allPositions = JSON.parse(allPositionsJson);
+  } else {
+    // Scan full candidate dataset for distinct top3Positions values
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName('Candidates');
+    if (!sheet || sheet.getLastRow() < 2) return { ok: true, matches: [], total: 0 };
+
+    var data = sheet.getRange(2, COL.top3Positions, sheet.getLastRow() - 1, 1).getValues();
+    var seen = {};
+    var list = [];
+
+    data.forEach(function(row) {
+      var raw = String(row[0] || '').trim();
+      if (!raw) return;
+      // top3Positions stored as JSON array string or newline-separated
+      var positions = [];
+      if (raw.charAt(0) === '[') {
+        try {
+          var parsed = JSON.parse(raw);
+          positions = Array.isArray(parsed)
+            ? parsed.map(function(p) { return typeof p === 'object' ? (p.full || p.title || '') : String(p); })
+            : [raw];
+        } catch(e) { positions = [raw]; }
+      } else {
+        positions = raw.split('\n');
+      }
+      positions.forEach(function(p) {
+        var pos = String(p).trim();
+        if (pos && pos.length > 2 && !seen[pos.toLowerCase()]) {
+          seen[pos.toLowerCase()] = true;
+          list.push(pos);
+        }
+      });
+    });
+
+    list.sort();
+    allPositions = list;
+    // Cache 1 hour — refreshes as new candidates are added
+    try { cache.put(cacheKey, JSON.stringify(allPositions), 3600); } catch(e) {}
+  }
+
+  var matches = allPositions.filter(function(p) {
+    return p.toLowerCase().indexOf(q) >= 0;
+  });
+
+  return { ok: true, matches: matches.slice(0, 20), total: matches.length };
 }
 
 // ════════════════════════════════════════════════════════════════════
