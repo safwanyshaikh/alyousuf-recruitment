@@ -226,6 +226,56 @@ DOCUMENT OPERATIONS BEHAVIOUR (do NOT change):
 - Triggers the existing Document Operations modal/flow unchanged
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HARD LOCKS — NON-NEGOTIABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LOCK 1 — APPLICATION DATE IS THE ONLY SORT FIELD:
+Sort must use the field named `applicationDate` — the original date the
+candidate's CV was received/submitted. Do NOT use any of these:
+  ✗ createdAt
+  ✗ updatedAt
+  ✗ parsedAt
+  ✗ importedAt
+  ✗ any server timestamp
+Only `applicationDate` reflects the true KAI standard for candidate
+freshness. Pass `sort: 'newest'` to GAS; GAS sorts by applicationDate.
+
+LOCK 2 — SEARCH DEBOUNCE SPEC:
+Universal search (header bar #1) must implement:
+  - 400ms debounce after last keystroke before firing request
+  - Minimum 2 characters before any request is sent (1-char input = no call)
+  - Cancel / ignore the previous in-flight request when a new one fires
+    (use AbortController or equivalent — never stack responses out of order)
+  - If input is cleared to 0 chars: cancel any pending request, reset to
+    default candidate list (no q param), reset to page 1
+
+LOCK 3 — FILTER STATE PERSISTS ACROSS DRAWER OPEN/CLOSE:
+When a recruiter has active filters (e.g. Trade=Welder, Nationality=Indian,
+Recruiter=HR5) and opens a candidate drawer then closes it:
+  - ALL filter values must remain exactly as set
+  - currentPage must remain on the same page
+  - Do NOT re-fetch on drawer close
+  - Do NOT reset any filter on drawer close
+  - The ONLY actions that reset filters are:
+      a) User clicks "Clear All" button
+      b) User manually changes a filter dropdown
+  Never auto-reset filters on any navigation event within the Candidates page.
+
+LOCK 4 — RESPONSIVE / TABLET LAYOUT:
+On screens narrower than 1024px (tablet/mobile breakpoint):
+  Visible columns:
+    1. Candidate (name + nationality + age)
+    2. Trade / Skill
+    3. Experience (IND + GCC)
+    4. GCC Match % (KAI Score)
+    5. Stage badge
+  Hidden columns (accessible via candidate drawer only):
+    Location · Education · Top 3 Positions · Readiness · CV ·
+    Contact · Actions
+  The row must still be tappable/clickable to open the full drawer.
+  Do NOT show a horizontal scrollbar on mobile — hide columns instead.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DO NOT CHANGE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
