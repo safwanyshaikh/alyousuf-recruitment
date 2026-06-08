@@ -1,0 +1,220 @@
+KAI RECRUITMENT OS — TASK 15: Candidates Page Cleanup & Universal Search
+═══════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+Four targeted changes to the Candidates page to remove wasted space,
+eliminate the duplicate search bar, upgrade the header search to a
+universal engine, and fix the default sort order.
+
+Do NOT change any GAS API call logic.
+Do NOT change the candidate grid columns.
+Do NOT change the drawer or any other page.
+Only change what is listed below.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 1 — REMOVE SEARCH BAR #2 (CANDIDATES GRID SEARCH)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+There are currently TWO search bars on the Candidates page:
+  #1 — in the top header/navbar (global search bar)
+  #2 — below the summary cards, above the filter row ("Search name, passport,
+        mobile, trade, KI number...")
+
+Remove search bar #2 completely. Delete the entire row/container.
+Do not leave any empty space or placeholder where it was.
+
+The filter row (Trade, Specialization, Industry, Nationality, etc.) moves
+up to occupy the space freed by removing search bar #2.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 2 — UPGRADE HEADER SEARCH BAR #1 TO KAI UNIVERSAL SEARCH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The header search bar (#1) placeholder text must be changed to:
+  "Search Candidate, KI No, Passport, Mobile, Email, Requirement..."
+
+When the user types in this search bar and the Candidates page is active,
+send the search term as the `q` parameter in the candidates API call
+(as already documented in Task 06, CHANGE 2):
+
+  params.append('q', searchQuery);
+
+This search must match against: name, kaiNo, passport, mobile, email,
+trade, requirement number.
+
+The GAS backend already handles `q` server-side — the UI only needs to
+pass it correctly and reset to page 1 when the search term changes.
+
+Wire the search: typing → debounce 400ms → set searchQuery → reset
+currentPage to 1 → re-fetch candidates.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 3 — HEADER LAYOUT: MOVE ACTION BUTTONS INSIDE HEADER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Only apply this layout change when the Candidates page is active.
+
+Move the "Upload CV" and "Document Operations" buttons from their current
+position (top-right of page content area) into the header/navbar row,
+placed immediately to the RIGHT of the universal search bar and to the
+LEFT of the notifications bell.
+
+Header layout (left → right):
+
+  [KAI OS logo] [sidebar toggle]  |  [TENANT: AL Yousuf Enterprises LLP (RC 9986)]  |  [═══ Universal Search ═══════════════════]  [Upload CV]  [Document Operations]  |  [🔔 bell]  [SR avatar]  [Logout]
+
+Rules:
+- "Upload CV" = primary button (blue/filled), compact (no icon required)
+- "Document Operations" = secondary button (outline), compact
+- On pages other than Candidates, these two buttons must NOT appear in
+  the header — they are page-specific actions
+- The TENANT label stays left of the search bar as it is today
+
+If the header does not have enough room on small screens, collapse
+"Document Operations" into a "⋮" overflow menu next to Upload CV.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 4 — COLLAPSE FILTER BAR INTO SINGLE-ROW RIBBON + MORE FILTERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The current filter area spans 2 rows with 13 separate filter dropdowns
+taking up ~150px of vertical space. This must be compressed.
+
+NEW FILTER RIBBON — single row, always visible:
+
+  [Trade ▼]  [Industry ▼]  [Nationality ▼]  [Recruiter ▼]  [Associate ▼]  [More Filters ▼]  [Clear All]
+
+Only these 5 dropdowns stay in the primary ribbon:
+  1. Trade
+  2. Industry
+  3. Nationality
+  4. Recruiter
+  5. Associate
+
+Everything else moves into the "More Filters" drawer/popover:
+  - Specialization
+  - Total Experience range
+  - GCC Experience range
+  - Passport (Available / Not Available / All)
+  - ECR / ECNR
+  - CV (Available / Not Available / All)
+  - Contact (Available / Not Available / All)
+  - Source
+
+"More Filters ▼" button opens a compact popover/panel (not a full drawer)
+that contains all the secondary filters in a 2-column grid layout.
+The popover closes on click-outside or pressing Escape.
+
+If any secondary filter is active, show a small badge/dot on the
+"More Filters" button to indicate active hidden filters (e.g., "More Filters (3)").
+
+"Clear All" button clears ALL filters — both primary ribbon and secondary
+filters in the popover — and resets to page 1.
+
+The entire filter ribbon should be a single compact row (~40px height),
+not two rows.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 5 — DEFAULT SORT = NEWEST APPLICATION DATE FIRST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The API call already passes `sort: 'newest'` (Task 06, CHANGE 2).
+Verify this is always sent — never omitted, never overridden.
+
+The STAGE column in the grid shows a date below the stage badge
+(e.g., "Review / 07 Jun 2026"). This date is the applicationDate.
+
+The default view must always show the most recently uploaded CV at the top.
+No UI sort toggle required — newest is always the default and only sort.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WIREFRAME RULES & PERMISSIONS — MUST NOT BE MISSED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+These rules are LOCKED from the KAI architecture. Every change above must
+comply. If any change conflicts with a rule below, the rule wins.
+
+PERMISSION MODEL (do NOT break):
+- Recruiter → sees candidates within their assigned scope only
+- Manager / Admin → sees all candidates across all recruiters
+- Associate → no access to Candidates page (sidebar item hidden)
+- Role is derived from the session token returned by the GAS API
+- Never hardcode a role — always read from the session/token response
+
+CANDIDATE GRID COLUMN ORDER (LOCKED — do not reorder or remove):
+  1. Stage      2. Candidate      3. Location    4. Education
+  5. Experience 6. Top 3 Positions 7. Trade/Skill 8. Readiness
+  9. GCC Match  10. CV            11. Contact    12. Actions
+
+CANDIDATE = PERMANENT ASSET RULE:
+- KAI Number (kaiNo) is NEVER shown in the grid — drawer only
+- Passport number is NEVER shown in the grid — drawer only
+- Clicking a candidate row opens the candidate drawer (do not navigate away)
+
+SEARCH SCOPE FOR UNIVERSAL SEARCH (CHANGE 2):
+The `q` parameter sent to GAS must search across ALL of:
+  name · kaiNo · passport · mobile · email · trade · positionApplied ·
+  requirementId · associateName · recruiterName · campaignName · companyName
+The GAS backend handles the actual field matching — the UI only sends `q`.
+
+FILTER BEHAVIOUR (unchanged from existing implementation):
+- Every filter change → reset currentPage to 1 → re-fetch
+- Filter state persists across page navigations within the session
+- Nationality filter preference saved to localStorage key: kai_nationality_filter
+- Default nationality = "Indian" (unless localStorage has saved preference)
+- "Clear All Filters" also resets nationality to "Indian" (default), NOT to "All"
+
+STAGE BADGE COLOURS (LOCKED — do not change):
+  Review       → grey/neutral
+  Needs Call   → yellow/amber
+  Shortlisted  → blue
+  Submitted    → purple
+  Selected     → green
+  Mobilization → orange
+  Deployed     → dark green
+  Do Not Contact → red
+
+TOP SUMMARY CARDS (LOCKED — do not change order or labels):
+  Total Candidates | Needs Call | Ready | Shortlisted | Submitted |
+  Selected | Mobilization | Deployed
+
+UPLOAD CV BEHAVIOUR (do NOT change):
+- Triggers the existing CV upload modal/flow unchanged
+- The upload call goes to GAS action=uploadCV with the session token
+- After successful upload, the candidates grid re-fetches automatically
+
+DOCUMENT OPERATIONS BEHAVIOUR (do NOT change):
+- Triggers the existing Document Operations modal/flow unchanged
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT CHANGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Do NOT change the GAS URL
+- Do NOT change the token logic (localStorage key: kai_session_token)
+- Do NOT change any column in the candidates grid
+- Do NOT change the candidate drawer
+- Do NOT change pagination controls
+- Do NOT change the summary cards (Total Candidates, Needs Call, Ready, etc.)
+- Do NOT add mock data
+- Do NOT change any other page (Dashboard, Requirements, Campaigns, etc.)
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUMMARY OF CHANGES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. DELETE   — search bar #2 below summary cards (completely removed)
+2. UPGRADE  — header search #1 → KAI Universal Search, wired to `q` param
+3. MOVE     — Upload CV + Document Operations → into header bar (right of search)
+4. COMPRESS — 13-filter block → 5-filter ribbon + "More Filters" popover
+5. VERIFY   — sort=newest always sent, newest CV always at top of grid
