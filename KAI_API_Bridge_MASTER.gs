@@ -12806,7 +12806,78 @@ function backfillInboxEmails_(params) {
   return { ok: true, stats: stats };
 }
 
-// ── Ongoing inbox processor (5-min trigger) ───────────────────────────────────
+// ── Public wrappers — visible in the Apps Script editor Run dropdown ──────────
+// Select one of these from the function list and click ▶ Run.
+
+/** Backfill batch 1 (threads 0-19) */
+function runBackfill01() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'0'   }))); }
+/** Backfill batch 2 (threads 20-39) */
+function runBackfill02() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'20'  }))); }
+/** Backfill batch 3 (threads 40-59) */
+function runBackfill03() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'40'  }))); }
+/** Backfill batch 4 (threads 60-79) */
+function runBackfill04() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'60'  }))); }
+/** Backfill batch 5 (threads 80-99) */
+function runBackfill05() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'80'  }))); }
+/** Backfill batch 6 (threads 100-119) */
+function runBackfill06() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'100' }))); }
+/** Backfill batch 7 (threads 120-139) */
+function runBackfill07() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'120' }))); }
+/** Backfill batch 8 (threads 140-159) */
+function runBackfill08() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'140' }))); }
+/** Backfill batch 9 (threads 160-179) */
+function runBackfill09() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'160' }))); }
+/** Backfill batch 10 (threads 180-199) */
+function runBackfill10() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'180' }))); }
+/** Backfill batch 11-15 (threads 200-299) — larger jump */
+function runBackfill11() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'200' }))); }
+function runBackfill12() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'220' }))); }
+function runBackfill13() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'240' }))); }
+function runBackfill14() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'260' }))); }
+function runBackfill15() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'280' }))); }
+
+/**
+ * Install a 1-minute trigger that auto-advances through all backfill batches.
+ * Run this once — it self-manages. Check Executions log to monitor progress.
+ * The trigger deletes itself when remaining = 0.
+ */
+function installBackfillTrigger() {
+  // Remove any existing backfill trigger first
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'runBackfillAuto') ScriptApp.deleteTrigger(t);
+  });
+  PropertiesService.getScriptProperties().setProperty('BACKFILL_OFFSET', '0');
+  ScriptApp.newTrigger('runBackfillAuto').timeBased().everyMinutes(1).create();
+  Logger.log('Backfill trigger installed. Monitor via Executions tab.');
+  return { ok: true, message: 'Backfill trigger installed — runs every 1 min until inbox is clear' };
+}
+
+/**
+ * Auto-advancing backfill — called by the 1-min trigger installed above.
+ * Reads offset from ScriptProperties, processes next 20 threads, advances offset.
+ * Deletes its own trigger when no threads remain.
+ */
+function runBackfillAuto() {
+  var props  = PropertiesService.getScriptProperties();
+  var offset = parseInt(props.getProperty('BACKFILL_OFFSET') || '0');
+  var result = backfillInboxEmails_({ batch: '20', offset: String(offset) });
+  Logger.log('runBackfillAuto offset=' + offset + ' → ' + JSON.stringify(result));
+
+  if (!result.ok) return;
+
+  if (result.stats.remaining === 0 || result.stats.total === 0) {
+    // Done — delete the trigger
+    ScriptApp.getProjectTriggers().forEach(function(t) {
+      if (t.getHandlerFunction() === 'runBackfillAuto') ScriptApp.deleteTrigger(t);
+    });
+    props.deleteProperty('BACKFILL_OFFSET');
+    Logger.log('Backfill complete — trigger removed.');
+  } else {
+    props.setProperty('BACKFILL_OFFSET', String(offset + 20));
+  }
+}
+
+
 
 /**
  * Scans karigar/error + inbox for new emails since last run.
