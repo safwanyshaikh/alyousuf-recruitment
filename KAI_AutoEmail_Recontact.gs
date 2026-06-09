@@ -414,9 +414,9 @@ function setupDailyTrigger() {
   ScriptApp.newTrigger('runDailyRecontactBatch')
     .timeBased()
     .everyDays(1)
-    .atHour(9)
+    .atHour(6)
     .create();
-  Logger.log('Daily trigger set for 9am. Run setupDailyTrigger() only once.');
+  Logger.log('Daily trigger set for 6am. Run setupDailyTrigger() only once.');
 }
 
 // ── STATS: Run anytime to check campaign progress ────────────
