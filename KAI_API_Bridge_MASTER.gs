@@ -12894,11 +12894,9 @@ function runBackfillAuto() {
  */
 function processAllInboxEmails() {
   var props = PropertiesService.getScriptProperties();
-  var ss = SpreadsheetApp.openById(SS_ID);
-
-  var lastRun = parseInt(props.getProperty('EMAIL_PROCESSOR_LAST_RUN') || '0');
-  var now = Date.now();
-  var cutoffMs = lastRun || (now - 6 * 60 * 60 * 1000); // default: last 6h on first run
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var now   = Date.now();
+  var startMs = now;
 
   var processedLabel = getOrCreateLabel_('karigar/processed');
   var errorLabel     = getOrCreateLabel_('karigar/error');
@@ -12906,56 +12904,68 @@ function processAllInboxEmails() {
 
   var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, error: 0, total: 0 };
 
-  // Process karigar/error label (retry backlog)
-  var errorThreads = errorLabel.getThreads(0, 50);
-  for (var i = 0; i < errorThreads.length; i++) {
-    var thread = errorThreads[i];
-    if (thread.getLastMessageDate().getTime() < cutoffMs - 24 * 3600 * 1000) continue; // skip very old
-    var messages = thread.getMessages();
-    var threadResult = 'IGNORED';
-    for (var j = 0; j < messages.length; j++) {
-      var r = processEmailMessage_(ss, messages[j], 'karigar/error');
-      if (r === 'ERROR' || r === 'PARSE_FAILED') { threadResult = 'ERROR'; break; }
-      if (r !== 'IGNORED') threadResult = r;
+  // ── PASS 1: Inbox — ALL unlabeled threads (no date cutoff)
+  // Using no `after:` filter catches threads that fell through between runs.
+  // Sorted newest-first by Gmail so fresh CVs are prioritised.
+  // Batch = 30 to stay safely inside the 6-min limit (each Gemini call ~1-2s).
+  var inboxQuery = 'in:inbox -label:karigar/processed -label:karigar/duplicate' +
+                   ' -label:karigar/junk -label:karigar/error';
+  var inboxThreads = GmailApp.search(inboxQuery, 0, 30);
+  for (var k = 0; k < inboxThreads.length; k++) {
+    if (Date.now() - startMs > 240000) break; // hard stop at 4 min, leave room for error backlog
+    var iThread  = inboxThreads[k];
+    var iMessages = iThread.getMessages();
+    var iResult  = 'IGNORED';
+    for (var l = 0; l < iMessages.length; l++) {
+      var r = processEmailMessage_(ss, iMessages[l], 'inbox');
+      // Escalate: prefer any meaningful action over IGNORED
+      if (r === 'NEW_CANDIDATE' || r === 'CV_UPDATED' || r === 'INFO_UPDATED' || r === 'NOT_INTERESTED') {
+        iResult = r; break;
+      }
+      if (r === 'PARSE_FAILED' || r === 'ERROR') { iResult = r; break; }
     }
     stats.total++;
-    if (threadResult === 'IGNORED')   { stats.ignored++; thread.removeLabel(errorLabel); thread.addLabel(junkLabel); }
-    else if (threadResult !== 'ERROR'){ stats[threadResult === 'CV_UPDATED' ? 'cvUpdated' :
-                                               threadResult === 'NOT_INTERESTED' ? 'notInterested' :
-                                               threadResult === 'INFO_UPDATED' ? 'infoUpdated' : 'newCandidate']++;
-                                        thread.removeLabel(errorLabel); thread.addLabel(processedLabel); }
-    else { stats.error++; }
+    if (iResult === 'IGNORED') {
+      stats.ignored++;
+      iThread.addLabel(junkLabel);
+    } else if (iResult === 'PARSE_FAILED' || iResult === 'ERROR') {
+      stats.error++;
+      iThread.addLabel(errorLabel);
+    } else {
+      stats.cvUpdated     += iResult === 'CV_UPDATED'     ? 1 : 0;
+      stats.notInterested += iResult === 'NOT_INTERESTED' ? 1 : 0;
+      stats.infoUpdated   += iResult === 'INFO_UPDATED'   ? 1 : 0;
+      stats.newCandidate  += iResult === 'NEW_CANDIDATE'  ? 1 : 0;
+      iThread.addLabel(processedLabel);
+    }
   }
 
-  // Process fresh inbox emails (last 5 min window)
-  // Exclude already-labeled threads so old karigar/duplicate and processed threads
-  // do not consume the per-run slot limit and crowd out brand new CV emails.
-  var query = 'in:inbox after:' + Math.floor(cutoffMs / 1000) +
-              ' -label:karigar/processed -label:karigar/duplicate -label:karigar/junk';
-  var inboxThreads = GmailApp.search(query, 0, 50);
-  for (var k = 0; k < inboxThreads.length; k++) {
-    var iThread = inboxThreads[k];
-    var iMessages = iThread.getMessages();
-    for (var l = 0; l < iMessages.length; l++) {
-      var msg = iMessages[l];
-      if (msg.getDate().getTime() < cutoffMs) continue;
-      var iResult = processEmailMessage_(ss, msg, 'inbox');
+  // ── PASS 2: karigar/error backlog — retry up to 15 threads if time remains
+  if (Date.now() - startMs < 240000) {
+    var errorThreads = errorLabel.getThreads(0, 15);
+    for (var i = 0; i < errorThreads.length; i++) {
+      if (Date.now() - startMs > 280000) break; // absolute stop at 4m40s
+      var thread  = errorThreads[i];
+      var messages = thread.getMessages();
+      var threadResult = 'IGNORED';
+      for (var j = 0; j < messages.length; j++) {
+        var er = processEmailMessage_(ss, messages[j], 'karigar/error');
+        if (er === 'ERROR' || er === 'PARSE_FAILED') { threadResult = 'ERROR'; break; }
+        if (er !== 'IGNORED') threadResult = er;
+      }
       stats.total++;
-      if (iResult === 'IGNORED') {
+      if (threadResult === 'IGNORED') {
         stats.ignored++;
-        iThread.addLabel(junkLabel);        // definite junk — bounce, OOO, no attachment
-      } else if (iResult === 'PARSE_FAILED') {
-        stats.error++;
-        iThread.addLabel(errorLabel);       // Gemini/name failure — retry in error backlog
-      } else if (iResult === 'ERROR') {
-        stats.error++;
-        iThread.addLabel(errorLabel);       // runtime error — retry in error backlog
+        thread.removeLabel(errorLabel);
+        thread.addLabel(junkLabel);
+      } else if (threadResult !== 'ERROR') {
+        stats[threadResult === 'CV_UPDATED'     ? 'cvUpdated'     :
+              threadResult === 'NOT_INTERESTED' ? 'notInterested' :
+              threadResult === 'INFO_UPDATED'   ? 'infoUpdated'   : 'newCandidate']++;
+        thread.removeLabel(errorLabel);
+        thread.addLabel(processedLabel);
       } else {
-        stats.cvUpdated     += iResult === 'CV_UPDATED'     ? 1 : 0;
-        stats.notInterested += iResult === 'NOT_INTERESTED' ? 1 : 0;
-        stats.infoUpdated   += iResult === 'INFO_UPDATED'   ? 1 : 0;
-        stats.newCandidate  += iResult === 'NEW_CANDIDATE'  ? 1 : 0;
-        iThread.addLabel(processedLabel);
+        stats.error++;
       }
     }
   }
