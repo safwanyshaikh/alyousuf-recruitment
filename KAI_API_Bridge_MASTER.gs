@@ -144,6 +144,7 @@ function doGet(e) {
     // S43 — KAI Outreach Reply Processor + Full Email Intelligence
     else if (action === 'clearKarigarErrorBacklog') out = JSON.stringify(clearKarigarErrorBacklog());
     else if (action === 'processAllInboxEmails')    out = JSON.stringify(processAllInboxEmails());
+    else if (action === 'backfillInboxEmails')       out = JSON.stringify(backfillInboxEmails_(params));
     // T16.5 — Trade & Position Lookup (autocomplete dictionaries)
     else if (action === 'tradeLookup')              out = JSON.stringify(getTradeLookup_(params));
     else if (action === 'positionLookup')           out = JSON.stringify(getPositionLookup_(params));
@@ -12414,14 +12415,16 @@ function processEmailMessage_(ss, message, sourceLabel) {
         .trim()
         .substring(0, 100);
 
-      // Reject if no real name extracted from CV content
+      // Reject if no real name extracted from CV content.
+      // Return PARSE_FAILED (not IGNORED) so the caller labels it karigar/error for retry,
+      // rather than karigar/junk which would permanently exclude it.
       if (!parsed || !parsed.name) {
-        Logger.log('Skipped — no name in CV: subject=' + subject);
-        return 'IGNORED';
+        Logger.log('PARSE_FAILED — no name in CV: subject=' + subject);
+        return 'PARSE_FAILED';
       }
       if (!looksLikePersonName_(parsed.name)) {
-        Logger.log('Skipped — name looks like job title: ' + parsed.name + ' | subject=' + subject);
-        return 'IGNORED';
+        Logger.log('PARSE_FAILED — name looks like job title: ' + parsed.name + ' | subject=' + subject);
+        return 'PARSE_FAILED';
       }
 
       var cvEmail    = (parsed.email || '').trim();
@@ -12727,6 +12730,82 @@ function clearKarigarErrorBacklog() {
   return stats;
 }
 
+// ── One-shot inbox backfill (run manually from Apps Script editor) ───────────
+/**
+ * Processes ALL unprocessed inbox emails with CV attachments from 1 Jan 2026
+ * through the Section 43 pipeline.  Run this ONCE after deploying the fix to
+ * catch the backlog that the broken 30-thread pipeline missed.
+ *
+ * Batches 20 threads per call to stay well within the 6-min execution limit.
+ * Call repeatedly (or pass offset param) until { remaining: 0 }.
+ *
+ * GET ?action=backfillInboxEmails&batch=20&offset=0&token=T
+ *
+ * To run from editor: backfillInboxEmails_()
+ */
+function backfillInboxEmails_(params) {
+  params = params || {};
+  var batchSize = parseInt(params.batch  || '20') || 20;
+  var offset    = parseInt(params.offset || '0')  || 0;
+
+  var ss             = SpreadsheetApp.openById(SS_ID);
+  var processedLabel = getOrCreateLabel_('karigar/processed');
+  var errorLabel     = getOrCreateLabel_('karigar/error');
+  var junkLabel      = getOrCreateLabel_('karigar/junk');
+
+  // All inbox CV emails from 1 Jan 2026 that have never been labeled by any pipeline
+  var query = 'in:inbox after:2026/01/01' +
+              ' has:attachment (filename:pdf OR filename:doc OR filename:docx)' +
+              ' -label:karigar/processed -label:karigar/duplicate' +
+              ' -label:karigar/junk -label:karigar/error -label:karigar/bridge-processed';
+
+  var threads = [];
+  try { threads = GmailApp.search(query, offset, batchSize); }
+  catch(e) { return { ok: false, error: 'Gmail search failed: ' + e.message }; }
+
+  var stats = { processed: 0, parseFailed: 0, ignored: 0, error: 0, total: threads.length, offset: offset };
+
+  for (var k = 0; k < threads.length; k++) {
+    var thread   = threads[k];
+    var messages = thread.getMessages();
+    var bestResult = 'IGNORED';
+
+    for (var l = 0; l < messages.length; l++) {
+      var r = processEmailMessage_(ss, messages[l], 'backfill');
+      if (r === 'NEW_CANDIDATE' || r === 'CV_UPDATED' || r === 'NOT_INTERESTED' || r === 'INFO_UPDATED') {
+        bestResult = r; break;
+      }
+      if (r === 'PARSE_FAILED') bestResult = 'PARSE_FAILED';
+      if (r === 'ERROR' && bestResult !== 'PARSE_FAILED') bestResult = 'ERROR';
+    }
+
+    if (bestResult === 'NEW_CANDIDATE' || bestResult === 'CV_UPDATED' ||
+        bestResult === 'NOT_INTERESTED' || bestResult === 'INFO_UPDATED') {
+      stats.processed++;
+      thread.addLabel(processedLabel);
+    } else if (bestResult === 'PARSE_FAILED') {
+      stats.parseFailed++;
+      thread.addLabel(errorLabel);        // Gemini/name failure — will retry via error backlog
+    } else if (bestResult === 'ERROR') {
+      stats.error++;
+      thread.addLabel(errorLabel);
+    } else {
+      stats.ignored++;
+      thread.addLabel(junkLabel);
+    }
+
+    if (k % 5 === 4) Utilities.sleep(1000); // gentle rate-limit
+  }
+
+  // How many still remain (so caller knows whether to call again)
+  var remaining = 0;
+  try { remaining = GmailApp.search(query, offset + batchSize, 1).length; } catch(e) {}
+  stats.remaining = remaining > 0 ? '1+' : 0;
+
+  Logger.log('backfillInboxEmails_: ' + JSON.stringify(stats));
+  return { ok: true, stats: stats };
+}
+
 // ── Ongoing inbox processor (5-min trigger) ───────────────────────────────────
 
 /**
@@ -12757,7 +12836,7 @@ function processAllInboxEmails() {
     var threadResult = 'IGNORED';
     for (var j = 0; j < messages.length; j++) {
       var r = processEmailMessage_(ss, messages[j], 'karigar/error');
-      if (r === 'ERROR') { threadResult = 'ERROR'; break; }
+      if (r === 'ERROR' || r === 'PARSE_FAILED') { threadResult = 'ERROR'; break; }
       if (r !== 'IGNORED') threadResult = r;
     }
     stats.total++;
@@ -12785,10 +12864,13 @@ function processAllInboxEmails() {
       stats.total++;
       if (iResult === 'IGNORED') {
         stats.ignored++;
-        iThread.addLabel(junkLabel);        // archive so it is not re-queried next run
+        iThread.addLabel(junkLabel);        // definite junk — bounce, OOO, no attachment
+      } else if (iResult === 'PARSE_FAILED') {
+        stats.error++;
+        iThread.addLabel(errorLabel);       // Gemini/name failure — retry in error backlog
       } else if (iResult === 'ERROR') {
         stats.error++;
-        iThread.addLabel(errorLabel);       // queue for retry in the error backlog
+        iThread.addLabel(errorLabel);       // runtime error — retry in error backlog
       } else {
         stats.cvUpdated     += iResult === 'CV_UPDATED'     ? 1 : 0;
         stats.notInterested += iResult === 'NOT_INTERESTED' ? 1 : 0;
