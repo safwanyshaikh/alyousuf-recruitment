@@ -422,9 +422,9 @@ function getAllCandidatesRaw_() {
       kaiAssessment:    kaiText,
       kaiSnippet:       kaiText.slice(0,150),
       applicationDate:  appDt instanceof Date ?
-                          Utilities.formatDate(appDt,'Asia/Dubai','yyyy-MM-dd') : '',
+                          Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '',
       passportStatus:   ppStat,
-      passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Dubai','yyyy-MM-dd') : '',
+      passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Kolkata','yyyy-MM-dd') : '',
       passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
       ecrStatus:        String(row[COL.ecrStatus-1]||'').trim(),
       missingFields:    String(row[COL.missingFields-1]||'').trim(),
@@ -586,9 +586,9 @@ function getCandidates_(params) {
       kaiAssessment:    kaiText,
       kaiSnippet:       kaiText.slice(0,150),
       applicationDate:  appDt instanceof Date ?
-                          Utilities.formatDate(appDt,'Asia/Dubai','yyyy-MM-dd') : '',
+                          Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '',
       passportStatus:   ppStat,
-      passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Dubai','yyyy-MM-dd') : '',
+      passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Kolkata','yyyy-MM-dd') : '',
       passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
       ecrStatus:        String(row[COL.ecrStatus-1]||'').trim(),
       medicalStatus:    String(row[COL.medicalStatus-1]||'').trim(),
@@ -667,7 +667,7 @@ function getSingleCandidate_(params) {
     nationality:      String(row[COL.nationality-1]||'').trim(),
     age:              parseInt(row[COL.age-1]) || 0,
     dob:              row[COL.dob-1] instanceof Date ?
-                        Utilities.formatDate(row[COL.dob-1],'Asia/Dubai','yyyy-MM-dd') : '',
+                        Utilities.formatDate(row[COL.dob-1],'Asia/Kolkata','yyyy-MM-dd') : '',
     stage:            computeDisplayStage_(stageRaw, verdict),
     stageRaw:         stageRaw,
     trade:            String(row[COL.trade-1]||'').trim(),
@@ -690,9 +690,9 @@ function getSingleCandidate_(params) {
     cvLink:           String(row[COL.cvLink-1]||'').trim(),
     kaiAssessment:    kaiText,
     applicationDate:  appDt instanceof Date ?
-                        Utilities.formatDate(appDt,'Asia/Dubai','yyyy-MM-dd') : '',
+                        Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '',
     passportStatus:   ppStat,
-    passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Dubai','yyyy-MM-dd') : '',
+    passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Kolkata','yyyy-MM-dd') : '',
     passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
     ecrStatus:        String(row[COL.ecrStatus-1]||'').trim(),
     medicalStatus:    String(row[COL.medicalStatus-1]||'').trim(),
@@ -1413,7 +1413,7 @@ function getMetrics_() {
             clientSent:0, selected:0, deployed:0, todayCount:0,
             strongMatch:0, goodMatch:0, possibleMatch:0, reviewMatch:0,
             unscored:0 };
-  var today = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd');
+  var today = Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
 
   records.forEach(function(r) {
     m.total++;
@@ -1496,7 +1496,7 @@ function saveNote_(body) {
   if (!rowIndex && !kaiNo) return { ok:false, error:'rowIndex or kaiNo required' };
   var ss = SpreadsheetApp.openById(SS_ID);
   ensureActivitySheet_(ss).appendRow([
-    Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm'),
+    Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd HH:mm'),
     kaiNo || ('ROW:'+rowIndex), rowIndex||'', 'NOTE',
     note.slice(0,500), recruiter, ''
   ]);
@@ -1530,7 +1530,7 @@ function logActivity_(ss, entry) {
   // supplied actor (system/trigger paths have no token → CURRENT_ACTOR_ is '').
   var actor = CURRENT_ACTOR_ || entry.actor || 'system';
   ensureActivitySheet_(ss).appendRow([
-    Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm'),
+    Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd HH:mm'),
     entry.kaiNo||'', entry.rowIndex||'', entry.action||'',
     (entry.detail||'').slice(0,500), actor, entry.notes||''
   ]);
@@ -1575,7 +1575,7 @@ function getRequirementsEnhanced_() {
       return {
         reqId:         String(row[0]||'').trim(),
         receivedDate:  row[1] instanceof Date ?
-                         Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy'):'',
+                         Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy'):'',
         clientName:    String(row[2]||'Unknown').trim(),
         deployCountry: String(row[3]||'').trim(),
         jobTitle:      trade4,
@@ -1595,12 +1595,12 @@ function getRequirementsEnhanced_() {
         notes:         String(row[19]||'').trim(),
         jdId:          String(row[20]||'').trim(),
         startDate:     row[21] instanceof Date ?
-                         Utilities.formatDate(row[21],'Asia/Dubai','yyyy-MM-dd'):String(row[21]||''),
+                         Utilities.formatDate(row[21],'Asia/Kolkata','yyyy-MM-dd'):String(row[21]||''),
         endDate:       row[22] instanceof Date ?
-                         Utilities.formatDate(row[22],'Asia/Dubai','yyyy-MM-dd'):String(row[22]||''),
+                         Utilities.formatDate(row[22],'Asia/Kolkata','yyyy-MM-dd'):String(row[22]||''),
         committedQty:  parseInt(row[23])||0,
         interviewDate: row[24] instanceof Date ?
-                         Utilities.formatDate(row[24],'Asia/Dubai','yyyy-MM-dd'):String(row[24]||''),
+                         Utilities.formatDate(row[24],'Asia/Kolkata','yyyy-MM-dd'):String(row[24]||''),
         matchCounts:   counts,
         totalMatches:  counts.STRONG+counts.GOOD+counts.POSSIBLE
       };
@@ -1767,7 +1767,7 @@ function getJDs_(params) {
     jds.push({
       jdId:          String(row[0]||'').trim(),
       receivedDate:  row[1] instanceof Date ?
-                       Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy'):String(row[1]||''),
+                       Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy'):String(row[1]||''),
       source:        String(row[2]||'').trim(),
       client:        String(row[3]||'').trim(),
       title:         String(row[4]||'').trim(),
@@ -1799,7 +1799,7 @@ function getJDDetail_(params) {
     return {
       ok:true, jdId:String(row[0]).trim(),
       receivedDate:  row[1] instanceof Date ?
-                       Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy'):String(row[1]||''),
+                       Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy'):String(row[1]||''),
       source:String(row[2]||'').trim(), client:String(row[3]||'').trim(),
       title:String(row[4]||'').trim(),  trade:String(row[5]||'').trim(),
       country:String(row[6]||'').trim(), rawText:String(row[7]||'').trim(),
@@ -1904,7 +1904,7 @@ function uploadCV_(body) {
 
   try {
     var ss       = SpreadsheetApp.openById(SS_ID);
-    var uploadId = 'UPL-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss');
+    var uploadId = 'UPL-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd-HHmmss');
     var driveUrl = '';
     var driveFileId = '';
 
@@ -2522,7 +2522,7 @@ function getGmailInbox_(params) {
       from:         msgs[0].getFrom(),
       fromName:     extractNameFromHeader_(msgs[0].getFrom()),
       fromEmail:    extractEmailFromHeader_(msgs[0].getFrom()),
-      date:         Utilities.formatDate(last.getDate(),'Asia/Dubai','dd-MMM HH:mm'),
+      date:         Utilities.formatDate(last.getDate(),'Asia/Kolkata','dd-MMM HH:mm'),
       dateRaw:      last.getDate().getTime(),
       snippet:      last.getPlainBody().slice(0,120).replace(/<[^>]+>/g,''),
       messageCount: msgs.length,
@@ -2540,11 +2540,11 @@ function buildGmailQuery_(tab) {
   if (tab==='sent')   return 'in:sent';
   if (tab==='unread') return 'in:inbox is:unread';
   if (tab==='today') {
-    return 'in:inbox after:'+Utilities.formatDate(now,'Asia/Dubai','yyyy/MM/dd');
+    return 'in:inbox after:'+Utilities.formatDate(now,'Asia/Kolkata','yyyy/MM/dd');
   }
   if (tab==='week') {
     return 'in:inbox after:'+Utilities.formatDate(
-      new Date(now.getTime()-7*24*60*60*1000),'Asia/Dubai','yyyy/MM/dd');
+      new Date(now.getTime()-7*24*60*60*1000),'Asia/Kolkata','yyyy/MM/dd');
   }
   if (tab==='cv')
     return 'in:inbox has:attachment (filename:pdf OR filename:doc OR filename:docx) '+
@@ -2570,7 +2570,7 @@ function getGmailThread_(params) {
       fromName:   extractNameFromHeader_(msg.getFrom()),
       fromEmail:  extractEmailFromHeader_(msg.getFrom()),
       to:         msg.getTo(),
-      date:       Utilities.formatDate(msg.getDate(),'Asia/Dubai','dd-MMM-yyyy HH:mm'),
+      date:       Utilities.formatDate(msg.getDate(),'Asia/Kolkata','dd-MMM-yyyy HH:mm'),
       subject:    msg.getSubject(),
       bodyHtml:   msg.getBody().slice(0,5000),
       bodyPlain:  msg.getPlainBody().slice(0,3000),
@@ -2753,9 +2753,9 @@ function addCandidateToSlot_(body) {
     }
   }
 
-  var slotId = 'SLT-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss') +
+  var slotId = 'SLT-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd-HHmmss') +
                '-' + String(Math.floor(Math.random()*900)+100);
-  var now    = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm');
+  var now    = Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd HH:mm');
 
   // Auto-assign SrNo: count existing active slots for this reqId
   var sheet = ensureSlotsSheet_(ss);
@@ -2834,7 +2834,7 @@ function updateSlotStatus_(body) {
     if (String(data[i][0]).trim() !== slotId) continue;
     var r    = i + 1;
     var prev = String(data[i][9]);
-    var now  = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm');
+    var now  = Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd HH:mm');
 
     if (newStatus) {
       sheet.getRange(r, 10).setValue(newStatus);
@@ -2916,7 +2916,7 @@ function ensureFeedbackSheet_(ss) {
 function recordFeedback_(ss, reqId, reqTrade, kaiNo, candTrade, action, actor) {
   try {
     var sheet    = ensureFeedbackSheet_(ss);
-    var now      = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm');
+    var now      = Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd HH:mm');
     var fbId     = 'FB-' + now.replace(/[^0-9]/g,'') + '-' + String(Math.floor(Math.random()*900)+100);
     var reqLevel  = getPositionLevel_(reqTrade);
     var candLevel = getPositionLevel_(candTrade);
@@ -3082,7 +3082,7 @@ function getClients_(params) {
       contactEmail: String(row[5]).trim(),
       active:       String(row[6]).trim().toUpperCase() === 'YES',
       createdAt:    row[7] instanceof Date ?
-                      Utilities.formatDate(row[7],'Asia/Dubai','yyyy-MM-dd') : String(row[7]||''),
+                      Utilities.formatDate(row[7],'Asia/Kolkata','yyyy-MM-dd') : String(row[7]||''),
       notes:        String(row[8]).trim(),
     });
   }
@@ -3349,7 +3349,7 @@ function getAssociates_(params) {
       address:       String(row[14]),
       active:        String(row[15]).toUpperCase() === 'YES',
       createdAt:     row[16] instanceof Date ?
-                       Utilities.formatDate(row[16],'Asia/Dubai','yyyy-MM-dd') : String(row[16]||''),
+                       Utilities.formatDate(row[16],'Asia/Kolkata','yyyy-MM-dd') : String(row[16]||''),
       notes:         String(row[17]),
       source:        String(row[18]),
     });
@@ -3385,7 +3385,7 @@ function importAssociates_(body) {
     if (email && existing[email]) { skipped++; return; }
     if (email) existing[email] = true;
 
-    var assocId = 'ASC-' + Utilities.formatDate(now,'Asia/Dubai','yyyyMMdd') +
+    var assocId = 'ASC-' + Utilities.formatDate(now,'Asia/Kolkata','yyyyMMdd') +
                   '-' + String(Math.floor(Math.random()*9000)+1000);
     // 0.4 — normalize mobile. Multi-number imports (e.g. "x / y") are
     // collapsed for storage but the raw is preserved in Notes so the
@@ -4069,7 +4069,7 @@ function whatsappIntake_(body) {
   row[COL.verdict-1]         = pc.verdict;
   row[COL.flags-1]           = 'WHATSAPP_INTAKE';
   row[COL.score-1]           = pc.score;
-  row[COL.kaiAssessment-1]   = 'WhatsApp intake ' + Utilities.formatDate(now,'Asia/Dubai','dd MMM yyyy') +
+  row[COL.kaiAssessment-1]   = 'WhatsApp intake ' + Utilities.formatDate(now,'Asia/Kolkata','dd MMM yyyy') +
                                 '. Added by: ' + recruiter;
   row[COL.recruiterAction-1] = 'Added via WhatsApp';
   row[COL.notes-1]           = 'WhatsApp intake by: ' + recruiter;
@@ -4359,7 +4359,7 @@ function diagnoseEmailPipeline_() {
         threadId: t.getId(),
         subject:  msgs[0].getSubject().slice(0, 80),
         from:     extractEmailFromHeader_(msgs[0].getFrom()),
-        date:     Utilities.formatDate(msgs[0].getDate(), 'Asia/Dubai', 'dd-MMM HH:mm'),
+        date:     Utilities.formatDate(msgs[0].getDate(), 'Asia/Kolkata', 'dd-MMM HH:mm'),
         hasAttachment: msgs.some(function(m){ return m.getAttachments().length > 0; })
       };
     });
@@ -5414,10 +5414,10 @@ function getDocRequestQueue_(params) {
       missing:     String(row[col.MissingDocs]||'').split(',').filter(Boolean),
       priority:    String(row[col.Priority]||''),
       status:      status,
-      requestedAt: row[col.RequestedAt] ? Utilities.formatDate(new Date(row[col.RequestedAt]),'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
-      sentAt:      sentAt      ? Utilities.formatDate(new Date(sentAt),      'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
-      repliedAt:   repliedAt   ? Utilities.formatDate(new Date(repliedAt),   'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
-      completedAt: completedAt ? Utilities.formatDate(new Date(completedAt), 'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
+      requestedAt: row[col.RequestedAt] ? Utilities.formatDate(new Date(row[col.RequestedAt]),'Asia/Kolkata','yyyy-MM-dd HH:mm') : '',
+      sentAt:      sentAt      ? Utilities.formatDate(new Date(sentAt),      'Asia/Kolkata','yyyy-MM-dd HH:mm') : '',
+      repliedAt:   repliedAt   ? Utilities.formatDate(new Date(repliedAt),   'Asia/Kolkata','yyyy-MM-dd HH:mm') : '',
+      completedAt: completedAt ? Utilities.formatDate(new Date(completedAt), 'Asia/Kolkata','yyyy-MM-dd HH:mm') : '',
       reqId:       String(row[col.ReqId]||''),
       source:      String(row[col.Source]||''),
       waLink:      String(row[col.WaLink]||'')
@@ -5802,7 +5802,7 @@ function getLeads_(params) {
 
     results.push({
       leadId:          leadId,
-      createdAt:       row[COL_L_.createdAt-1] ? Utilities.formatDate(new Date(row[COL_L_.createdAt-1]),'Asia/Dubai','yyyy-MM-dd HH:mm') : '',
+      createdAt:       row[COL_L_.createdAt-1] ? Utilities.formatDate(new Date(row[COL_L_.createdAt-1]),'Asia/Kolkata','yyyy-MM-dd HH:mm') : '',
       name:            String(row[COL_L_.name-1]           ||'').trim(),
       mobile:          String(row[COL_L_.mobile-1]         ||'').trim(),
       email:           String(row[COL_L_.email-1]          ||'').trim(),
@@ -5818,7 +5818,7 @@ function getLeads_(params) {
       linkedReqId:     String(row[COL_L_.linkedReqId-1]    ||'').trim(),
       source:          String(row[COL_L_.source-1]         ||'').trim(),
       recruiter:       String(row[COL_L_.recruiter-1]      ||'').trim(),
-      lastContactDate: row[COL_L_.lastContactDate-1] ? Utilities.formatDate(new Date(row[COL_L_.lastContactDate-1]),'Asia/Dubai','yyyy-MM-dd') : '',
+      lastContactDate: row[COL_L_.lastContactDate-1] ? Utilities.formatDate(new Date(row[COL_L_.lastContactDate-1]),'Asia/Kolkata','yyyy-MM-dd') : '',
       convertedKaiNo:  String(row[COL_L_.convertedKaiNo-1]||'').trim(),
       notes:           String(row[COL_L_.notes-1]          ||'').trim()
     });
@@ -6313,7 +6313,7 @@ function ensureReqReviewQueue_(ss) {
 
 function quarantineRequirement_(ss, info) {
   var s   = ensureReqReviewQueue_(ss);
-  var qid = 'RQ-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss') +
+  var qid = 'RQ-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd-HHmmss') +
             '-' + String(Math.floor(Math.random()*900)+100);
   s.appendRow([
     qid,
@@ -6777,7 +6777,7 @@ function requirementCommandCenter_(params) {
     var interviewDateStr = '';
     var daysToInterview  = 999;
     if (interviewDateRaw instanceof Date && !isNaN(interviewDateRaw)) {
-      interviewDateStr = Utilities.formatDate(interviewDateRaw,'Asia/Dubai','yyyy-MM-dd');
+      interviewDateStr = Utilities.formatDate(interviewDateRaw,'Asia/Kolkata','yyyy-MM-dd');
       daysToInterview  = Math.floor((interviewDateRaw - now) / (1000*60*60*24));
     } else if (interviewDateRaw && String(interviewDateRaw).trim()) {
       interviewDateStr = String(interviewDateRaw).trim();
@@ -6811,7 +6811,7 @@ function requirementCommandCenter_(params) {
     results.push({
       reqId:           reqId,
       receivedDate:    row[1] instanceof Date
-                         ? Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy') : '',
+                         ? Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy') : '',
       clientName:      String(row[2]||'').trim(),
       deployCountry:   deployCountry,
       trade:           trade,
@@ -6836,9 +6836,9 @@ function requirementCommandCenter_(params) {
       notes:           String(row[19]||'').trim(),
       jdId:            String(row[20]||'').trim(),
       startDate:       row[21] instanceof Date
-                         ? Utilities.formatDate(row[21],'Asia/Dubai','yyyy-MM-dd') : String(row[21]||''),
+                         ? Utilities.formatDate(row[21],'Asia/Kolkata','yyyy-MM-dd') : String(row[21]||''),
       endDate:         row[22] instanceof Date
-                         ? Utilities.formatDate(row[22],'Asia/Dubai','yyyy-MM-dd') : String(row[22]||''),
+                         ? Utilities.formatDate(row[22],'Asia/Kolkata','yyyy-MM-dd') : String(row[22]||''),
       // ── Recruiter-facing supply (Correction 6: NO expired here) ──
       supply: {
         tradePossible:      supply.tradePossible,
@@ -7327,11 +7327,11 @@ function ensureSheetWithHeaders_(ss, name, headers, color) {
 
 // ── ID GENERATORS ───────────────────────────────────────────────────
 function generateCommitId_() {
-  return 'CMT-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd') +
+  return 'CMT-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd') +
          '-' + String(Math.floor(Math.random()*90000)+10000);
 }
 function generateCapacityId_() {
-  return 'CAP-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd') +
+  return 'CAP-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd') +
          '-' + String(Math.floor(Math.random()*9000)+1000);
 }
 function generateRelId_() {
@@ -7359,11 +7359,11 @@ function getCommitments_(params) {
       trade:        String(r[4]),  country:      String(r[5]),
       committedQty: parseInt(r[6])||0,
       deliveredQty: parseInt(r[7])||0,
-      commitDate:   r[8]  instanceof Date ? Utilities.formatDate(r[8],'Asia/Dubai','yyyy-MM-dd')  : String(r[8]||''),
-      interviewDate:r[9]  instanceof Date ? Utilities.formatDate(r[9],'Asia/Dubai','yyyy-MM-dd')  : String(r[9]||''),
+      commitDate:   r[8]  instanceof Date ? Utilities.formatDate(r[8],'Asia/Kolkata','yyyy-MM-dd')  : String(r[8]||''),
+      interviewDate:r[9]  instanceof Date ? Utilities.formatDate(r[9],'Asia/Kolkata','yyyy-MM-dd')  : String(r[9]||''),
       status:       String(r[10]||'OPEN'),
       notes:        String(r[11]||''),
-      updatedAt:    r[12] instanceof Date ? Utilities.formatDate(r[12],'Asia/Dubai','yyyy-MM-dd') : String(r[12]||''),
+      updatedAt:    r[12] instanceof Date ? Utilities.formatDate(r[12],'Asia/Kolkata','yyyy-MM-dd') : String(r[12]||''),
       createdBy:    String(r[13]||'')
     });
   }
@@ -7392,7 +7392,7 @@ function createCommitment_(body) {
         country = String(rData[i][3]||'');
         if (!interviewDate && rData[i][24]) {
           interviewDate = rData[i][24] instanceof Date
-            ? Utilities.formatDate(rData[i][24],'Asia/Dubai','yyyy-MM-dd')
+            ? Utilities.formatDate(rData[i][24],'Asia/Kolkata','yyyy-MM-dd')
             : String(rData[i][24]);
         }
         break;
@@ -7520,7 +7520,7 @@ function getAssociateCapacity_(params) {
       trade:      String(r[3]),
       within3d:   parseInt(r[4])||0,  within7d:   parseInt(r[5])||0,
       within15d:  parseInt(r[6])||0,  beyond15d:  parseInt(r[7])||0,
-      updatedAt:  r[8] instanceof Date ? Utilities.formatDate(r[8],'Asia/Dubai','yyyy-MM-dd') : String(r[8]||''),
+      updatedAt:  r[8] instanceof Date ? Utilities.formatDate(r[8],'Asia/Kolkata','yyyy-MM-dd') : String(r[8]||''),
       updatedBy:  String(r[9]||'')
     });
   }
@@ -7606,7 +7606,7 @@ function getAssociateReliability_(params) {
       mobCommitted:       parseInt(r[8])||0,
       mobDeployed:        parseInt(r[9])||0,
       mobilizationRate:   parseFloat(r[10])||0,
-      lastUpdated:        r[11] instanceof Date ? Utilities.formatDate(r[11],'Asia/Dubai','yyyy-MM-dd') : String(r[11]||'')
+      lastUpdated:        r[11] instanceof Date ? Utilities.formatDate(r[11],'Asia/Kolkata','yyyy-MM-dd') : String(r[11]||'')
     });
   }
   return { ok:true, reliability:list, count:list.length };
@@ -7851,7 +7851,7 @@ function getRecommendedSources_(params) {
       var iRaw = numCols >= 25 ? r[24] : null;
       if (iRaw instanceof Date && !isNaN(iRaw)) {
         daysToInterview = Math.floor((iRaw - now)/(1000*60*60*24));
-        interviewDateStr = Utilities.formatDate(iRaw,'Asia/Dubai','yyyy-MM-dd');
+        interviewDateStr = Utilities.formatDate(iRaw,'Asia/Kolkata','yyyy-MM-dd');
       }
     });
   }
@@ -8727,7 +8727,7 @@ function getLearningSnapshot_(params) {
     pairs:       out,
     minSample:   MIN_LEARNING_SAMPLE_,
     lastUpdated: lastUpdated
-      ? Utilities.formatDate(lastUpdated,'Asia/Dubai','yyyy-MM-dd HH:mm') : null
+      ? Utilities.formatDate(lastUpdated,'Asia/Kolkata','yyyy-MM-dd HH:mm') : null
   };
 }
 
@@ -8855,7 +8855,7 @@ function getRevenueSummary_(params) {
 
     // Month from UpdatedAt (col 12, deployment proxy) → fallback AddedAt (col 9)
     var when  = toDateOrNull_(sr[11]) || toDateOrNull_(sr[8]);
-    var month = when ? Utilities.formatDate(when,'Asia/Dubai','yyyy-MM') : 'Unknown';
+    var month = when ? Utilities.formatDate(when,'Asia/Kolkata','yyyy-MM') : 'Unknown';
 
     byClient [client ] = (byClient [client ]||0) + 1;
     byCountry[country] = (byCountry[country]||0) + 1;
@@ -9157,7 +9157,7 @@ function getSettings_(params) {
       description: String(data[i][4]||'').trim(),
       updatedBy:   String(data[i][5]||'').trim(),
       updatedAt:   data[i][6] instanceof Date
-                     ? Utilities.formatDate(data[i][6],'Asia/Dubai','yyyy-MM-dd HH:mm') : ''
+                     ? Utilities.formatDate(data[i][6],'Asia/Kolkata','yyyy-MM-dd HH:mm') : ''
     });
   }
   return { ok:true, count:out.length, settings:out };
@@ -9444,7 +9444,7 @@ function queueForProcessing_(kaiNo, step, ss) {
         }
       }
     }
-    var queueId = 'PQ-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMddHHmmss') +
+    var queueId = 'PQ-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMddHHmmss') +
                   '-' + kaiNo.replace(/[^A-Z0-9]/gi,'').slice(-6);
     sheet.appendRow([queueId, kaiNo, step, 'PENDING', '', '', 0, new Date()]);
   } catch(e) {

@@ -140,7 +140,7 @@ function saveNote_(body) {
 
   // Append note as activity entry
   noteSheet.appendRow([
-    Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm'),
+    Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm'),
     kaiNo || ('ROW:' + rowIndex),
     rowIndex || '',
     'NOTE',
@@ -189,7 +189,7 @@ function getActivityLog_(params) {
 function logActivity_(ss, entry) {
   var sheet = ensureActivitySheet_(ss);
   sheet.appendRow([
-    Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm'),
+    Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm'),
     entry.kaiNo    || '',
     entry.rowIndex || '',
     entry.action   || '',
@@ -234,9 +234,9 @@ function getRequirementsEnhanced_() {
       var status   = String(row[14]||'Open').trim();
       var jdId     = String(row[20]||'').trim(); // col 21 — JD_ID (new)
       var startDt  = row[21] instanceof Date ?
-                       Utilities.formatDate(row[21],'Asia/Dubai','yyyy-MM-dd') : String(row[21]||'');
+                       Utilities.formatDate(row[21],'Asia/Kolkata','yyyy-MM-dd') : String(row[21]||'');
       var endDt    = row[22] instanceof Date ?
-                       Utilities.formatDate(row[22],'Asia/Dubai','yyyy-MM-dd') : String(row[22]||'');
+                       Utilities.formatDate(row[22],'Asia/Kolkata','yyyy-MM-dd') : String(row[22]||'');
 
       // Count matches by tier
       var counts = { STRONG:0, GOOD:0, POSSIBLE:0, REVIEW:0 };
@@ -250,7 +250,7 @@ function getRequirementsEnhanced_() {
       return {
         reqId:         String(row[0]||'').trim(),
         receivedDate:  row[1] instanceof Date ?
-                         Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy') : '',
+                         Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy') : '',
         clientName:    String(row[2]||'Unknown').trim(),
         deployCountry: String(row[3]||'').trim(),
         jobTitle:      String(row[4]||'').trim(),
@@ -387,7 +387,7 @@ function getJDs_(params) {
     jds.push({
       jdId:           String(row[0]||'').trim(),
       receivedDate:   row[1] instanceof Date ?
-                        Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy') : String(row[1]||''),
+                        Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy') : String(row[1]||''),
       source:         String(row[2]||'').trim(),
       client:         String(row[3]||'').trim(),
       title:          String(row[4]||'').trim(),
@@ -425,7 +425,7 @@ function getJDDetail_(params) {
         ok:             true,
         jdId:           String(row[0]||'').trim(),
         receivedDate:   row[1] instanceof Date ?
-                          Utilities.formatDate(row[1],'Asia/Dubai','dd-MMM-yyyy') : String(row[1]||''),
+                          Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy') : String(row[1]||''),
         source:         String(row[2]||'').trim(),
         client:         String(row[3]||'').trim(),
         title:          String(row[4]||'').trim(),
@@ -591,7 +591,7 @@ function uploadCV_(body) {
     // Write to staging sheet
     var ss       = SpreadsheetApp.openById(SS_ID);
     var stgSheet = ensureUploadStagingSheet_(ss);
-    var uploadId = 'UPL-' + Utilities.formatDate(new Date(),'Asia/Dubai','yyyyMMdd-HHmmss');
+    var uploadId = 'UPL-' + Utilities.formatDate(new Date(),'Asia/Kolkata','yyyyMMdd-HHmmss');
 
     stgSheet.appendRow([
       uploadId,
@@ -672,7 +672,7 @@ function getGmailInbox_(params) {
       from:        first.getFrom(),
       fromName:    extractNameFromHeader_(first.getFrom()),
       fromEmail:   extractEmailFromHeader_(first.getFrom()),
-      date:        Utilities.formatDate(last.getDate(),'Asia/Dubai','dd-MMM HH:mm'),
+      date:        Utilities.formatDate(last.getDate(),'Asia/Kolkata','dd-MMM HH:mm'),
       dateRaw:     last.getDate().getTime(),
       snippet:     thread.getFirstMessageSubject() || last.getBody().slice(0,120).replace(/<[^>]+>/g,''),
       messageCount:msgs.length,
@@ -694,12 +694,12 @@ function buildGmailQuery_(tab) {
   if (tab === 'unread') return 'in:inbox is:unread';
 
   if (tab === 'today') {
-    var today = Utilities.formatDate(now,'Asia/Dubai','yyyy/MM/dd');
+    var today = Utilities.formatDate(now,'Asia/Kolkata','yyyy/MM/dd');
     return 'in:inbox after:' + today;
   }
   if (tab === 'week') {
     var weekAgo = new Date(now.getTime() - 7*24*60*60*1000);
-    var wa = Utilities.formatDate(weekAgo,'Asia/Dubai','yyyy/MM/dd');
+    var wa = Utilities.formatDate(weekAgo,'Asia/Kolkata','yyyy/MM/dd');
     return 'in:inbox after:' + wa;
   }
   if (tab === 'cv') {
@@ -731,7 +731,7 @@ function getGmailThread_(params) {
       fromName:    extractNameFromHeader_(msg.getFrom()),
       fromEmail:   extractEmailFromHeader_(msg.getFrom()),
       to:          msg.getTo(),
-      date:        Utilities.formatDate(msg.getDate(),'Asia/Dubai','dd-MMM-yyyy HH:mm'),
+      date:        Utilities.formatDate(msg.getDate(),'Asia/Kolkata','dd-MMM-yyyy HH:mm'),
       subject:     msg.getSubject(),
       bodyHtml:    msg.getBody().slice(0, 5000),       // cap at 5K chars
       bodyPlain:   msg.getPlainBody().slice(0, 3000),

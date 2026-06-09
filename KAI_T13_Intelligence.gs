@@ -392,7 +392,7 @@ function approvePendingT13_(specialization, approver) {
     if (String(d[i][4]).toLowerCase().trim() === key) {
       sheet.getRange(i+1, 15).setValue('APPROVED');
       sheet.getRange(i+1, 17).setValue(approver || 'admin');
-      sheet.getRange(i+1, 18).setValue(Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd'));
+      sheet.getRange(i+1, 18).setValue(Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd'));
       sheet.getRange(i+1, 20).setValue('YES');
       return { ok:true, approved:specialization };
     }
@@ -459,7 +459,7 @@ function seedTaxonomyGCC_() {
     ['Oil & Gas','Management','General','Project Manager']
   ];
 
-  var added = 0, now = Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd');
+  var added = 0, now = Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
   core.forEach(function(r) {
     var spec = r[3];
     if (existing[spec.toLowerCase().trim()]) return;
@@ -620,7 +620,7 @@ function compareEnginesT13_(limit) {
 
   var n = 0, tOldStr = 0, tOldGd = 0, tOldPos = 0;
   var tT13Str = 0, tT13Gd = 0, tT13Pos = 0;
-  var now = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var now = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm');
   var rows = [];
 
   for (var i = 0; i < rData.length && n < limit; i++) {
@@ -748,7 +748,7 @@ function falsePositiveReportT13_() {
   sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#7B0000').setFontColor('#FFFFFF');
   sheet.setFrozenRows(1);
 
-  var now  = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var now  = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm');
   var rows = [];
   var reqCount = 0;
 
@@ -805,7 +805,7 @@ function falseNegativeReportT13_() {
   sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#003D0B').setFontColor('#FFFFFF');
   sheet.setFrozenRows(1);
 
-  var now  = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var now  = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm');
   var rows = [];
   var reqCount = 0;
 
@@ -863,7 +863,7 @@ function dualTradeAnalysisT13_() {
   sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#1A3A5C').setFontColor('#FFFFFF');
   sheet.setFrozenRows(1);
 
-  var now  = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var now  = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm');
   var rows = [];
   var reqCount = 0;
 
@@ -930,7 +930,7 @@ function governanceQueueT13_() {
   sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#5C3A00').setFontColor('#FFFFFF');
   sheet.setFrozenRows(1);
 
-  var now    = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var now    = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm');
   var counts = {};
 
   cands.forEach(function(c) {
@@ -998,7 +998,7 @@ function recruiterValidationDatasetT13_(maxReqs) {
   sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#1A1A5C').setFontColor('#FFFFFF');
   sheet.setFrozenRows(1);
 
-  var now   = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var now   = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm');
   var rows  = [], reqCount = 0;
 
   for (var i = 0; i < rData.length && reqCount < maxReqs; i++) {
@@ -1062,7 +1062,7 @@ function tradeFamilyAuditT13_() {
   sheet.getRange(1,1,1,hdr.length).setFontWeight('bold').setBackground('#0B3D2E').setFontColor('#FFFFFF');
   sheet.setFrozenRows(1);
 
-  var now = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm');
+  var now = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd HH:mm');
 
   // Count candidates per group
   var candPerGroup = {};
@@ -1138,7 +1138,7 @@ function tradeFamilyAuditT13_() {
 // Helper to run all 7 steps. Call runT13EvidenceSuite_() from the GAS editor.
 function runT13EvidenceSuite_() {
   Logger.log('▶ Starting T13 Evidence Suite — ' +
-             Utilities.formatDate(new Date(),'Asia/Dubai','yyyy-MM-dd HH:mm'));
+             Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd HH:mm'));
   Logger.log('');
 
   Logger.log('── Step 1: Compare Engines (ALL requirements) ──');

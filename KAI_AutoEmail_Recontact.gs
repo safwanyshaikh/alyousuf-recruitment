@@ -50,7 +50,7 @@ function runDailyRecontactBatch() {
   processOptOutReplies();
 
   var data    = sheet.getDataRange().getValues(); // refresh after bounce updates
-  var today   = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd');
+  var today   = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
   var sent    = 0, skipped = 0, errors = 0;
 
   // Load opt-out set ONCE before the loop — fixes the timeout bug that
