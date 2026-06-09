@@ -241,6 +241,82 @@ function logBatchSummary_(ss, date, sent, skipped, errors) {
   logSheet.appendRow([date, sent, skipped, errors, prev + sent]);
 }
 
+/// ── DIAGNOSTIC: Run this first if you see "An unknown error" ────────────────
+/**
+ * Tests every dependency one by one and logs exactly which step fails.
+ * Select diagnoseCampaign from the dropdown and click Run.
+ */
+function diagnoseCampaign() {
+  Logger.log('--- diagnoseCampaign START ---');
+
+  // 1. Can we open the spreadsheet?
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(CONFIG.SHEET_ID);
+    Logger.log('✓ Spreadsheet opened: ' + ss.getName());
+  } catch(e) {
+    Logger.log('✗ FAILED to open spreadsheet ID: ' + CONFIG.SHEET_ID);
+    Logger.log('  Error: ' + e.message);
+    Logger.log('  Fix: open the Google Sheet, copy the ID from the URL, update CONFIG.SHEET_ID');
+    return;
+  }
+
+  // 2. Can we find the main sheet?
+  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (!sheet) {
+    var allSheets = ss.getSheets().map(function(s){ return s.getName(); });
+    Logger.log('✗ Sheet "' + CONFIG.SHEET_NAME + '" not found');
+    Logger.log('  Available sheets: ' + allSheets.join(', '));
+    Logger.log('  Fix: update CONFIG.SHEET_NAME to match one of the above');
+    return;
+  }
+  Logger.log('✓ Main sheet found: ' + sheet.getName() + ' | Rows: ' + sheet.getLastRow());
+
+  // 3. Check column headers match what the code expects
+  var headers = sheet.getRange(1, 1, 1, 8).getValues()[0];
+  Logger.log('✓ Column headers: ' + JSON.stringify(headers));
+  Logger.log('  Expected: Name | Email | Date | Subject | Attachments | Status | Sent Date | Notes');
+
+  // 4. Sample first pending row
+  var data = sheet.getDataRange().getValues();
+  var sample = null;
+  for (var i = 1; i < Math.min(data.length, 500); i++) {
+    var st = String(data[i][CONFIG.COL_STATUS] || '').trim().toUpperCase();
+    if (st === 'PENDING_RECONTACT' || st === '') { sample = data[i]; break; }
+  }
+  if (sample) {
+    Logger.log('✓ First pending row — Name: ' + sample[0] + ' | Email: ' + sample[1] + ' | Status: "' + sample[5] + '"');
+  } else {
+    Logger.log('! No PENDING_RECONTACT rows found in first 500 rows');
+  }
+
+  // 5. Status breakdown (first 1000 rows only — fast check)
+  var counts = {};
+  for (var j = 1; j < Math.min(data.length, 1000); j++) {
+    var s = String(data[j][CONFIG.COL_STATUS] || '(blank)').trim();
+    if (/^\d{5}/.test(s)) s = '(date-serial: ' + s + ')';
+    counts[s] = (counts[s] || 0) + 1;
+  }
+  Logger.log('✓ Status sample (first 1000 rows): ' + JSON.stringify(counts));
+
+  // 6. Can we access Gmail?
+  try {
+    var quota = MailApp.getRemainingDailyQuota();
+    Logger.log('✓ Gmail quota remaining today: ' + quota);
+    if (quota < 10) Logger.log('  WARNING: quota nearly exhausted — emails will fail today');
+  } catch(e) {
+    Logger.log('✗ Gmail access failed: ' + e.message);
+  }
+
+  // 7. _OptOut sheet
+  var optSheet = ss.getSheetByName('_OptOut');
+  Logger.log(optSheet
+    ? '✓ _OptOut sheet exists: ' + (optSheet.getLastRow() - 1) + ' opt-outs'
+    : '! _OptOut sheet missing — will be created on first run');
+
+  Logger.log('--- diagnoseCampaign END ---');
+}
+
 // ── SETUP: Run ONCE to create daily trigger ──────────────────
 function setupDailyTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
