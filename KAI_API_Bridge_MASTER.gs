@@ -475,6 +475,11 @@ function getCandidates_(params) {
   var fExpMax     = params.experienceMax !== undefined ? parseFloat(params.experienceMax) : -1;
   var fSource     = String(params.source         ||'').trim().toLowerCase();
   var fRecruiter  = String(params.recruiter      ||'').trim().toLowerCase();
+  // Top-3 position filter — same pattern as fTrade
+  // top3Label: substring to match against position label (case-insensitive)
+  // top3Rank:  1|2|3 = check only that rank position; 0/omit = check all three
+  var fTop3Label  = String(params.top3Label      ||'').trim().toLowerCase();
+  var fTop3Rank   = parseInt(params.top3Rank     ||'0') || 0;
   var page    = Math.max(1, parseInt(params.page  ||'1')  || 1);
   var limit   = Math.min(200, parseInt(params.limit||'100')|| 100);
 
@@ -499,6 +504,25 @@ function getCandidates_(params) {
 
     if (fStage   && stage.toLowerCase().indexOf(fStage)   < 0) return;
     if (fTrade   && trade.toLowerCase().indexOf(fTrade)   < 0) return;
+
+    // Top-3 position filter — applied before pagination, same as fTrade
+    if (fTop3Label) {
+      var rawTop3  = String(row[COL.top3Positions-1] || '');
+      var top3Parts = rawTop3.split(/[,\n|]/).map(function(p){ return p.trim().toLowerCase(); }).filter(Boolean);
+      var top3Match = false;
+      if (fTop3Rank >= 1 && fTop3Rank <= 3) {
+        // Exact rank: check only position at index (rank-1)
+        var candidate = top3Parts[fTop3Rank - 1] || '';
+        top3Match = candidate.indexOf(fTop3Label) >= 0;
+      } else {
+        // Any rank: check all positions
+        for (var t3 = 0; t3 < top3Parts.length; t3++) {
+          if (top3Parts[t3].indexOf(fTop3Label) >= 0) { top3Match = true; break; }
+        }
+      }
+      if (!top3Match) return;
+    }
+
     if (fNat     && nat.toLowerCase().indexOf(fNat)       < 0) return;
     if (fVerdict && verdict.toLowerCase().indexOf(fVerdict)< 0) return;
     if (score < fMin || score > fMax) return;
