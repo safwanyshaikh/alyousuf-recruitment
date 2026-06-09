@@ -12656,13 +12656,21 @@ function looksLikePersonName_(s) {
   var words = name.split(/\s+/);
   if (words.length < 1 || words.length > 7) return false;
 
-  // Hard reject: starts with a document/action word (these are email subjects, not names)
-  var prefixReject = /^(document|resume|cv|apply|applying|application|looking|post|job|re|fw|fwd|for|from)$/i;
+  // Hard reject: starts with a document/action/greeting/connector word (email subjects, not names)
+  var prefixReject = /^(document|resume|cv|apply|applying|application|looking|post|job|re|fw|fwd|for|from|updated|update|and|or|with|please|kindly|hi|dear|hello|regarding|find|here|enclosed|attached|sharing|sending|ref|reference|sir|madam|to|the|a|an|i|we|my|your|this|that|as|per|in|of|on|at|by)$/i;
   if (prefixReject.test(words[0])) return false;
 
+  // Reject if any word is a pure connector — indicates a phrase/sentence not a name
+  var connectorWord = /^(and|or|with|for|the|of|to|a|an|in|on|at|by|from|as|is|are|was|were|be|been|being|have|has|had|do|does|did|will|would|could|should|may|might|shall|can|need|must|about|above|below|between|through|during|before|after|against|along|among|around|behind|beside|besides|beyond|down|inside|into|near|off|out|outside|over|since|than|though|under|until|up|upon|within|without)$/i;
+  var connectorCount = 0;
+  for (var c = 0; c < words.length; c++) {
+    if (connectorWord.test(words[c])) connectorCount++;
+  }
+  // A real name never has 2+ connector words ("and Documents for a Job")
+  if (connectorCount >= 2) return false;
+
   // Count job-title and trade-adjective keywords
-  // Trade adjectives (mechanical, civil, etc.) + job nouns together = job title pair
-  var jobWord = /^(operator|engineer|technician|fitter|welder|rigger|fabricator|inspector|supervisor|foreman|helper|driver|mechanic|electrician|plumber|mason|carpenter|painter|scaffolder|field|operation|offshore|onshore|experience|manpower|recruitment|application|position|vacancy|document|resume|curriculum|vitae|apply|applying|looking|post|job|power|plant|instrument|procurement|structural|commissioning|piping|coating|painting|auto|lead|assistant|maintenance|construction|fabrication|installation|erection|testing|rotating|static|scaffold|mechanical|civil|electrical|chemical|process|quality|control|safety|hse|qc|qa|ndt|ccnp|pmi|mep|hvac|fire|offshore|onshore|crane|rigging|blasting|coating|welding|fitting|turning|machining|grinding|cutting)$/i;
+  var jobWord = /^(operator|engineer|technician|fitter|welder|rigger|fabricator|inspector|supervisor|foreman|helper|driver|mechanic|electrician|plumber|mason|carpenter|painter|scaffolder|field|operation|offshore|onshore|experience|manpower|recruitment|application|position|vacancy|document|resume|curriculum|vitae|apply|applying|looking|post|job|power|plant|instrument|procurement|structural|commissioning|piping|coating|painting|auto|lead|assistant|maintenance|construction|fabrication|installation|erection|testing|rotating|static|scaffold|mechanical|civil|electrical|chemical|process|quality|control|safety|hse|qc|qa|ndt|ccnp|pmi|mep|hvac|fire|offshore|onshore|crane|rigging|blasting|coating|welding|fitting|turning|machining|grinding|cutting|submission|certificate|certificates|documents|passport|details|profile|update|updated|revised|new|latest|attached|attachment|fresher|experienced|seeking|required|needed)$/i;
   var jobCount = 0;
   for (var w = 0; w < words.length; w++) {
     if (jobWord.test(words[w])) jobCount++;
@@ -13007,6 +13015,44 @@ function flagBadNameCandidates(n) {
   }
   Logger.log('flagBadNameCandidates: flagged ' + flagged + ' | ' + JSON.stringify(names));
   return { flagged: flagged, names: names };
+}
+
+/**
+ * Delete candidate rows whose names are clearly email subjects (garbage parse results).
+ * Also moves the corresponding Gmail thread back to karigar/error for retry.
+ * Run once after deploying the improved looksLikePersonName_ to clean historical garbage.
+ */
+function deleteGarbageCandidateRows() {
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var sheet  = ss.getSheetByName('Candidates');
+  if (!sheet) return { deleted: 0 };
+
+  var data   = sheet.getDataRange().getValues();
+  var errorLabel = getOrCreateLabel_('karigar/error');
+  var processedLabel = getOrCreateLabel_('karigar/processed');
+
+  var toDelete = [];
+  for (var i = data.length - 1; i >= 1; i--) {
+    var nm    = String(data[i][COL.name - 1] || '').trim();
+    var phone = String(data[i][COL.mobile - 1] || '').trim();
+    var email = String(data[i][COL.email - 1] || '').trim();
+    var kaiNo = String(data[i][COL.kaiNo - 1] || '').trim();
+    // Garbage row: name fails the person-name check AND no contact info at all
+    if (nm && !looksLikePersonName_(nm) && !phone && !email) {
+      toDelete.push({ row: i + 1, kaiNo: kaiNo, name: nm });
+    }
+  }
+
+  // Delete rows bottom-up so indices stay valid
+  var deleted = 0;
+  for (var d = 0; d < toDelete.length; d++) {
+    Logger.log('Deleting garbage row ' + toDelete[d].row + ' — KAI: ' + toDelete[d].kaiNo + ' — Name: ' + toDelete[d].name);
+    sheet.deleteRow(toDelete[d].row);
+    deleted++;
+  }
+
+  Logger.log('deleteGarbageCandidateRows: deleted ' + deleted + ' rows');
+  return { deleted: deleted, rows: toDelete };
 }
 
 /**
