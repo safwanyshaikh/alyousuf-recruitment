@@ -12235,39 +12235,47 @@ function updateCandidateWithNewCV_(ss, rowIndex, attachment, fromEmail) {
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet) return { success: false, reason: 'No Candidates sheet' };
 
-  var cvText = '';
-  try { cvText = extractTextFromAttachment_(attachment); } catch(e) { cvText = ''; }
-  if (!cvText || cvText.length < 50) {
-    return { success: false, reason: 'Could not extract text from attachment' };
-  }
-
-  var props = PropertiesService.getScriptProperties();
+  var props  = PropertiesService.getScriptProperties();
   var apiKey = props.getProperty('GEMINI_API_KEY') || '';
   var parsed = {};
 
+  // PRIMARY: multimodal Gemini (handles scanned/image PDFs — same as new-candidate path)
   if (apiKey) {
-    var prompt = 'Parse this CV and return ONLY minified JSON with keys: ' +
-      'name, email, phone, passportNo, nationality, totalExpYears, currentJobTitle, ' +
-      'trade, specialization, skills, education, certifications, summary. ' +
-      'CV text:\n\n' + cvText.substring(0, 8000);
-    try {
-      var resp = UrlFetchApp.fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
-        {
-          method: 'post',
-          contentType: 'application/json',
-          payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-          muteHttpExceptions: true
+    var multiParsed = parseCVAttachmentWithGemini_(attachment, '', apiKey);
+    if (multiParsed && multiParsed.name) parsed = multiParsed;
+  }
+
+  // FALLBACK: text extraction when multimodal returned nothing (DOCX, text PDFs)
+  if (!parsed.name) {
+    var cvText = '';
+    try { cvText = extractTextFromAttachment_(attachment); } catch(e) { cvText = ''; }
+    if (!cvText || cvText.length < 50) {
+      return { success: false, reason: 'Could not extract text from attachment' };
+    }
+    if (apiKey) {
+      var prompt = 'Parse this CV and return ONLY minified JSON with keys: ' +
+        'name, email, phone, passportNo, nationality, totalExpYears, currentJobTitle, ' +
+        'trade, specialization, skills, education, certifications, summary. ' +
+        'CV text:\n\n' + cvText.substring(0, 8000);
+      try {
+        var resp = UrlFetchApp.fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+          {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+            muteHttpExceptions: true
+          }
+        );
+        var json = JSON.parse(resp.getContentText());
+        var rawTxt = (((json.candidates||[])[0]||{}).content||{}).parts;
+        if (rawTxt && rawTxt[0]) {
+          var t = rawTxt[0].text.trim()
+            .replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
+          parsed = JSON.parse(t);
         }
-      );
-      var json = JSON.parse(resp.getContentText());
-      var rawTxt = (((json.candidates||[])[0]||{}).content||{}).parts;
-      if (rawTxt && rawTxt[0]) {
-        var t = rawTxt[0].text.trim()
-          .replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
-        parsed = JSON.parse(t);
-      }
-    } catch(e) { Logger.log('CV re-parse Gemini error: ' + e.message); }
+      } catch(e) { Logger.log('CV re-parse Gemini error: ' + e.message); }
+    }
   }
 
   // Score the re-parsed CV
@@ -12327,14 +12335,10 @@ function updateCandidateWithNewCV_(ss, rowIndex, attachment, fromEmail) {
  */
 function processEmailMessage_(ss, message, sourceLabel) {
   try {
-    // Get spreadsheet fresh each call
-    var _ss = SpreadsheetApp.openById(SS_ID);
-    if (!_ss) { Logger.log('FATAL: openById null for SS_ID=' + SS_ID); return 'ERROR'; }
-    var _ssName = '';
-    try { _ssName = _ss.getName(); } catch(nameErr) {
-      Logger.log('FATAL: _ss.getName() failed — ss is not a Spreadsheet: ' + nameErr.message);
-      return 'ERROR';
-    }
+    // Reuse the caller's spreadsheet reference — avoids a costly openById per email
+    // which was eating ~1-2 s per message out of the 6-min trigger budget.
+    var _ss = ss;
+    if (!_ss) { Logger.log('FATAL: ss is null in processEmailMessage_'); return 'ERROR'; }
 
     var from        = message.getFrom() || '';
     var subject     = message.getSubject() || '';
@@ -12766,8 +12770,11 @@ function processAllInboxEmails() {
   }
 
   // Process fresh inbox emails (last 5 min window)
-  var query = 'in:inbox after:' + Math.floor(cutoffMs / 1000);
-  var inboxThreads = GmailApp.search(query, 0, 30);
+  // Exclude already-labeled threads so old karigar/duplicate and processed threads
+  // do not consume the per-run slot limit and crowd out brand new CV emails.
+  var query = 'in:inbox after:' + Math.floor(cutoffMs / 1000) +
+              ' -label:karigar/processed -label:karigar/duplicate -label:karigar/junk';
+  var inboxThreads = GmailApp.search(query, 0, 50);
   for (var k = 0; k < inboxThreads.length; k++) {
     var iThread = inboxThreads[k];
     var iMessages = iThread.getMessages();
@@ -12776,9 +12783,13 @@ function processAllInboxEmails() {
       if (msg.getDate().getTime() < cutoffMs) continue;
       var iResult = processEmailMessage_(ss, msg, 'inbox');
       stats.total++;
-      if (iResult === 'IGNORED') { stats.ignored++; }
-      else if (iResult === 'ERROR') { stats.error++; }
-      else {
+      if (iResult === 'IGNORED') {
+        stats.ignored++;
+        iThread.addLabel(junkLabel);        // archive so it is not re-queried next run
+      } else if (iResult === 'ERROR') {
+        stats.error++;
+        iThread.addLabel(errorLabel);       // queue for retry in the error backlog
+      } else {
         stats.cvUpdated     += iResult === 'CV_UPDATED'     ? 1 : 0;
         stats.notInterested += iResult === 'NOT_INTERESTED' ? 1 : 0;
         stats.infoUpdated   += iResult === 'INFO_UPDATED'   ? 1 : 0;
