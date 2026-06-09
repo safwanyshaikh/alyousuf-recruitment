@@ -1848,20 +1848,27 @@ function applyFilters() {
     return true;
   });
 
-  // Sort
+  // Sort — primary: selected column; tiebreaker: rowIndex (sheet row order) for stability.
+  // Shortlisted status has NO effect on sort position — candidates stay where their CV date puts them.
   FILTERED.sort(function(a,b) {
-    // Freshness column → use numeric day-diff so newest profiles always rank first
+    // Freshness column → use numeric day-diff so newest CVs always rank first
     if (SORT_COL === 'freshness') {
       var ra = freshnessRank_(a.applicationDate);
       var rb = freshnessRank_(b.applicationDate);
-      return (ra - rb) * SORT_DIR;  // SORT_DIR=1 → ascending day-diff = newest first
+      var d = (ra - rb) * SORT_DIR;  // SORT_DIR=1 → ascending day-diff = newest first
+      return d !== 0 ? d : a.rowIndex - b.rowIndex; // stable: preserve sheet order on tie
     }
     var av = a[SORT_COL] || '', bv = b[SORT_COL] || '';
     if (SORT_COL === 'nextActionUrgency') {
-      return (URGENCY_ORD[av]||4) - (URGENCY_ORD[bv]||4);
+      var ud = (URGENCY_ORD[av]||4) - (URGENCY_ORD[bv]||4);
+      return ud !== 0 ? ud : a.rowIndex - b.rowIndex;
     }
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * SORT_DIR;
-    return String(av).localeCompare(String(bv)) * SORT_DIR;
+    if (typeof av === 'number' && typeof bv === 'number') {
+      var nd = (av - bv) * SORT_DIR;
+      return nd !== 0 ? nd : a.rowIndex - b.rowIndex;
+    }
+    var sd = String(av).localeCompare(String(bv)) * SORT_DIR;
+    return sd !== 0 ? sd : a.rowIndex - b.rowIndex;
   });
 
   document.getElementById('filter-count').textContent =
@@ -2576,6 +2583,8 @@ function updateStateFromPanel() {
         // ── Sprint: count meaningful recruiter actions ──
         var sprintStages = ['NEEDS_CALL','SHORTLISTED','CLIENT_SENT','UNDER_REVIEW','OFFER_ISSUED'];
         if (sprintStages.indexOf(newState.toUpperCase()) >= 0) sprintLogCall();
+        // Reset to CV-date sort so stage changes never move candidates — position is always by CV date
+        SORT_COL = 'freshness'; SORT_DIR = 1;
         refreshData();
       } else { showToast('Error: ' + (res ? res.msg : 'Failed')); }
     })
@@ -2806,6 +2815,8 @@ function confirmReqAction() {
     google.script.run
       .withSuccessHandler(function(res) {
         showToast('✓ Shortlisted '+res.updated+' for '+reqId);
+        // Reset to CV-date sort so shortlisted candidates stay in their date-based position
+        SORT_COL = 'freshness'; SORT_DIR = 1;
         clearSelection(); refreshData();
       })
       .withFailureHandler(function(e) { showToast('Error: '+(e.message||e)); })
@@ -3901,7 +3912,11 @@ function shortlistMatchForReq(rowIndex, reqId) {
       showToast(res && res.ok ?
         '⭐ Shortlisted for ' + reqId :
         '⚠️ ' + (res ? res.msg : 'Failed'));
-      if (res && res.ok) refreshData();
+      if (res && res.ok) {
+        // Reset to CV-date sort so shortlisted candidate stays in their date-based position
+        SORT_COL = 'freshness'; SORT_DIR = 1;
+        refreshData();
+      }
     })
     .withFailureHandler(function(e) { showToast('Error: ' + (e.message || e)); })
     .shortlistCandidateForReq(rowIndex, reqId);

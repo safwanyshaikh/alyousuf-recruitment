@@ -1188,7 +1188,11 @@ function getDashboardDataV2() {
       Logger.log('S37: Generated ' + newKaiKeys.length + ' new KAI Nos');
     }
 
-    records.sort(function(a,b){return String(b.applicationDate).localeCompare(String(a.applicationDate));});
+    records.sort(function(a,b){
+      // Primary: newest CV date first. Tiebreaker: row order in sheet (stable, no shortlist boost).
+      var d = String(b.applicationDate).localeCompare(String(a.applicationDate));
+      return d !== 0 ? d : a.rowIndex - b.rowIndex;
+    });
     var result = {
       metrics:       metrics,
       records:       records,
