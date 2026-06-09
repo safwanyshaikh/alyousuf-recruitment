@@ -12,16 +12,16 @@ var CONFIG = {
   DAILY_LIMIT:     400,         // 400/day — safe within Gmail's 500/day limit
   FROM_NAME:       'Al Yousuf Recruitment',
   REPLY_TO:        'ai@alyousufent.com',
-  
-  // Column indices (0-based) — matches the CSV exactly
+
+  // Column indices (0-based) — matches the sheet exactly
   COL_NAME:        0,  // A
   COL_EMAIL:       1,  // B
   COL_DATE:        2,  // C
   COL_SUBJECT:     3,  // D
   COL_ATT_NAMES:   4,  // E
   COL_STATUS:      5,  // F  ← PENDING_RECONTACT / SENT / BOUNCED / OPT_OUT / ERROR
-  COL_SENT_DATE:   6,  // G  (add this column header in sheet: "Sent Date")
-  COL_NOTES:       7,  // H  (add this column header in sheet: "Notes")
+  COL_SENT_DATE:   6,  // G
+  COL_NOTES:       7,  // H
 };
 
 // ── MAIN: Run daily via Time Trigger ────────────────────────
@@ -33,12 +33,17 @@ function runDailyRecontactBatch() {
   if (!sheet) { Logger.log('No sheet found in spreadsheet'); return; }
   Logger.log('Using sheet: ' + sheet.getName());
 
-  var data      = sheet.getDataRange().getValues();
-  var headers   = data[0];
-  var sent      = 0;
-  var skipped   = 0;
-  var errors    = 0;
-  var today     = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd');
+  var data    = sheet.getDataRange().getValues();
+  var today   = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd');
+  var sent    = 0, skipped = 0, errors = 0;
+
+  // Load opt-out set ONCE before the loop — fixes the timeout bug that
+  // caused the 14.29% trigger error rate (previously opened the sheet 400×).
+  var optOutSet = loadOptOutSet_(ss);
+
+  // Collect all row updates in memory; write them in one batch at the end.
+  // Row index (1-based) → [status, sentDate, notes]
+  var updates = {};
 
   Logger.log('=== KAI Recontact Batch — ' + today + ' ===');
 
@@ -46,24 +51,27 @@ function runDailyRecontactBatch() {
     if (sent >= CONFIG.DAILY_LIMIT) break;
 
     var row    = data[i];
-    var status = String(row[CONFIG.COL_STATUS] || '').trim().toUpperCase();
+    var status = String(row[CONFIG.COL_STATUS] || '').trim();
 
-    // Only process rows still pending
-    if (status !== 'PENDING_RECONTACT') { skipped++; continue; }
+    // Treat blank status and corrupted date-serial-number statuses as pending.
+    // Some rows have an Excel date number (e.g. 46173) in the Status column
+    // due to a column-shift bug in earlier data exports.
+    var isDateSerial = /^\d{5}(\.\d+)?$/.test(status);
+    if (status === '' || isDateSerial) status = 'PENDING_RECONTACT';
+
+    if (status.toUpperCase() !== 'PENDING_RECONTACT') { skipped++; continue; }
 
     var name  = String(row[CONFIG.COL_NAME]  || '').trim();
     var email = String(row[CONFIG.COL_EMAIL] || '').trim().toLowerCase();
 
-    // Basic validation
     if (!email || email.indexOf('@') === -1) {
-      sheet.getRange(i + 1, CONFIG.COL_STATUS + 1).setValue('INVALID_EMAIL');
+      updates[i] = ['INVALID_EMAIL', '', ''];
       errors++;
       continue;
     }
 
-    // Skip obvious opt-outs / bounces already stored
-    if (isOptOut_(email)) {
-      sheet.getRange(i + 1, CONFIG.COL_STATUS + 1).setValue('OPT_OUT');
+    if (optOutSet[email]) {
+      updates[i] = ['OPT_OUT', '', ''];
       continue;
     }
 
@@ -81,24 +89,68 @@ function runDailyRecontactBatch() {
           noReply:  false,
         }
       );
-
-      // Mark row as sent
-      sheet.getRange(i + 1, CONFIG.COL_STATUS  + 1).setValue('SENT');
-      sheet.getRange(i + 1, CONFIG.COL_SENT_DATE + 1).setValue(today);
+      updates[i] = ['SENT', today, ''];
       sent++;
-      Utilities.sleep(500); // 0.5s pause between sends
+      Utilities.sleep(300); // 0.3s pause — enough to avoid burst throttle
     } catch (err) {
-      var errMsg = err.message || String(err);
-      sheet.getRange(i + 1, CONFIG.COL_STATUS + 1).setValue('ERROR');
-      sheet.getRange(i + 1, CONFIG.COL_NOTES  + 1).setValue(errMsg.substring(0, 100));
-      Logger.log('ERROR row ' + (i+1) + ' ' + email + ': ' + errMsg);
+      var errMsg = (err.message || String(err)).substring(0, 100);
+      updates[i] = ['ERROR', '', errMsg];
+      Logger.log('ERROR row ' + (i + 1) + ' ' + email + ': ' + errMsg);
       errors++;
     }
   }
 
-  // Log summary to sheet
+  // Write all status/date/notes updates in one batch
+  flushUpdates_(sheet, updates);
+
   logBatchSummary_(ss, today, sent, skipped, errors);
   Logger.log('Done — Sent: ' + sent + ' | Skipped: ' + skipped + ' | Errors: ' + errors);
+}
+
+// ── BATCH WRITE ──────────────────────────────────────────────
+function flushUpdates_(sheet, updates) {
+  var rows = Object.keys(updates);
+  for (var k = 0; k < rows.length; k++) {
+    var i   = parseInt(rows[k]);
+    var upd = updates[i];
+    // Write status, sentDate, notes in one setValues call per row
+    sheet.getRange(i + 1, CONFIG.COL_STATUS   + 1).setValue(upd[0]);
+    if (upd[1]) sheet.getRange(i + 1, CONFIG.COL_SENT_DATE + 1).setValue(upd[1]);
+    if (upd[2]) sheet.getRange(i + 1, CONFIG.COL_NOTES     + 1).setValue(upd[2]);
+  }
+}
+
+// ── ONE-TIME DATA FIX ────────────────────────────────────────
+/**
+ * Fixes two data corruption issues in the sheet:
+ * 1. Rows with blank Status → set to PENDING_RECONTACT
+ * 2. Rows with date-serial Status (e.g. 46173) → set to SENT
+ * Run ONCE from the editor after deploying this code.
+ */
+function fixCorruptedStatusRows() {
+  var ss    = SpreadsheetApp.openById(CONFIG.SHEET_ID);
+  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME) || ss.getSheets()[0];
+  var data  = sheet.getDataRange().getValues();
+  var fixed = { blank: 0, dateSerial: 0 };
+
+  for (var i = 1; i < data.length; i++) {
+    var status = String(data[i][CONFIG.COL_STATUS] || '').trim();
+    var isDateSerial = /^\d{5}(\.\d+)?$/.test(status);
+
+    if (status === '') {
+      sheet.getRange(i + 1, CONFIG.COL_STATUS + 1).setValue('PENDING_RECONTACT');
+      fixed.blank++;
+    } else if (isDateSerial) {
+      // The Sent Date got shifted into the Status column — mark as SENT
+      sheet.getRange(i + 1, CONFIG.COL_STATUS   + 1).setValue('SENT');
+      sheet.getRange(i + 1, CONFIG.COL_SENT_DATE + 1).setValue(status); // put date back
+      fixed.dateSerial++;
+    }
+
+    if (i % 1000 === 999) Utilities.sleep(1000); // avoid quota on large sheet
+  }
+  Logger.log('fixCorruptedStatusRows: ' + JSON.stringify(fixed));
+  return fixed;
 }
 
 // ── EMAIL CONTENT ────────────────────────────────────────────
@@ -152,24 +204,27 @@ function buildHtmlBody_(firstName) {
 // ── HELPERS ──────────────────────────────────────────────────
 function extractFirstName_(fullName) {
   if (!fullName) return 'Candidate';
-  // Take first word, capitalise properly
   var first = fullName.split(/[\s,]+/)[0];
   if (!first) return 'Candidate';
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
-// Maintain opt-out list in a sheet named "_OptOut"
-function isOptOut_(email) {
+/**
+ * Load opt-out emails into a plain object for O(1) lookup.
+ * Called ONCE per batch run — not once per email.
+ */
+function loadOptOutSet_(ss) {
+  var set = {};
   try {
-    var ss    = SpreadsheetApp.openById(CONFIG.SHEET_ID);
     var sheet = ss.getSheetByName('_OptOut');
-    if (!sheet) return false;
+    if (!sheet) return set;
     var data  = sheet.getDataRange().getValues();
     for (var i = 0; i < data.length; i++) {
-      if (String(data[i][0]).trim().toLowerCase() === email) return true;
+      var email = String(data[i][0] || '').trim().toLowerCase();
+      if (email) set[email] = true;
     }
-  } catch(e) {}
-  return false;
+  } catch(e) { Logger.log('loadOptOutSet_ error: ' + e.message); }
+  return set;
 }
 
 function logBatchSummary_(ss, date, sent, skipped, errors) {
@@ -188,14 +243,12 @@ function logBatchSummary_(ss, date, sent, skipped, errors) {
 
 // ── SETUP: Run ONCE to create daily trigger ──────────────────
 function setupDailyTrigger() {
-  // Delete existing triggers for this function first
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === 'runDailyRecontactBatch') {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
-  // Create new trigger: runs daily at 9am Dubai time
   ScriptApp.newTrigger('runDailyRecontactBatch')
     .timeBased()
     .everyDays(1)
@@ -207,32 +260,37 @@ function setupDailyTrigger() {
 // ── STATS: Run anytime to check campaign progress ────────────
 function getCampaignStats() {
   var ss    = SpreadsheetApp.openById(CONFIG.SHEET_ID);
-  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME)
-             || ss.getSheetByName('Sheet1')
-             || ss.getSheets()[0];
+  var sheet = ss.getSheetByName(CONFIG.SHEET_NAME) || ss.getSheets()[0];
   if (!sheet) { Logger.log('Sheet not found'); return; }
 
   var data  = sheet.getDataRange().getValues();
   var stats = { PENDING_RECONTACT: 0, SENT: 0, ERROR: 0, OPT_OUT: 0,
-                INVALID_EMAIL: 0, BOUNCED: 0, OTHER: 0 };
+                INVALID_EMAIL: 0, BOUNCED: 0, BLANK: 0, DATE_CORRUPTED: 0, OTHER: 0 };
 
   for (var i = 1; i < data.length; i++) {
-    var status = String(data[i][CONFIG.COL_STATUS] || '').trim().toUpperCase();
+    var raw    = String(data[i][CONFIG.COL_STATUS] || '').trim();
+    var status = raw.toUpperCase();
+    if (raw === '') { stats.BLANK++; continue; }
+    if (/^\d{5}(\.\d+)?$/.test(raw)) { stats.DATE_CORRUPTED++; continue; }
     if (stats.hasOwnProperty(status)) stats[status]++;
     else stats.OTHER++;
   }
 
-  var total = data.length - 1;
-  var pct   = total > 0 ? Math.round(stats.SENT * 100 / total) : 0;
+  var total      = data.length - 1;
+  var pct        = total > 0 ? Math.round(stats.SENT * 100 / total) : 0;
+  var pendingAll = stats.PENDING_RECONTACT + stats.BLANK + stats.DATE_CORRUPTED;
 
   Logger.log('=== Campaign Stats ===');
-  Logger.log('Total rows:    ' + total);
-  Logger.log('Sent:          ' + stats.SENT + ' (' + pct + '%)');
-  Logger.log('Pending:       ' + stats.PENDING_RECONTACT);
-  Logger.log('Errors:        ' + stats.ERROR);
-  Logger.log('Opt-out:       ' + stats.OPT_OUT);
-  Logger.log('Invalid email: ' + stats.INVALID_EMAIL);
-  Logger.log('Days to complete at 80/day: ' + Math.ceil(stats.PENDING_RECONTACT / 80));
+  Logger.log('Total rows:          ' + total);
+  Logger.log('Sent:                ' + stats.SENT + ' (' + pct + '%)');
+  Logger.log('Pending (clean):     ' + stats.PENDING_RECONTACT);
+  Logger.log('Pending (blank):     ' + stats.BLANK + '  ← run fixCorruptedStatusRows()');
+  Logger.log('Pending (corrupted): ' + stats.DATE_CORRUPTED + '  ← run fixCorruptedStatusRows()');
+  Logger.log('Total still to send: ' + pendingAll);
+  Logger.log('Days left at 400/day:' + Math.ceil(pendingAll / 400));
+  Logger.log('Errors:              ' + stats.ERROR);
+  Logger.log('Opt-out:             ' + stats.OPT_OUT);
+  Logger.log('Invalid email:       ' + stats.INVALID_EMAIL);
 }
 
 // ── OPT-OUT HANDLER: Run daily to process unsubscribe replies ─
@@ -244,20 +302,17 @@ function processOptOutReplies() {
     optSheet.appendRow(['Email', 'Date']);
   }
 
-  // Search for UNSUBSCRIBE replies in last 2 days
   var threads = GmailApp.search('to:ai@alyousufent.com subject:UNSUBSCRIBE newer_than:2d');
   var added   = 0;
 
   for (var i = 0; i < threads.length; i++) {
     var msgs  = threads[i].getMessages();
-    var email = msgs[0].getFrom();
-    // Extract just the email address
-    var match = email.match(/<([^>]+)>/);
-    var addr  = match ? match[1].toLowerCase() : email.toLowerCase();
+    var from  = msgs[0].getFrom();
+    var match = from.match(/<([^>]+)>/);
+    var addr  = (match ? match[1] : from).toLowerCase().trim();
 
     optSheet.appendRow([addr, new Date()]);
 
-    // Update status in main sheet
     var mainSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
     var data = mainSheet.getDataRange().getValues();
     for (var j = 1; j < data.length; j++) {
