@@ -12981,6 +12981,53 @@ function processKarigarErrorBacklog() {
 }
 
 /**
+ * Diagnostic: shows Gmail label counts, last run timestamp, and a sample of
+ * recent inbox emails so you can see why CVs are or aren't being parsed.
+ * Run from the editor dropdown — check the Execution log for results.
+ */
+function diagnoseCVPipeline() {
+  var props = PropertiesService.getScriptProperties();
+  var lastRunMs = parseInt(props.getProperty('EMAIL_PROCESSOR_LAST_RUN') || '0');
+  var lastRunStr = lastRunMs ? new Date(lastRunMs).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'NEVER';
+  Logger.log('=== KAI CV Pipeline Diagnosis ===');
+  Logger.log('Last processAllInboxEmails run: ' + lastRunStr);
+
+  var processed  = GmailApp.getUserLabelByName('karigar/processed');
+  var errorLbl   = GmailApp.getUserLabelByName('karigar/error');
+  var junkLbl    = GmailApp.getUserLabelByName('karigar/junk');
+  var dupLbl     = GmailApp.getUserLabelByName('karigar/duplicate');
+
+  Logger.log('karigar/processed threads: ' + (processed ? processed.getThreads(0,500).length : 'LABEL MISSING'));
+  Logger.log('karigar/error    threads: ' + (errorLbl  ? errorLbl.getThreads(0,500).length  : 'LABEL MISSING'));
+  Logger.log('karigar/junk     threads: ' + (junkLbl   ? junkLbl.getThreads(0,500).length   : 'LABEL MISSING'));
+  Logger.log('karigar/duplicate threads: '+ (dupLbl    ? dupLbl.getThreads(0,500).length    : 'LABEL MISSING'));
+
+  // Check recent inbox for unprocessed CV emails
+  var cutoff = Math.floor((Date.now() - 48 * 3600 * 1000) / 1000); // last 48h
+  var recentQuery = 'in:inbox after:' + cutoff +
+    ' has:attachment (filename:pdf OR filename:doc OR filename:docx)' +
+    ' -label:karigar/processed -label:karigar/duplicate -label:karigar/junk -label:karigar/error';
+  var recentThreads = GmailApp.search(recentQuery, 0, 20);
+  Logger.log('Unprocessed CV emails in inbox (last 48h): ' + recentThreads.length);
+  for (var i = 0; i < Math.min(recentThreads.length, 10); i++) {
+    var t = recentThreads[i];
+    Logger.log('  [' + t.getLastMessageDate().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) + '] ' +
+               '"' + t.getFirstMessageSubject() + '" — from: ' + t.getMessages()[0].getFrom());
+  }
+
+  // Check karigar/error sample
+  if (errorLbl) {
+    var errThreads = errorLbl.getThreads(0, 10);
+    Logger.log('karigar/error sample (last 10):');
+    for (var e = 0; e < errThreads.length; e++) {
+      Logger.log('  "' + errThreads[e].getFirstMessageSubject() + '" — ' +
+                 errThreads[e].getLastMessageDate().toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}));
+    }
+  }
+  Logger.log('=== End Diagnosis ===');
+}
+
+/**
  * One-shot cleanup: find recently-created candidates whose name looks like a
  * job title (not a person) and flag them 'NEEDS_REVIEW' in empStatus so a
  * recruiter can re-source. Run once after deploying the multimodal CV parser.
@@ -13053,6 +13100,39 @@ function deleteGarbageCandidateRows() {
 
   Logger.log('deleteGarbageCandidateRows: deleted ' + deleted + ' rows');
   return { deleted: deleted, rows: toDelete };
+}
+
+/**
+ * Rescue karigar/processed threads whose subject looks like a job-title email subject
+ * (not a real CV with a person's name). Moves them to karigar/error so the main
+ * trigger re-processes them with the improved parser.
+ * Run ONCE after deleteGarbageCandidateRows() to re-queue the 39 deleted rows.
+ */
+function rescueGarbageProcessedEmails() {
+  var processedLabel = getOrCreateLabel_('karigar/processed');
+  var errorLabel     = getOrCreateLabel_('karigar/error');
+
+  // Subject patterns that indicate a garbage parse: job title or action phrase as subject
+  var garbageSubjectRe = /^(apply|applying|application|looking|post|job|re:|fw:|fwd:|document|resume|cv\b|for\s|from\s|updated|update|and\s|or\s|field\s|mechanical\s|electrical\s|instrument|auto\s|crane|rigger|welding|fabricat|operator|technician|inspector|supervisor|foreman|electrician|plumber|mason|carpenter|scaffolding|procurement|piping|commissioning|qc\s|qa\s|hse\s|ndt\s|wpr\b)/i;
+
+  var threads = processedLabel.getThreads(0, 500);
+  var rescued = 0, scanned = 0;
+
+  for (var i = 0; i < threads.length; i++) {
+    var t       = threads[i];
+    var subject = t.getFirstMessageSubject() || '';
+    scanned++;
+
+    if (garbageSubjectRe.test(subject.trim())) {
+      t.removeLabel(processedLabel);
+      t.addLabel(errorLabel);
+      Logger.log('Rescued → karigar/error: "' + subject + '"');
+      rescued++;
+    }
+  }
+
+  Logger.log('rescueGarbageProcessedEmails: scanned=' + scanned + ' rescued=' + rescued);
+  return { scanned: scanned, rescued: rescued };
 }
 
 /**
