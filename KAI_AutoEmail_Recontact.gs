@@ -25,6 +25,15 @@ var CONFIG = {
 };
 
 // ── MAIN: Run daily via Time Trigger ────────────────────────
+/**
+ * Daily flow (runs at 9am):
+ *   1. Mark bounced addresses from Gmail bounce notifications → no more wasted sends
+ *   2. Process UNSUBSCRIBE replies → OPT_OUT
+ *   3. Send today's batch of 400 recontact emails
+ *
+ * CV replies are handled automatically by the KAI main pipeline
+ * (processAllInboxEmails trigger) — no action needed here.
+ */
 function runDailyRecontactBatch() {
   var ss    = SpreadsheetApp.openById(CONFIG.SHEET_ID);
   var sheet = ss.getSheetByName(CONFIG.SHEET_NAME)
@@ -33,7 +42,14 @@ function runDailyRecontactBatch() {
   if (!sheet) { Logger.log('No sheet found in spreadsheet'); return; }
   Logger.log('Using sheet: ' + sheet.getName());
 
-  var data    = sheet.getDataRange().getValues();
+  // Step 1 — mark bounced addresses first so we don't re-send to them today
+  var bounced = processBounceReplies_(ss, sheet);
+  Logger.log('Bounces marked today: ' + bounced);
+
+  // Step 2 — process UNSUBSCRIBE replies
+  processOptOutReplies();
+
+  var data    = sheet.getDataRange().getValues(); // refresh after bounce updates
   var today   = Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd');
   var sent    = 0, skipped = 0, errors = 0;
 
@@ -42,7 +58,6 @@ function runDailyRecontactBatch() {
   var optOutSet = loadOptOutSet_(ss);
 
   // Collect all row updates in memory; write them in one batch at the end.
-  // Row index (1-based) → [status, sentDate, notes]
   var updates = {};
 
   Logger.log('=== KAI Recontact Batch — ' + today + ' ===');
@@ -213,6 +228,77 @@ function extractFirstName_(fullName) {
  * Load opt-out emails into a plain object for O(1) lookup.
  * Called ONCE per batch run — not once per email.
  */
+/**
+ * Scans inbox for Gmail bounce notifications (last 14 days) and marks the
+ * corresponding rows BOUNCED in the campaign sheet.
+ * Called automatically at the start of each daily batch.
+ *
+ * Why this matters: at ~64,000 recipients, expect 5-15% bounce rate
+ * (~3,000-9,000 dead addresses). Without this, we waste API quota and
+ * Gmail sending quota resending to addresses that will never receive mail.
+ */
+function processBounceReplies_(ss, sheet) {
+  var data  = sheet.getDataRange().getValues();
+
+  // Build email → sheet row map for O(1) lookup
+  var emailRowMap = {};
+  for (var i = 1; i < data.length; i++) {
+    var e = String(data[i][CONFIG.COL_EMAIL] || '').trim().toLowerCase();
+    if (e) emailRowMap[e] = i;
+  }
+
+  // Gmail bounce notifications: from mailer-daemon OR delivery failure subjects
+  var query = '(from:mailer-daemon OR from:postmaster ' +
+              'OR subject:"delivery status notification" ' +
+              'OR subject:"undelivered mail returned" ' +
+              'OR subject:"mail delivery failed" ' +
+              'OR subject:"failure notice") newer_than:14d';
+  var threads = [];
+  try { threads = GmailApp.search(query, 0, 100); } catch(e) { return 0; }
+
+  var marked = 0;
+  var today  = new Date().toISOString().substring(0, 10);
+
+  for (var t = 0; t < threads.length; t++) {
+    var msgs = threads[t].getMessages();
+    for (var m = 0; m < msgs.length; m++) {
+      var body = msgs[m].getPlainBody() || '';
+
+      // Extract all email addresses from the bounce body using common patterns
+      var found = {};
+
+      // Pattern 1: RFC 3464 — Final-Recipient: rfc822; user@domain
+      var re1 = /(?:final-recipient|original-recipient)[^\n]*?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/gi;
+      var m1;
+      while ((m1 = re1.exec(body)) !== null) found[m1[1].toLowerCase()] = true;
+
+      // Pattern 2: "failed to deliver to <user@domain>"
+      var re2 = /(?:failed to deliver to|could not be delivered to|delivery failed to)[^<\n]*?<?([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>?/gi;
+      var m2;
+      while ((m2 = re2.exec(body)) !== null) found[m2[1].toLowerCase()] = true;
+
+      // Pattern 3: "<user@domain>" anywhere in typical bounce headers
+      var re3 = /<([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>/g;
+      var m3;
+      while ((m3 = re3.exec(body)) !== null) found[m3[1].toLowerCase()] = true;
+
+      for (var addr in found) {
+        if (!emailRowMap.hasOwnProperty(addr)) continue;
+        var rowIdx = emailRowMap[addr];
+        var curStatus = String(data[rowIdx][CONFIG.COL_STATUS] || '').toUpperCase();
+        if (curStatus === 'BOUNCED' || curStatus === 'OPT_OUT') continue; // already handled
+        sheet.getRange(rowIdx + 1, CONFIG.COL_STATUS + 1).setValue('BOUNCED');
+        sheet.getRange(rowIdx + 1, CONFIG.COL_NOTES  + 1).setValue('Bounced ' + today);
+        marked++;
+      }
+    }
+    if (t % 20 === 19) Utilities.sleep(500);
+  }
+
+  Logger.log('processBounceReplies_: marked ' + marked + ' rows BOUNCED from ' + threads.length + ' threads');
+  return marked;
+}
+
 function loadOptOutSet_(ss) {
   var set = {};
   try {
