@@ -13455,6 +13455,93 @@ function repairCorruptedEducationNow() {
   Logger.log(JSON.stringify(repairCorruptedEducation_({})));
 }
 
+// ── Re-fill blank Education from existing assessment / notes text ─────────────
+//
+// Many candidates have blank Education after the corruption cleanup.
+// Gemini embeds education facts inside the kaiAssessment text ("Diploma in
+// Mechanical", "B.Tech holder", etc.) — this function mines that text and
+// writes the result back at zero Gemini cost.
+//
+// Regex patterns intentionally generous — if the assessment mentions any
+// education keyword the candidate had it; if not the cell stays blank (correct).
+//
+// Run refillEducationFromTextNow() from the editor.
+function refillEducationFromText_(params) {
+  params = params || {};
+  var dryRun = String(params.dryRun||'') === 'true';
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var sheet  = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2)
+    return { ok:true, scanned:0, filled:0 };
+
+  var n      = sheet.getLastRow() - 1;
+  var data   = sheet.getRange(2, 1, n, 42).getValues();
+
+  // Broad patterns to detect education in freetext
+  var EDU_EXTRACTORS = [
+    // labelled mentions: "Education: B.Tech" or "Highest Education: Diploma"
+    { re: /(?:education|qualification)[\s:\/]+([^\n,|·]{3,60})/i, priority: 1 },
+    // "holds a B.Tech / Diploma / ITI"
+    { re: /\b(?:holds?|has|with|completed?|passed?)\s+(?:a\s+)?([A-Za-z.\/\s]{3,50}(?:degree|diploma|b\.?tech|b\.?e|b\.?sc|m\.?tech|mba|iti|certificate|certification|12th|10\+2|ssc|hsc|matriculation|school))/i, priority: 2 },
+    // standalone known tokens anywhere in text
+    { re: /\b(phd|doctorate|master(?:s|\s+of\s+\w+)|mba|m\.?tech|m\.?e\b|b\.?tech|b\.?e\b|b\.?sc|bachelor(?:s|\s+of\s+\w+)|diploma(?:\s+in\s+\w+)?|iti(?:\s+in\s+\w+)?|certificate(?:\s+in\s+\w+)?|10\+2|12th|intermediate|matriculation|ssc\b|hsc\b|high\s+school)/i, priority: 3 }
+  ];
+
+  var filled = 0, skipped = 0, samples = [];
+
+  var eduColIdx  = COL.education - 1;
+  var enumColIdx = COL.educationEnum - 1;
+  var assessIdx  = COL.kaiAssessment - 1;
+  var notesIdx   = COL.notes - 1;
+
+  for (var i = 0; i < data.length; i++) {
+    var existing = String(data[i][eduColIdx] || '').trim();
+    if (existing) { skipped++; continue; } // already has something
+
+    var active = String(data[i][COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') continue;
+
+    var name = String(data[i][COL.name-1]||'').trim();
+    if (!name) continue;
+
+    // Source text: assessment + notes concatenated
+    var text = (String(data[i][assessIdx]||'') + ' ' + String(data[i][notesIdx]||'')).trim();
+    if (!text) continue;
+
+    var found = '';
+    for (var p = 0; p < EDU_EXTRACTORS.length; p++) {
+      var m = text.match(EDU_EXTRACTORS[p].re);
+      if (m) {
+        // priority-1 captures the labelled value directly
+        found = (m[1] || m[0]).trim().replace(/[\s]+/g,' ').slice(0, 80);
+        break;
+      }
+    }
+    if (!found) continue;
+
+    var edu = parseEducation_(found);
+
+    if (!dryRun) {
+      sheet.getRange(i + 2, COL.education).setValue(found);
+      if (edu.level) sheet.getRange(i + 2, COL.educationEnum).setValue(edu.level);
+    }
+
+    if (samples.length < 8) samples.push({ row: i+2, name: name.slice(0,20), education: found, level: edu.level });
+    filled++;
+  }
+
+  var result = { ok:true, dryRun:dryRun, scanned:n, filled:filled, skipped:skipped, samples:samples };
+  Logger.log('refillEducationFromText: ' + JSON.stringify(result));
+  return result;
+}
+
+function refillEducationFromTextDry() {
+  Logger.log(JSON.stringify(refillEducationFromText_({ dryRun:'true' })));
+}
+function refillEducationFromTextNow() {
+  Logger.log(JSON.stringify(refillEducationFromText_({})));
+}
+
 // ── Helper: get or create Gmail label ────────────────────────────────────────
 
 function getOrCreateLabel_(name) {
