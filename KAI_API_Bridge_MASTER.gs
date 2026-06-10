@@ -12355,7 +12355,10 @@ function updateCandidateWithNewCV_(ss, rowIndex, attachment, fromEmail) {
 
 /**
  * Process a single GmailMessage with full KAI intelligence.
- * Returns action taken: 'IGNORED' | 'NOT_INTERESTED' | 'CV_UPDATED' | 'INFO_UPDATED' | 'NEW_CANDIDATE' | 'ERROR'
+ * Returns action taken: 'IGNORED' | 'NOT_INTERESTED' | 'CV_UPDATED' | 'INFO_UPDATED'
+ *                      | 'NEW_CANDIDATE' | 'DUPLICATE' | 'PARSE_FAILED' | 'ERROR'
+ *   DUPLICATE = CV matched an existing candidate (phone/email/passport); record was
+ *   updated in place, thread should be labeled karigar/duplicate (not processed).
  *
  * Sender ≠ Candidate rule:
  *   The From address is who SENT the email — may be an associate, agent, or consultant.
@@ -12472,7 +12475,9 @@ function processEmailMessage_(ss, message, sourceLabel) {
             var dupNote = '[' + new Date().toISOString() + '] CV re-submitted via ' + fromEmail;
             dupSheet.getRange(dupRow, COL.notes).setValue(existNote ? existNote + '\n' + dupNote : dupNote);
           }
-          return 'CV_UPDATED';
+          // Record was updated, but this is a DUPLICATE submission — signal the
+          // caller to label the thread karigar/duplicate (not karigar/processed).
+          return 'DUPLICATE';
         }
       }
 
@@ -12768,9 +12773,10 @@ function clearKarigarErrorBacklog() {
   var errorLabel     = getOrCreateLabel_('karigar/error');
   var processedLabel = getOrCreateLabel_('karigar/processed');
   var junkLabel      = getOrCreateLabel_('karigar/junk');
+  var duplicateLabel = getOrCreateLabel_('karigar/duplicate');
 
   var threads = errorLabel.getThreads(0, 200);
-  var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, error: 0, total: 0 };
+  var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, duplicate: 0, error: 0, total: 0 };
 
   for (var i = 0; i < threads.length; i++) {
     var thread = threads[i];
@@ -12787,6 +12793,7 @@ function clearKarigarErrorBacklog() {
     stats.total++;
     if (threadResult === 'IGNORED')        { stats.ignored++; thread.removeLabel(errorLabel); thread.addLabel(junkLabel); }
     else if (threadResult === 'ERROR')     { stats.error++; /* leave in error */ }
+    else if (threadResult === 'DUPLICATE') { stats.duplicate++; thread.removeLabel(errorLabel); thread.addLabel(duplicateLabel); }
     else {
       stats.cvUpdated      += (threadResult === 'CV_UPDATED')      ? 1 : 0;
       stats.notInterested  += (threadResult === 'NOT_INTERESTED')  ? 1 : 0;
@@ -12825,6 +12832,7 @@ function backfillInboxEmails_(params) {
   var processedLabel = getOrCreateLabel_('karigar/processed');
   var errorLabel     = getOrCreateLabel_('karigar/error');
   var junkLabel      = getOrCreateLabel_('karigar/junk');
+  var duplicateLabel = getOrCreateLabel_('karigar/duplicate');
 
   // All inbox CV emails from 1 Jan 2026 that have never been labeled by any pipeline
   var query = 'in:inbox after:2026/01/01' +
@@ -12836,7 +12844,7 @@ function backfillInboxEmails_(params) {
   try { threads = GmailApp.search(query, offset, batchSize); }
   catch(e) { return { ok: false, error: 'Gmail search failed: ' + e.message }; }
 
-  var stats = { processed: 0, parseFailed: 0, ignored: 0, error: 0, total: threads.length, offset: offset };
+  var stats = { processed: 0, parseFailed: 0, ignored: 0, duplicate: 0, error: 0, total: threads.length, offset: offset };
 
   for (var k = 0; k < threads.length; k++) {
     var thread   = threads[k];
@@ -12845,7 +12853,8 @@ function backfillInboxEmails_(params) {
 
     for (var l = 0; l < messages.length; l++) {
       var r = processEmailMessage_(ss, messages[l], 'backfill');
-      if (r === 'NEW_CANDIDATE' || r === 'CV_UPDATED' || r === 'NOT_INTERESTED' || r === 'INFO_UPDATED') {
+      if (r === 'NEW_CANDIDATE' || r === 'CV_UPDATED' || r === 'DUPLICATE' ||
+          r === 'NOT_INTERESTED' || r === 'INFO_UPDATED') {
         bestResult = r; break;
       }
       if (r === 'PARSE_FAILED') bestResult = 'PARSE_FAILED';
@@ -12856,6 +12865,9 @@ function backfillInboxEmails_(params) {
         bestResult === 'NOT_INTERESTED' || bestResult === 'INFO_UPDATED') {
       stats.processed++;
       thread.addLabel(processedLabel);
+    } else if (bestResult === 'DUPLICATE') {
+      stats.duplicate++;
+      thread.addLabel(duplicateLabel);    // record already updated; kept out of inbox
     } else if (bestResult === 'PARSE_FAILED') {
       stats.parseFailed++;
       thread.addLabel(errorLabel);        // Gemini/name failure — will retry via error backlog
@@ -12966,25 +12978,29 @@ function processAllInboxEmails() {
   var processedLabel = getOrCreateLabel_('karigar/processed');
   var errorLabel     = getOrCreateLabel_('karigar/error');
   var junkLabel      = getOrCreateLabel_('karigar/junk');
+  var duplicateLabel = getOrCreateLabel_('karigar/duplicate');
 
-  var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, error: 0, total: 0 };
+  var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, duplicate: 0, error: 0, total: 0 };
 
-  // ── PASS 1: Inbox — ALL unlabeled threads (no date cutoff)
-  // Using no `after:` filter catches threads that fell through between runs.
-  // Sorted newest-first by Gmail so fresh CVs are prioritised.
-  // Batch = 30 to stay safely inside the 6-min limit (each Gemini call ~1-2s).
+  // ── LIVE INBOX ONLY — fresh CVs always win, 24/7 ────────────────────────────
+  // This trigger NEVER touches karigar/error. The night backlog trigger
+  // (processNightBacklog) owns that queue exclusively, so the two never collide.
+  // No `after:` filter — catches threads that fell through between runs.
+  // Gmail returns newest-first, so the freshest CVs are parsed first.
+  // Batch = 40 (raised from 30 now that there is no competing backlog pass).
   var inboxQuery = 'in:inbox -label:karigar/processed -label:karigar/duplicate' +
                    ' -label:karigar/junk -label:karigar/error';
-  var inboxThreads = GmailApp.search(inboxQuery, 0, 30);
+  var inboxThreads = GmailApp.search(inboxQuery, 0, 40);
   for (var k = 0; k < inboxThreads.length; k++) {
-    if (Date.now() - startMs > 240000) break; // hard stop at 4 min, leave room for error backlog
+    if (Date.now() - startMs > 280000) break; // hard stop at 4m40s — full window for live CVs
     var iThread  = inboxThreads[k];
     var iMessages = iThread.getMessages();
     var iResult  = 'IGNORED';
     for (var l = 0; l < iMessages.length; l++) {
       var r = processEmailMessage_(ss, iMessages[l], 'inbox');
       // Escalate: prefer any meaningful action over IGNORED
-      if (r === 'NEW_CANDIDATE' || r === 'CV_UPDATED' || r === 'INFO_UPDATED' || r === 'NOT_INTERESTED') {
+      if (r === 'NEW_CANDIDATE' || r === 'CV_UPDATED' || r === 'DUPLICATE' ||
+          r === 'INFO_UPDATED' || r === 'NOT_INTERESTED') {
         iResult = r; break;
       }
       if (r === 'PARSE_FAILED' || r === 'ERROR') { iResult = r; break; }
@@ -12996,6 +13012,9 @@ function processAllInboxEmails() {
     } else if (iResult === 'PARSE_FAILED' || iResult === 'ERROR') {
       stats.error++;
       iThread.addLabel(errorLabel);
+    } else if (iResult === 'DUPLICATE') {
+      stats.duplicate++;
+      iThread.addLabel(duplicateLabel);   // candidate record already updated; thread kept out of inbox
     } else {
       stats.cvUpdated     += iResult === 'CV_UPDATED'     ? 1 : 0;
       stats.notInterested += iResult === 'NOT_INTERESTED' ? 1 : 0;
@@ -13005,38 +13024,74 @@ function processAllInboxEmails() {
     }
   }
 
-  // ── PASS 2: karigar/error backlog — retry up to 15 threads if time remains
-  if (Date.now() - startMs < 240000) {
-    var errorThreads = errorLabel.getThreads(0, 15);
-    for (var i = 0; i < errorThreads.length; i++) {
-      if (Date.now() - startMs > 280000) break; // absolute stop at 4m40s
-      var thread  = errorThreads[i];
-      var messages = thread.getMessages();
-      var threadResult = 'IGNORED';
-      for (var j = 0; j < messages.length; j++) {
-        var er = processEmailMessage_(ss, messages[j], 'karigar/error');
-        if (er === 'ERROR' || er === 'PARSE_FAILED') { threadResult = 'ERROR'; break; }
-        if (er !== 'IGNORED') threadResult = er;
-      }
-      stats.total++;
-      if (threadResult === 'IGNORED') {
-        stats.ignored++;
-        thread.removeLabel(errorLabel);
-        thread.addLabel(junkLabel);
-      } else if (threadResult !== 'ERROR') {
-        stats[threadResult === 'CV_UPDATED'     ? 'cvUpdated'     :
-              threadResult === 'NOT_INTERESTED' ? 'notInterested' :
-              threadResult === 'INFO_UPDATED'   ? 'infoUpdated'   : 'newCandidate']++;
-        thread.removeLabel(errorLabel);
-        thread.addLabel(processedLabel);
-      } else {
-        stats.error++;
-      }
-    }
+  props.setProperty('EMAIL_PROCESSOR_LAST_RUN', now.toString());
+  Logger.log('processAllInboxEmails (inbox-only): ' + JSON.stringify(stats));
+  return stats;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// NIGHT BACKLOG PROCESSOR — owns karigar/error EXCLUSIVELY
+//
+// Install ONE time-based trigger: processNightBacklog → every 10 minutes.
+// It fires 24/7 but self-exits during the day, so it only works the quiet hours
+// (10pm–6am IST) when fresh-CV volume is low. This guarantees it NEVER competes
+// with the live inbox trigger (processAllInboxEmails), which owns the inbox.
+//
+// Isolation contract (no overlap possible):
+//   processAllInboxEmails → reads in:inbox only,        writes processed/junk/error/duplicate
+//   processNightBacklog   → reads karigar/error only,   writes processed/junk/duplicate (+ leaves hard errors)
+//
+// Gmail returns error threads newest-first, so the backlog is cleared from the
+// most recent failures backward toward 1 Jan 2026 over successive nights.
+// ════════════════════════════════════════════════════════════════════════════
+function processNightBacklog() {
+  // ── Time gate: only work 10pm–6am IST. Daytime runs exit in < 1ms. ──────────
+  var hourIST = parseInt(Utilities.formatDate(new Date(), 'Asia/Kolkata', 'H'), 10);
+  var isNight = (hourIST >= 22 || hourIST < 6);   // 22,23,0,1,2,3,4,5
+  if (!isNight) {
+    Logger.log('processNightBacklog: skipped — ' + hourIST + ':00 IST is outside night window (22:00–06:00)');
+    return { skipped: true, hourIST: hourIST };
   }
 
-  props.setProperty('EMAIL_PROCESSOR_LAST_RUN', now.toString());
-  Logger.log('processAllInboxEmails: ' + JSON.stringify(stats));
+  var ss      = SpreadsheetApp.openById(SS_ID);
+  var startMs = Date.now();
+
+  var errorLabel     = getOrCreateLabel_('karigar/error');
+  var processedLabel = getOrCreateLabel_('karigar/processed');
+  var junkLabel      = getOrCreateLabel_('karigar/junk');
+  var duplicateLabel = getOrCreateLabel_('karigar/duplicate');
+
+  var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, duplicate: 0, error: 0, total: 0, hourIST: hourIST };
+
+  // Bigger batch than the daytime trigger (50) — quiet hours, no competition.
+  // Gmail delivers newest-first → yesterday's failures clear before older ones.
+  var errorThreads = errorLabel.getThreads(0, 50);
+  for (var i = 0; i < errorThreads.length; i++) {
+    if (Date.now() - startMs > 240000) break;   // hard stop at 4 min
+    var thread   = errorThreads[i];
+    var messages = thread.getMessages();
+    var threadResult = 'IGNORED';
+    for (var j = 0; j < messages.length; j++) {
+      var er = processEmailMessage_(ss, messages[j], 'karigar/error');
+      if (er === 'ERROR' || er === 'PARSE_FAILED') { threadResult = 'ERROR'; break; }
+      if (er !== 'IGNORED') threadResult = er;
+    }
+    stats.total++;
+    if (threadResult === 'IGNORED')        { stats.ignored++;   thread.removeLabel(errorLabel); thread.addLabel(junkLabel); }
+    else if (threadResult === 'ERROR')     { stats.error++; /* leave in error for next night */ }
+    else if (threadResult === 'DUPLICATE') { stats.duplicate++; thread.removeLabel(errorLabel); thread.addLabel(duplicateLabel); }
+    else {
+      stats.cvUpdated     += (threadResult === 'CV_UPDATED')     ? 1 : 0;
+      stats.notInterested += (threadResult === 'NOT_INTERESTED') ? 1 : 0;
+      stats.infoUpdated   += (threadResult === 'INFO_UPDATED')   ? 1 : 0;
+      stats.newCandidate  += (threadResult === 'NEW_CANDIDATE')  ? 1 : 0;
+      thread.removeLabel(errorLabel);
+      thread.addLabel(processedLabel);
+    }
+    if (i % 10 === 9) Utilities.sleep(1000);     // gentle Gmail API rate-limit
+  }
+
+  Logger.log('processNightBacklog: ' + JSON.stringify(stats));
   return stats;
 }
 
