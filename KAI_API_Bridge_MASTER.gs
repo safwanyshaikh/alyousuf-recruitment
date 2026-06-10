@@ -12123,21 +12123,24 @@ function detectReplyIntent_(subject, body, hasAttachment, fromEmail, ss) {
 
   var bodyLower = (body || '').toLowerCase();
 
-  // Not-interested signals only count when this is a REPLY to KAI outreach.
-  // Marketing emails always have "unsubscribe" in the footer — ignore them here.
-  // A genuine reply has Re:/RE: in subject, or a short body (< 500 chars).
+  // CV attached → ALWAYS interested. A candidate who sends their updated resume
+  // is never "not interested", even if the quoted original email or body text
+  // contains words like "joined"/"not available"/"unsubscribe". The attachment
+  // is the decisive signal, so this check MUST come before NOT_INTERESTED.
+  if (hasAttachment) {
+    if (!ss) return 'CV_UPDATE';
+    var existingCandidate = findCandidateByEmail_(ss, fromEmail);
+    return existingCandidate ? 'CV_UPDATE' : 'NEW_APPLICATION';
+  }
+
+  // Not-interested signals only count when this is a REPLY to KAI outreach AND
+  // there is NO attachment. Marketing emails always have "unsubscribe" in the
+  // footer — ignore them here. A genuine reply has Re:/RE:, or a short body.
   var isReply = /^re[\s:]/i.test(subject) || (body && body.trim().length < 500);
   if (isReply) {
     for (var i = 0; i < NOT_INTERESTED_PATTERNS.length; i++) {
       if (NOT_INTERESTED_PATTERNS[i].test(body)) return 'NOT_INTERESTED';
     }
-  }
-
-  // CV attached → CV_UPDATE if sender known, NEW_APPLICATION if not
-  if (hasAttachment) {
-    if (!ss) return 'CV_UPDATE';
-    var existingCandidate = findCandidateByEmail_(ss, fromEmail);
-    return existingCandidate ? 'CV_UPDATE' : 'NEW_APPLICATION';
   }
 
   // Info signals in body (phone, passport, salary, etc.)
@@ -13236,6 +13239,102 @@ function rescueJunkedCVsNow() {
 function rescueJunkedCVsToday() {
   var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy/MM/dd');
   Logger.log(JSON.stringify(rescueJunkedCVs({ batch: '30', after: today })));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// REPAIR WRONGLY "NOT INTERESTED" CANDIDATES
+//
+// Before the intent fix, a candidate who replied WITH an updated CV could be
+// marked "Do Not Contact" if their body/quoted text tripped a not-interested
+// pattern (e.g. "joined", "not available", "unsubscribe" in the quoted footer).
+//
+// This finds candidates flagged empStatus='Do Not Contact' by the auto-marker
+// (notes contain "Replied not interested") who, in fact, sent a real CV file.
+// For each: clears the wrong status, notes the correction, and re-parses their
+// actual CV through the (now-fixed) pipeline so their updated CV is captured.
+//
+// Genuinely-not-interested candidates (no CV attachment in Gmail) are left
+// untouched. Run repairWrongNotInterestedNow() — re-run until repaired stops.
+// ════════════════════════════════════════════════════════════════════════════
+function repairWrongNotInterested(params) {
+  params = params || {};
+  var limit = parseInt(params.limit || '500') || 500;
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok: false, error: 'no Candidates sheet' };
+
+  var startMs = Date.now();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { ok: true, scanned: 0, repaired: 0 };
+  var data = sheet.getRange(2, 1, lastRow - 1, 42).getValues();
+
+  var stats = { scanned: 0, repaired: 0, confirmedNotInterested: 0, error: 0 };
+  var consecutiveFail = 0, GUARD_LIMIT = 8;
+
+  for (var i = 0; i < data.length; i++) {
+    if (stats.scanned >= limit) break;
+    if (Date.now() - startMs > 280000) break;   // hard stop at 4m40s
+
+    var row       = data[i];
+    var empStatus = String(row[COL.empStatus - 1] || '').trim();
+    var notes     = String(row[COL.notes - 1] || '');
+    if (empStatus !== 'Do Not Contact') continue;
+    if (notes.indexOf('Replied not interested') < 0) continue;   // only auto-marked ones
+    var email = String(row[COL.email - 1] || '').trim();
+    if (!email) continue;
+
+    stats.scanned++;
+
+    // Did this person actually send a CV? If no CV attachment exists in Gmail,
+    // they are genuinely not interested — leave the flag in place.
+    var q = 'from:' + email + ' has:attachment (filename:pdf OR filename:doc OR filename:docx)';
+    var threads = [];
+    try { threads = GmailApp.search(q, 0, 1); } catch(e) {}
+    if (!threads.length) { stats.confirmedNotInterested++; continue; }
+
+    // Wrongly marked → clear the bad status and record the correction.
+    var rowIndex = i + 2;
+    sheet.getRange(rowIndex, COL.empStatus).setValue('');
+    var fixNote = '[' + new Date().toISOString() + '] Auto-repair: wrongly marked ' +
+                  'Not Interested — candidate had sent an updated CV. Status cleared, CV re-parsed.';
+    sheet.getRange(rowIndex, COL.notes).setValue(notes + '\n' + fixNote);
+
+    // Re-parse their actual CV through the fixed pipeline.
+    var msgs = threads[0].getMessages();
+    var outcome = 'IGNORED';
+    for (var m = 0; m < msgs.length; m++) {
+      var r = processEmailMessage_(ss, msgs[m], 'repair-not-interested');
+      if (r === 'CV_UPDATED' || r === 'NEW_CANDIDATE' || r === 'DUPLICATE' ||
+          r === 'INFO_UPDATED') { outcome = r; break; }
+      if (r === 'PARSE_FAILED' || r === 'ERROR') { outcome = r; break; }
+    }
+
+    if (outcome === 'PARSE_FAILED' || outcome === 'ERROR') {
+      stats.error++;
+      consecutiveFail++;
+      if (consecutiveFail >= GUARD_LIMIT) {
+        stats.aborted = 'balance-guard';
+        Logger.log('⚠ repairWrongNotInterested ABORTED: ' + GUARD_LIMIT + ' consecutive ' +
+                   'parse failures — Gemini credits may be exhausted. Check billing, then re-run.');
+        break;
+      }
+    } else {
+      consecutiveFail = 0;
+    }
+
+    stats.repaired++;
+    Logger.log('Repaired Not Interested → ' + outcome + ': row ' + rowIndex + ' | ' + email);
+    if (stats.repaired % 10 === 9) Utilities.sleep(1000);
+  }
+
+  Logger.log('repairWrongNotInterested: ' + JSON.stringify(stats));
+  return stats;
+}
+
+/** Manual entry point — repair candidates wrongly marked Not Interested. */
+function repairWrongNotInterestedNow() {
+  Logger.log(JSON.stringify(repairWrongNotInterested({ limit: '500' })));
 }
 
 // ── Helper: get or create Gmail label ────────────────────────────────────────
