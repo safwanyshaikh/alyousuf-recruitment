@@ -423,6 +423,11 @@ function getAllCandidatesRaw_() {
       kaiSnippet:       kaiText.slice(0,150),
       applicationDate:  appDt instanceof Date ?
                           Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '',
+      // Full-precision sort key (NOT shown in UI). The display applicationDate is
+      // date-only, so without this every candidate added today would tie and fall
+      // back to sheet row order — pushing freshly-parsed CVs to the last pages.
+      _sortTs:          appDt instanceof Date ? appDt.getTime()
+                          : (appDt ? (new Date(appDt).getTime() || 0) : 0),
       passportStatus:   ppStat,
       passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Kolkata','yyyy-MM-dd') : '',
       passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
@@ -611,6 +616,11 @@ function getCandidates_(params) {
       kaiSnippet:       kaiText.slice(0,150),
       applicationDate:  appDt instanceof Date ?
                           Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '',
+      // Full-precision sort key (NOT shown in UI). The display applicationDate is
+      // date-only, so without this every candidate added today would tie and fall
+      // back to sheet row order — pushing freshly-parsed CVs to the last pages.
+      _sortTs:          appDt instanceof Date ? appDt.getTime()
+                          : (appDt ? (new Date(appDt).getTime() || 0) : 0),
       passportStatus:   ppStat,
       passportExpiry:   ppExp ? Utilities.formatDate(ppExp,'Asia/Kolkata','yyyy-MM-dd') : '',
       passportNo:       extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
@@ -626,11 +636,12 @@ function getCandidates_(params) {
     });
   });
 
-  // Sort newest first by applicationDate. Null/empty dates go to end.
+  // Sort newest first by FULL timestamp (_sortTs), not the date-only display
+  // field. This keeps today's freshly-parsed CVs at the top instead of letting
+  // same-day ties fall back to sheet row order (which buried new CVs on the
+  // last pages). Null/empty dates go to the end.
   records.sort(function(a, b) {
-    var da = a.applicationDate ? new Date(a.applicationDate).getTime() : 0;
-    var db = b.applicationDate ? new Date(b.applicationDate).getTime() : 0;
-    return db - da;
+    return (b._sortTs || 0) - (a._sortTs || 0);
   });
 
   var activeCount   = records.length;
