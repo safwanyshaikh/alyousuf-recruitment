@@ -13074,6 +13074,12 @@ function checkSystemHealth() {
   if (errorCount > 50) {
     Logger.log('⚠ WARNING: ' + errorCount + ' threads in error queue — run processKarigarErrorBacklog');
   }
+
+  // Flag candidates whose stored name looks like a job title / email subject
+  var flagResult = flagBadNameCandidates(200);
+  Logger.log('Bad-name candidates flagged: ' + flagResult.flagged +
+             (flagResult.flagged > 0 ? ' → ' + JSON.stringify(flagResult.names) : ' (none)'));
+
   Logger.log('=== End Health Check ===');
 }
 
