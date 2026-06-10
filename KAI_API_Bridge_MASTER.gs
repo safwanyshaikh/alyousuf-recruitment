@@ -13051,10 +13051,13 @@ function processAllInboxEmails() {
 //
 // Isolation contract (no overlap possible):
 //   processAllInboxEmails → reads in:inbox only,        writes processed/junk/error/duplicate
-//   processNightBacklog   → reads karigar/error only,   writes processed/junk/duplicate (+ leaves hard errors)
+//   processNightBacklog   → reads karigar/error + historical karigar/junk CVs,
+//                           writes processed/junk-checked/duplicate (+ leaves hard errors)
 //
-// Gmail returns error threads newest-first, so the backlog is cleared from the
-// most recent failures backward toward 1 Jan 2026 over successive nights.
+// PHASE 1 — karigar/error retry queue (newest-first).
+// PHASE 2 — historical wrongly-junked CV rescue (before today only; today is
+//           handled live/manually). Both phases share ONE deadline so the run
+//           never breaches the 6-min GAS limit.
 // ════════════════════════════════════════════════════════════════════════════
 function processNightBacklog() {
   // ── Time gate: only work 10pm–6am IST. Daytime runs exit in < 1ms. ──────────
@@ -13065,8 +13068,9 @@ function processNightBacklog() {
     return { skipped: true, hourIST: hourIST };
   }
 
-  var ss      = SpreadsheetApp.openById(SS_ID);
-  var startMs = Date.now();
+  var ss       = SpreadsheetApp.openById(SS_ID);
+  var startMs  = Date.now();
+  var deadline = startMs + 280000;   // 4m40s shared budget for both phases
 
   var errorLabel     = getOrCreateLabel_('karigar/error');
   var processedLabel = getOrCreateLabel_('karigar/processed');
@@ -13075,11 +13079,12 @@ function processNightBacklog() {
 
   var stats = { ignored: 0, notInterested: 0, cvUpdated: 0, infoUpdated: 0, newCandidate: 0, duplicate: 0, error: 0, total: 0, hourIST: hourIST };
 
+  // ── PHASE 1: karigar/error retry queue ──────────────────────────────────────
   // Bigger batch than the daytime trigger (50) — quiet hours, no competition.
   // Gmail delivers newest-first → yesterday's failures clear before older ones.
   var errorThreads = errorLabel.getThreads(0, 50);
   for (var i = 0; i < errorThreads.length; i++) {
-    if (Date.now() - startMs > 240000) break;   // hard stop at 4 min
+    if (Date.now() > deadline) break;
     var thread   = errorThreads[i];
     var messages = thread.getMessages();
     var threadResult = 'IGNORED';
@@ -13103,8 +13108,18 @@ function processNightBacklog() {
     if (i % 10 === 9) Utilities.sleep(1000);     // gentle Gmail API rate-limit
   }
 
-  Logger.log('processNightBacklog: ' + JSON.stringify(stats));
-  return stats;
+  // ── PHASE 2: rescue historical wrongly-junked CVs (before today) ─────────────
+  // Uses remaining budget. `before:today` keeps the night off today's CVs, which
+  // are recovered live/manually. The shared `deadlineMs` prevents overrun.
+  var rescueStats = null;
+  if (Date.now() < deadline - 5000) {
+    var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy/MM/dd');
+    rescueStats = rescueJunkedCVs({ batch: '50', before: today, deadlineMs: deadline });
+  }
+
+  Logger.log('processNightBacklog: errorPhase=' + JSON.stringify(stats) +
+             ' | junkRescue=' + JSON.stringify(rescueStats));
+  return { errorPhase: stats, junkRescue: rescueStats };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -13132,6 +13147,9 @@ function rescueJunkedCVs(params) {
 
   var ss      = SpreadsheetApp.openById(SS_ID);
   var startMs = Date.now();
+  // Shared deadline: when called from the night trigger, the caller passes its
+  // own deadline so the two phases together never breach the 6-min GAS limit.
+  var deadline = params.deadlineMs || (startMs + 240000);
 
   var junkLabel        = getOrCreateLabel_('karigar/junk');
   var processedLabel   = getOrCreateLabel_('karigar/processed');
@@ -13149,8 +13167,15 @@ function rescueJunkedCVs(params) {
   var stats = { cvUpdated:0, newCandidate:0, duplicate:0, notInterested:0,
                 infoUpdated:0, stillJunk:0, error:0, total:0 };
 
+  // Balance guard: if Gemini credits run out, every parse fails in a row.
+  // After GUARD_LIMIT consecutive hard failures, abort so we don't churn the
+  // whole backlog into karigar/error against a dead API. Genuine one-off bad
+  // CVs reset the counter, so normal failures never trip the guard.
+  var consecutiveFail = 0;
+  var GUARD_LIMIT = 8;
+
   for (var k = 0; k < threads.length; k++) {
-    if (Date.now() - startMs > 240000) break;   // hard stop at 4 min
+    if (Date.now() > deadline) break;   // shared hard stop
     var thread   = threads[k];
     var messages = thread.getMessages();
     var best = 'IGNORED';
@@ -13164,14 +13189,23 @@ function rescueJunkedCVs(params) {
     if (best === 'IGNORED') {
       stats.stillJunk++;
       thread.addLabel(junkCheckedLabel);   // genuine junk — never re-scan
+      consecutiveFail = 0;
     } else if (best === 'PARSE_FAILED' || best === 'ERROR') {
       stats.error++;
       thread.removeLabel(junkLabel);
       thread.addLabel(errorLabel);          // night backlog will retry
+      consecutiveFail++;
+      if (consecutiveFail >= GUARD_LIMIT) {
+        stats.aborted = 'balance-guard';
+        Logger.log('⚠ rescueJunkedCVs ABORTED: ' + GUARD_LIMIT + ' consecutive parse ' +
+                   'failures — Gemini credits may be exhausted. Check billing, then re-run.');
+        break;
+      }
     } else if (best === 'DUPLICATE') {
       stats.duplicate++;
       thread.removeLabel(junkLabel);
       thread.addLabel(duplicateLabel);
+      consecutiveFail = 0;
     } else {
       stats.cvUpdated     += best === 'CV_UPDATED'     ? 1 : 0;
       stats.newCandidate  += best === 'NEW_CANDIDATE'  ? 1 : 0;
@@ -13179,6 +13213,7 @@ function rescueJunkedCVs(params) {
       stats.infoUpdated   += best === 'INFO_UPDATED'   ? 1 : 0;
       thread.removeLabel(junkLabel);
       thread.addLabel(processedLabel);
+      consecutiveFail = 0;
     }
     if (k % 10 === 9) Utilities.sleep(1000);  // gentle Gmail API rate-limit
   }
