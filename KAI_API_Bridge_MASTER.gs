@@ -12626,7 +12626,7 @@ function parseCVAttachmentWithGemini_(attachment, subjectHint, apiKey) {
           { inline_data: { mime_type: contentType, data: base64 } }
         ]
       }],
-      generationConfig: { temperature: 0, maxOutputTokens: 1024 }
+      generationConfig: { temperature: 0, maxOutputTokens: 2048 }
     };
 
     var resp = UrlFetchApp.fetch(
@@ -12646,7 +12646,16 @@ function parseCVAttachmentWithGemini_(attachment, subjectHint, apiKey) {
     if (!parts || !parts[0] || !parts[0].text) return null;
 
     var t = parts[0].text.trim().replace(/^```(?:json)?\s*/i,'').replace(/```\s*$/,'').trim();
-    var result = JSON.parse(t);
+    var result = null;
+    try {
+      result = JSON.parse(t);
+    } catch(parseErr) {
+      // Gemini truncated the JSON (Unterminated string / Unexpected end).
+      // Attempt repair: trim after the last complete key-value pair.
+      result = repairTruncatedJSON_(t);
+      if (!result) { Logger.log('parseCVAttachmentWithGemini_ JSON unrecoverable: ' + parseErr.message); return null; }
+      Logger.log('parseCVAttachmentWithGemini_ repaired truncated JSON');
+    }
 
     // Reject if Gemini returned a job-title-shaped name
     if (result.name && !looksLikePersonName_(result.name)) {
@@ -12659,6 +12668,33 @@ function parseCVAttachmentWithGemini_(attachment, subjectHint, apiKey) {
     Logger.log('parseCVAttachmentWithGemini_ error: ' + e.message);
     return null;
   }
+}
+
+/**
+ * Attempt to recover a JSON object that Gemini truncated mid-string.
+ * Tries three strategies in order:
+ *   1. Trim after last comma, close object  → {"a":"x","b":"y
+ *   2. Close after last complete string value → {"a":"x","b":"y"
+ *   3. Just add closing brace               → {"a":"x"
+ */
+function repairTruncatedJSON_(text) {
+  if (!text) return null;
+  // Strategy 1: trim at last comma, close object
+  var i = text.lastIndexOf(',');
+  if (i > 0) {
+    try { return JSON.parse(text.substring(0, i) + '}'); } catch(e) {}
+  }
+  // Strategy 2: trim at last complete closing quote of a value
+  // Walk backwards to find last position that is a closing " of a string value
+  for (var j = text.length - 1; j > 0; j--) {
+    if (text[j] === '"' && text[j-1] !== '\\') {
+      try { return JSON.parse(text.substring(0, j + 1) + '}'); } catch(e) {}
+      break;
+    }
+  }
+  // Strategy 3: just close it
+  try { return JSON.parse(text + '}'); } catch(e) {}
+  return null;
 }
 
 /**
