@@ -12948,44 +12948,39 @@ function runBackfill14() { Logger.log(JSON.stringify(backfillInboxEmails_({ batc
 function runBackfill15() { Logger.log(JSON.stringify(backfillInboxEmails_({ batch:'20', offset:'280' }))); }
 
 /**
- * Install a 1-minute trigger that auto-advances through all backfill batches.
- * Run this once — it self-manages. Check Executions log to monitor progress.
- * The trigger deletes itself when remaining = 0.
+ * DEPRECATED — replaced by processNightBacklog. This legacy auto-backfill
+ * competed with processAllInboxEmails for the same inbox and caused trigger
+ * multiplication + double-processing. It is now neutered: instead of creating
+ * a recurring trigger, it REMOVES every backfill trigger so the system can
+ * never collapse from this path again. Safe to leave; safe to run.
  */
 function installBackfillTrigger() {
-  // Remove any existing backfill trigger first
+  var removed = 0;
   ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction() === 'runBackfillAuto') ScriptApp.deleteTrigger(t);
+    var fn = t.getHandlerFunction();
+    if (fn === 'runBackfillAuto' || fn === 'installBackfillTrigger') {
+      ScriptApp.deleteTrigger(t); removed++;
+    }
   });
-  PropertiesService.getScriptProperties().setProperty('BACKFILL_OFFSET', '0');
-  ScriptApp.newTrigger('runBackfillAuto').timeBased().everyMinutes(1).create();
-  Logger.log('Backfill trigger installed. Monitor via Executions tab.');
-  return { ok: true, message: 'Backfill trigger installed — runs every 1 min until inbox is clear' };
+  PropertiesService.getScriptProperties().deleteProperty('BACKFILL_OFFSET');
+  Logger.log('installBackfillTrigger is DEPRECATED — removed ' + removed +
+             ' legacy backfill trigger(s). Use processNightBacklog instead.');
+  return { ok: true, deprecated: true, removedTriggers: removed };
 }
 
 /**
- * Auto-advancing backfill — called by the 1-min trigger installed above.
- * Reads offset from ScriptProperties, processes next 20 threads, advances offset.
- * Deletes its own trigger when no threads remain.
+ * DEPRECATED — no-op that self-deletes. If a stale runBackfillAuto trigger
+ * still exists, the first time it fires it removes itself and does NOTHING
+ * else, so it can never fight the live inbox trigger or churn the backlog.
  */
 function runBackfillAuto() {
-  var props  = PropertiesService.getScriptProperties();
-  var offset = parseInt(props.getProperty('BACKFILL_OFFSET') || '0');
-  var result = backfillInboxEmails_({ batch: '20', offset: String(offset) });
-  Logger.log('runBackfillAuto offset=' + offset + ' → ' + JSON.stringify(result));
-
-  if (!result.ok) return;
-
-  if (result.stats.remaining === 0 || result.stats.total === 0) {
-    // Done — delete the trigger
-    ScriptApp.getProjectTriggers().forEach(function(t) {
-      if (t.getHandlerFunction() === 'runBackfillAuto') ScriptApp.deleteTrigger(t);
-    });
-    props.deleteProperty('BACKFILL_OFFSET');
-    Logger.log('Backfill complete — trigger removed.');
-  } else {
-    props.setProperty('BACKFILL_OFFSET', String(offset + 20));
-  }
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'runBackfillAuto') { ScriptApp.deleteTrigger(t); removed++; }
+  });
+  PropertiesService.getScriptProperties().deleteProperty('BACKFILL_OFFSET');
+  Logger.log('runBackfillAuto is DEPRECATED — self-deleted ' + removed +
+             ' trigger(s). No processing performed. Use processNightBacklog.');
 }
 
 
@@ -12996,6 +12991,14 @@ function runBackfillAuto() {
  * Stores last-processed timestamp in ScriptProperties.
  */
 function processAllInboxEmails() {
+  // Shared lock with processNightBacklog so the two CV-email processors can
+  // NEVER run at the same time and double-process / create duplicates.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    Logger.log('processAllInboxEmails: skipped — email processor lock held by another run');
+    return { skipped: true, reason: 'locked' };
+  }
+  try {
   var props = PropertiesService.getScriptProperties();
   var ss    = SpreadsheetApp.openById(SS_ID);
   var now   = Date.now();
@@ -13053,6 +13056,9 @@ function processAllInboxEmails() {
   props.setProperty('EMAIL_PROCESSOR_LAST_RUN', now.toString());
   Logger.log('processAllInboxEmails (inbox-only): ' + JSON.stringify(stats));
   return stats;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -13082,6 +13088,14 @@ function processNightBacklog() {
     return { skipped: true, hourIST: hourIST };
   }
 
+  // Shared lock with processAllInboxEmails — the two CV-email processors can
+  // NEVER run concurrently. If the live trigger holds it, skip and retry next tick.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    Logger.log('processNightBacklog: skipped — email processor lock held by live trigger');
+    return { skipped: true, reason: 'locked', hourIST: hourIST };
+  }
+  try {
   var ss       = SpreadsheetApp.openById(SS_ID);
   var startMs  = Date.now();
   var deadline = startMs + 280000;   // 4m40s shared budget for both phases
@@ -13134,6 +13148,9 @@ function processNightBacklog() {
   Logger.log('processNightBacklog: errorPhase=' + JSON.stringify(stats) +
              ' | junkRescue=' + JSON.stringify(rescueStats));
   return { errorPhase: stats, junkRescue: rescueStats };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
