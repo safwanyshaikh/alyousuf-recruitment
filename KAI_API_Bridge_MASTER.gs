@@ -11769,7 +11769,13 @@ var KAI_EMAIL_CONFIG = {
 // ── CLASSIFY EMAIL SENDER ─────────────────────────────────────────────────────
 // Returns: { tier, senderEmail, senderDomain, reason }
 // tier = 'INTERNAL' | 'IGNORE' | 'EXTERNAL_PERSONAL' | 'EXTERNAL_AGENCY'
-function classifyEmailSender_(fromRaw, subject) {
+//
+// hasAttachment (optional): when true, junk SUBJECT patterns are skipped. A real
+// CV attachment from an external sender is a candidate reply and must be parsed —
+// even if the subject is "Your Updated CV — Al Yousuf Recruitment" (which is the
+// recontact campaign's own subject that candidates reply to). KAI's own outgoing
+// copies are still ignored because they come from an internal domain (checked below).
+function classifyEmailSender_(fromRaw, subject, hasAttachment) {
   // Extract email address from "Name <email>" format
   var emailMatch = fromRaw.match(/<([^>]+)>/) || fromRaw.match(/([^\s<>]+@[^\s<>]+)/);
   var senderEmail  = emailMatch ? emailMatch[1].toLowerCase().trim() : fromRaw.toLowerCase().trim();
@@ -11777,12 +11783,15 @@ function classifyEmailSender_(fromRaw, subject) {
   var prefix       = parts[0] || '';
   var domain       = parts[1] || '';
 
-  // Check junk subject lines first
+  // Check junk subject lines first — but ONLY for emails with no CV attachment.
+  // A genuine CV reply (PDF/DOC attached) must never be junked on subject alone.
   var subj = String(subject||'').trim();
-  for (var j = 0; j < KAI_EMAIL_CONFIG.junkSubjectPatterns.length; j++) {
-    if (KAI_EMAIL_CONFIG.junkSubjectPatterns[j].test(subj)) {
-      return { tier:'IGNORE', senderEmail:senderEmail, senderDomain:domain,
-               reason:'Junk subject: ' + subj.substring(0,60) };
+  if (!hasAttachment) {
+    for (var j = 0; j < KAI_EMAIL_CONFIG.junkSubjectPatterns.length; j++) {
+      if (KAI_EMAIL_CONFIG.junkSubjectPatterns[j].test(subj)) {
+        return { tier:'IGNORE', senderEmail:senderEmail, senderDomain:domain,
+                 reason:'Junk subject (no attachment): ' + subj.substring(0,60) };
+      }
     }
   }
 
@@ -11848,9 +11857,11 @@ function reprocessGmailErrorsSmart() {
       var lastMsg  = messages[messages.length - 1];
       var fromRaw  = lastMsg.getFrom();
       var subject  = lastMsg.getSubject();
+      var hasAttach = lastMsg.getAttachments().length > 0;
 
       // ── TIER CLASSIFICATION ──────────────────────────────────────────────
-      var classification = classifyEmailSender_(fromRaw, subject);
+      // Pass hasAttach so a real CV reply is never junked on subject alone.
+      var classification = classifyEmailSender_(fromRaw, subject, hasAttach);
 
       if (classification.tier === 'IGNORE') {
         Logger.log('IGNORE [' + classification.reason + '] ' + subject.substring(0,60));
@@ -12379,8 +12390,9 @@ function processEmailMessage_(ss, message, sourceLabel) {
     var attachments = message.getAttachments();
     var hasAttach   = attachments && attachments.length > 0;
 
-    // Step 1: Classify sender tier
-    var classification = classifyEmailSender_(from, subject);
+    // Step 1: Classify sender tier — pass hasAttach so a real CV reply is never
+    // junked on subject alone (e.g. "Your Updated CV — Al Yousuf Recruitment").
+    var classification = classifyEmailSender_(from, subject, hasAttach);
     if (classification.tier === 'IGNORE' || classification.tier === 'INTERNAL') {
       return 'IGNORED';
     }
@@ -13093,6 +13105,102 @@ function processNightBacklog() {
 
   Logger.log('processNightBacklog: ' + JSON.stringify(stats));
   return stats;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// RESCUE WRONGLY-JUNKED CVs — one-time recovery for the subject-pattern bug
+//
+// Before the fix, candidate replies titled "Your Updated CV — Al Yousuf
+// Recruitment" with a real CV attached were junked on subject alone. Their CVs
+// were never parsed. They sit in karigar/junk WITH an attachment.
+//
+// This scans karigar/junk for emails carrying a real CV file and re-runs them
+// through the (now-fixed) pipeline. Gmail returns newest-first, so today's
+// rescues happen before older ones — walking back toward 1 Jan 2026 over runs.
+//
+// Idempotent + duplicate-safe:
+//   - Existing candidate → CV_UPDATED / DUPLICATE (record updated in place, no new row)
+//   - Genuinely-junk emails (marketing with a PDF) → tagged karigar/junk-checked
+//     so they are never re-scanned, preventing an infinite loop.
+//
+// Run rescueJunkedCVsNow() repeatedly until { remaining: 0 }.
+// Optional params: { batch:'30', after:'2026/06/10', before:'2026/06/11' }
+// ════════════════════════════════════════════════════════════════════════════
+function rescueJunkedCVs(params) {
+  params = params || {};
+  var batchSize = parseInt(params.batch || '30') || 30;
+
+  var ss      = SpreadsheetApp.openById(SS_ID);
+  var startMs = Date.now();
+
+  var junkLabel        = getOrCreateLabel_('karigar/junk');
+  var processedLabel   = getOrCreateLabel_('karigar/processed');
+  var errorLabel       = getOrCreateLabel_('karigar/error');
+  var duplicateLabel   = getOrCreateLabel_('karigar/duplicate');
+  var junkCheckedLabel = getOrCreateLabel_('karigar/junk-checked');
+
+  // Junked emails that carry a real CV file, not yet re-checked by this rescue.
+  var query = 'label:karigar/junk has:attachment (filename:pdf OR filename:doc OR filename:docx)' +
+              ' -label:karigar/junk-checked';
+  if (params.after)  query += ' after:'  + params.after;
+  if (params.before) query += ' before:' + params.before;
+
+  var threads = GmailApp.search(query, 0, batchSize);
+  var stats = { cvUpdated:0, newCandidate:0, duplicate:0, notInterested:0,
+                infoUpdated:0, stillJunk:0, error:0, total:0 };
+
+  for (var k = 0; k < threads.length; k++) {
+    if (Date.now() - startMs > 240000) break;   // hard stop at 4 min
+    var thread   = threads[k];
+    var messages = thread.getMessages();
+    var best = 'IGNORED';
+    for (var l = 0; l < messages.length; l++) {
+      var r = processEmailMessage_(ss, messages[l], 'rescue-junk');
+      if (r === 'NEW_CANDIDATE' || r === 'CV_UPDATED' || r === 'DUPLICATE' ||
+          r === 'INFO_UPDATED' || r === 'NOT_INTERESTED') { best = r; break; }
+      if (r === 'PARSE_FAILED' || r === 'ERROR') { best = r; break; }
+    }
+    stats.total++;
+    if (best === 'IGNORED') {
+      stats.stillJunk++;
+      thread.addLabel(junkCheckedLabel);   // genuine junk — never re-scan
+    } else if (best === 'PARSE_FAILED' || best === 'ERROR') {
+      stats.error++;
+      thread.removeLabel(junkLabel);
+      thread.addLabel(errorLabel);          // night backlog will retry
+    } else if (best === 'DUPLICATE') {
+      stats.duplicate++;
+      thread.removeLabel(junkLabel);
+      thread.addLabel(duplicateLabel);
+    } else {
+      stats.cvUpdated     += best === 'CV_UPDATED'     ? 1 : 0;
+      stats.newCandidate  += best === 'NEW_CANDIDATE'  ? 1 : 0;
+      stats.notInterested += best === 'NOT_INTERESTED' ? 1 : 0;
+      stats.infoUpdated   += best === 'INFO_UPDATED'   ? 1 : 0;
+      thread.removeLabel(junkLabel);
+      thread.addLabel(processedLabel);
+    }
+    if (k % 10 === 9) Utilities.sleep(1000);  // gentle Gmail API rate-limit
+  }
+
+  var remaining = 0;
+  try { remaining = GmailApp.search(query, batchSize, 1).length; } catch(e) {}
+  stats.remaining = remaining > 0 ? '1+' : 0;
+
+  Logger.log('rescueJunkedCVs: ' + JSON.stringify(stats));
+  return stats;
+}
+
+/** Manual entry point — rescue newest junked CVs first (today, then backward).
+ *  Run repeatedly until the log shows "remaining":0. */
+function rescueJunkedCVsNow() {
+  Logger.log(JSON.stringify(rescueJunkedCVs({ batch: '30' })));
+}
+
+/** Rescue only TODAY's wrongly-junked CVs immediately (honours the hard rule). */
+function rescueJunkedCVsToday() {
+  var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy/MM/dd');
+  Logger.log(JSON.stringify(rescueJunkedCVs({ batch: '30', after: today })));
 }
 
 // ── Helper: get or create Gmail label ────────────────────────────────────────
