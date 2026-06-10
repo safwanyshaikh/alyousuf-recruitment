@@ -332,6 +332,34 @@ function parseEducation_(rawEdu) {
   return { level: level, subject: subject.slice(0,80) };
 }
 
+// Flatten any array/object Gemini may return for a scalar field into a clean
+// string. Writing a raw JS array to a cell stores its Java toString
+// ([Ljava.lang.Object;@hex) — this guard prevents that at the source so no
+// downstream setValue/appendRow can ever corrupt a cell.
+function scalarizeParsedCV_(parsed) {
+  if (!parsed || typeof parsed !== 'object') return parsed;
+  Object.keys(parsed).forEach(function(k) {
+    var v = parsed[k];
+    if (v == null) return;
+    if (Array.isArray(v)) {
+      parsed[k] = v.map(function(x) {
+        if (x == null) return '';
+        if (typeof x === 'object') {
+          // object inside array → join its scalar values
+          return Object.keys(x).map(function(kk){ return x[kk]; })
+                  .filter(function(s){ return s != null && s !== ''; }).join(' ');
+        }
+        return String(x);
+      }).filter(Boolean).join(', ');
+    } else if (typeof v === 'object' && !(v instanceof Date)) {
+      // plain object → join its scalar values
+      parsed[k] = Object.keys(v).map(function(kk){ return v[kk]; })
+                   .filter(function(s){ return s != null && s !== ''; }).join(', ');
+    }
+  });
+  return parsed;
+}
+
 function extractPassportNo_(kaiText, notesText) {
   var text = String(kaiText||'') + ' ' + String(notesText||'');
   var m = text.match(/\b([A-Z]\d{7})\b/);
@@ -2192,7 +2220,7 @@ function parseCV_(fileB64, mimeType, senderName, senderEmail) {
     var text = String(result.candidates[0].content.parts[0].text || '');
     text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
-    var parsed = JSON.parse(text);
+    var parsed = scalarizeParsedCV_(JSON.parse(text));
 
     // Fallbacks from sender metadata
     if (!parsed.name  && senderName)  parsed.name  = senderName;
@@ -13363,6 +13391,68 @@ function repairWrongNotInterested(params) {
 /** Manual entry point — repair candidates wrongly marked Not Interested. */
 function repairWrongNotInterestedNow() {
   Logger.log(JSON.stringify(repairWrongNotInterested({ limit: '500' })));
+}
+
+// ── Repair corrupted Education cells ─────────────────────────────────────────
+//
+// Cleans cells where a raw JS array was written to the Education column, which
+// Google Sheets stores as the Java toString "[Ljava.lang.Object;@hex" (or
+// "[object Object]"). The original array data is unrecoverable from that text,
+// so corrupted cells are blanked and the Education Enum is cleared alongside.
+// Affected candidates can then be re-enriched / re-parsed from their CV.
+//
+// Scans both Candidates and Leads sheets. Run repairCorruptedEducationNow().
+var EDU_CORRUPT_RE_ = /\[L?(?:java\.lang|ljava)\.[A-Za-z.]+;@|\[object Object\]/i;
+
+function repairCorruptedEducation_(params) {
+  params = params || {};
+  var dryRun = String(params.dryRun||'') === 'true';
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var stats = { dryRun: dryRun, sheets: {} };
+
+  // Candidates: Education col 7, Education Enum col 39
+  stats.sheets.Candidates = repairEduColumn_(
+    ss.getSheetByName('Candidates'), COL.education, COL.educationEnum, dryRun);
+
+  // Leads: Education col 11 (no enum column)
+  stats.sheets.Leads = repairEduColumn_(
+    ss.getSheetByName(LEADS_SHEET_), COL_L_.education, 0, dryRun);
+
+  Logger.log('repairCorruptedEducation: ' + JSON.stringify(stats));
+  return stats;
+}
+
+function repairEduColumn_(sheet, eduCol, enumCol, dryRun) {
+  if (!sheet || sheet.getLastRow() < 2) return { scanned: 0, repaired: 0 };
+  var n    = sheet.getLastRow() - 1;
+  var rng  = sheet.getRange(2, eduCol, n, 1);
+  var vals = rng.getValues();
+  var enumRng, enumVals = null;
+  if (enumCol) { enumRng = sheet.getRange(2, enumCol, n, 1); enumVals = enumRng.getValues(); }
+
+  var repaired = 0, samples = [];
+  for (var i = 0; i < vals.length; i++) {
+    var cell = String(vals[i][0] || '');
+    if (EDU_CORRUPT_RE_.test(cell)) {
+      if (samples.length < 5) samples.push({ row: i + 2, was: cell.slice(0, 40) });
+      vals[i][0] = '';
+      if (enumVals) enumVals[i][0] = '';
+      repaired++;
+    }
+  }
+
+  if (repaired > 0 && !dryRun) {
+    rng.setValues(vals);
+    if (enumVals) enumRng.setValues(enumVals);
+  }
+  return { scanned: n, repaired: repaired, samples: samples };
+}
+
+function repairCorruptedEducationDry() {
+  Logger.log(JSON.stringify(repairCorruptedEducation_({ dryRun: 'true' })));
+}
+function repairCorruptedEducationNow() {
+  Logger.log(JSON.stringify(repairCorruptedEducation_({})));
 }
 
 // ── Helper: get or create Gmail label ────────────────────────────────────────
