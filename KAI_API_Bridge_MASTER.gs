@@ -11750,7 +11750,12 @@ var KAI_EMAIL_CONFIG = {
     /^(out of office|auto.?reply|automatic reply|vacation|away from)/i,
     /^(delivery status|mail delivery|undelivered|bounce|failed delivery)/i,
     /^(newsletter|subscription|unsubscribe)/i,
-    /invoice|payment due|order confirm/i
+    /invoice|payment due|order confirm/i,
+    // System-generated notification emails from KAI itself — never real CVs
+    /^your updated cv\s*[—–\-]/i,
+    /^documents required\s*[—–\-]/i,
+    /^action required:.*complete your application/i,
+    /^action required:.*additional documents/i
   ],
 
   // Personal email service domains — sender could be candidate or associate
@@ -13005,6 +13010,71 @@ function getOrCreateLabel_(name) {
   var label = GmailApp.getUserLabelByName(name);
   if (!label) label = GmailApp.createLabel(name);
   return label;
+}
+
+// ── System health check — run from editor to diagnose pipeline gaps ──────────
+
+/**
+ * Run this from the editor dropdown whenever the recruiter says "no new CVs".
+ * Shows last run time, label counts, and unprocessed emails in inbox.
+ * Logs results — check Execution log.
+ */
+function checkSystemHealth() {
+  var props    = PropertiesService.getScriptProperties();
+  var lastRunMs = parseInt(props.getProperty('EMAIL_PROCESSOR_LAST_RUN') || '0');
+  var nowMs     = Date.now();
+  var minutesAgo = lastRunMs ? Math.round((nowMs - lastRunMs) / 60000) : 999;
+
+  var processed = GmailApp.getUserLabelByName('karigar/processed');
+  var errorLbl  = GmailApp.getUserLabelByName('karigar/error');
+  var junkLbl   = GmailApp.getUserLabelByName('karigar/junk');
+
+  var errorCount = errorLbl  ? errorLbl.getThreads(0,500).length  : 0;
+  var junkCount  = junkLbl   ? junkLbl.getThreads(0,500).length   : 0;
+  var procCount  = processed ? processed.getThreads(0,500).length : 0;
+
+  // Unprocessed CV emails right now
+  var unprocessedQuery = 'in:inbox -label:karigar/processed -label:karigar/duplicate' +
+                         ' -label:karigar/junk -label:karigar/error';
+  var unprocessed = GmailApp.search(unprocessedQuery, 0, 50);
+
+  // Count candidates added in last 24h
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  var cutoff24h = new Date(nowMs - 24*3600*1000);
+  var newLast24h = 0;
+  if (sheet) {
+    var data = sheet.getRange(2, COL.applicationDate, sheet.getLastRow()-1, 1).getValues();
+    data.forEach(function(r) {
+      var d = r[0];
+      if (d instanceof Date && d >= cutoff24h) newLast24h++;
+    });
+  }
+
+  Logger.log('=== KAI System Health ===');
+  Logger.log('processAllInboxEmails last run: ' + minutesAgo + ' min ago (' +
+             (lastRunMs ? new Date(lastRunMs).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : 'NEVER') + ')');
+  Logger.log('karigar/error:     ' + errorCount + ' threads (retry queue)');
+  Logger.log('karigar/junk:      ' + junkCount  + ' threads (cleared permanently)');
+  Logger.log('karigar/processed: ' + procCount  + ' threads (done)');
+  Logger.log('Inbox unprocessed: ' + unprocessed.length + ' threads right now');
+  Logger.log('New candidates (last 24h): ' + newLast24h);
+
+  if (unprocessed.length > 0) {
+    Logger.log('--- Unprocessed sample (first 5) ---');
+    for (var i = 0; i < Math.min(5, unprocessed.length); i++) {
+      Logger.log('  "' + unprocessed[i].getFirstMessageSubject() + '" from ' +
+                 unprocessed[i].getMessages()[0].getFrom());
+    }
+  }
+
+  if (minutesAgo > 10) {
+    Logger.log('⚠ WARNING: Last run was ' + minutesAgo + ' min ago — trigger may not be firing');
+  }
+  if (errorCount > 50) {
+    Logger.log('⚠ WARNING: ' + errorCount + ' threads in error queue — run processKarigarErrorBacklog');
+  }
+  Logger.log('=== End Health Check ===');
 }
 
 // ── Public wrappers for triggers ──────────────────────────────────────────────
