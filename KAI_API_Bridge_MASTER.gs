@@ -13877,6 +13877,14 @@ function recontactMissingInfo_(params) {
     var role = cand.trade || cand.positionApplied || 'your trade';
     var missingLabels = missing.map(function(m){ return m.label; });
 
+    // Passport is a SET — collect Expiry + ECR/ECNR opportunistically from
+    // candidates we are already emailing (does NOT widen the audience).
+    var hasVal = function(v){ var s=String(v||'').trim(); return s && s!=='—' && s.length>1; };
+    var ppExp  = data[i][COL.passportExpiry-1];
+    var ecr    = data[i][COL.ecrStatus-1];
+    if (!hasVal(ppExp)) missingLabels.push('Passport Expiry Date');
+    if (!hasVal(ecr))   missingLabels.push('Passport Type — ECR or ECNR');
+
     var subject = 'Complete Your Profile — Al Yousuf Recruitment' + (kaiNo ? ' (Ref: ' + kaiNo + ')' : '');
     var body =
       'Dear ' + firstName + ',\n\n' +
@@ -13884,8 +13892,10 @@ function recontactMissingInfo_(params) {
       (kaiNo ? ' (Reference: ' + kaiNo + ')' : '') + ' for ' + role + '.\n\n' +
       'We have active openings in the Gulf and would like to move your profile forward. ' +
       'To do that, please simply REPLY TO THIS EMAIL WITH YOUR UPDATED CV ATTACHED (PDF).\n\n' +
-      'It also helps if you confirm the following in your reply:\n' +
+      'Please also confirm the following details in your reply:\n' +
       missingLabels.map(function(l,idx){ return '  ' + (idx+1) + '. ' + l; }).join('\n') + '\n\n' +
+      'For faster processing, attach a clear photo of your passport (first and last page) — ' +
+      'this confirms your Passport Number, Expiry Date and ECR/ECNR status in one step.\n\n' +
       'Once we receive your updated CV, your profile is matched automatically to suitable positions.\n\n' +
       'Best regards,\n' +
       RECONTACT_NAME_ + '\n' +
