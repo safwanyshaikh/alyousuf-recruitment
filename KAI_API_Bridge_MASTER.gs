@@ -13742,6 +13742,238 @@ function cleanupStaleTriggers() {
   return result;
 }
 
+// ════════════════════════════════════════════════════════════════════
+// SECTION 46 — MISSING-INFO RECONTACT CAMPAIGN
+//
+// Turns "dead" records (blank Education / missing fields) into a recovery loop:
+// emails the candidate asking them to REPLY WITH THEIR UPDATED CV. Their reply
+// lands back in the inbox and the EXISTING pipeline (processAllInboxEmails →
+// detectReplyIntent_ → CV_UPDATE) re-parses it and fills the data automatically.
+// No new fill logic — we only ask; the live engine closes the loop.
+//
+// Safety (outward-facing email — handled conservatively):
+//   • Only active candidates with a VALID email, NOT "Do Not Contact", NOT on
+//     the _RecontactOptOut sheet, and NOT contacted in the last N days.
+//   • Gmail daily-quota guard: stops before exhausting the send quota.
+//   • Deadline guard 4m30s; batch cap per run.
+//   • Every send is logged to _RecontactLog and stamps the Last Contact column
+//     so nobody is emailed twice inside the cooldown window.
+//
+// Wrappers:
+//   recontactMissingInfoDry()  — preview recipients + exact email body (NO send)
+//   recontactMissingInfoNow()  — live send, batch 50
+//   startRecontactCampaign()   — self-driving (every 10 min, respects quota,
+//                                self-deletes when no eligible candidates remain)
+//   stopRecontactCampaign()    — kill switch
+// ════════════════════════════════════════════════════════════════════
+
+var RECONTACT_FROM_    = 'ai@alyousufent.com';
+var RECONTACT_NAME_    = 'Al Yousuf Recruitment';
+var RECONTACT_COOLDOWN_DAYS_ = 21;   // don't re-email the same candidate within this window
+var RECONTACT_TICK_FN_ = 'runRecontactTick';
+
+function ensureRecontactLog_(ss) {
+  var s = ss.getSheetByName('_RecontactLog');
+  if (!s) {
+    s = ss.insertSheet('_RecontactLog');
+    s.appendRow(['Sent At','KAI No','Name','Email','Missing Fields','Channel','Status','Notes']);
+  }
+  return s;
+}
+
+function loadRecontactOptOut_(ss) {
+  var set = {};
+  var s = ss.getSheetByName('_RecontactOptOut') || ss.getSheetByName('_OptOut');
+  if (!s || s.getLastRow() < 2) return set;
+  var vals = s.getRange(2, 1, s.getLastRow()-1, 1).getValues();
+  vals.forEach(function(r){
+    var e = String(r[0]||'').trim().toLowerCase();
+    if (e) set[e] = true;
+  });
+  return set;
+}
+
+function validEmail_(e) {
+  e = String(e||'').trim();
+  if (!e || /noreply|no-reply|donotreply/i.test(e)) return false;
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+}
+
+function recontactMissingInfo_(params) {
+  params = params || {};
+  var dryRun    = String(params.dryRun||'') === 'true';
+  var batchSize = Math.min(200, parseInt(params.batch||'50') || 50);
+  var cooldown  = parseInt(params.cooldownDays||'') || RECONTACT_COOLDOWN_DAYS_;
+  var startMs   = Date.now();
+  var DEADLINE  = 270000; // 4m30s
+  var QUOTA_FLOOR = 5;    // keep a little headroom
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, sent:0, message:'No candidates' };
+
+  var remainingQuota = dryRun ? 9999 : MailApp.getRemainingDailyQuota();
+  if (!dryRun && remainingQuota <= QUOTA_FLOOR)
+    return { ok:true, sent:0, aborted:'quota', remainingQuota:remainingQuota,
+             summary:'Gmail daily quota exhausted — resume tomorrow.' };
+
+  var optOut = loadRecontactOptOut_(ss);
+  var logSheet = dryRun ? null : ensureRecontactLog_(ss);
+
+  var n    = sheet.getLastRow() - 1;
+  var data = sheet.getRange(2, 1, n, 42).getValues();
+  var nowMs = Date.now();
+  var cooldownMs = cooldown * 24 * 60 * 60 * 1000;
+
+  var sent = 0, eligibleSeen = 0, skipped = 0, errors = 0, samples = [];
+  var abortReason = null;
+
+  for (var i = 0; i < data.length; i++) {
+    if (Date.now() - startMs > DEADLINE)  { abortReason = 'deadline'; break; }
+    if (sent >= batchSize)                { abortReason = 'batch-limit'; break; }
+    if (!dryRun && remainingQuota <= QUOTA_FLOOR) { abortReason = 'quota'; break; }
+
+    var active = String(data[i][COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') continue;
+
+    var name = String(data[i][COL.name-1]||'').trim();
+    if (!name) continue;
+
+    // Targeting: blank education OR other missing fields
+    var cand = {
+      name:       name,
+      email:      String(data[i][COL.email-1]||'').trim(),
+      mobile:     String(data[i][COL.mobile-1]||'').trim(),
+      trade:      String(data[i][COL.trade-1]||'').trim(),
+      positionApplied: String(data[i][COL.positionApplied-1]||'').trim(),
+      nationality:String(data[i][COL.nationality-1]||'').trim(),
+      gulfExp:    String(data[i][COL.gulfExp-1]||'').trim(),
+      education:  String(data[i][COL.education-1]||'').trim(),
+      dob:        String(data[i][COL.dob-1]||'').trim(),
+      age:        parseInt(data[i][COL.age-1])||0,
+      passportNo: extractPassportNo_(String(data[i][COL.kaiAssessment-1]||''),
+                                     String(data[i][COL.notes-1]||''))
+    };
+
+    var missing = computeMissingFields_(cand);
+    if (!missing.length) continue; // profile already complete
+
+    // Reachability + compliance filters
+    if (!validEmail_(cand.email)) { skipped++; continue; }
+    if (optOut[cand.email.toLowerCase()]) { skipped++; continue; }
+    var emp = String(data[i][COL.empStatus-1]||'').toLowerCase();
+    if (emp.indexOf('do not contact') >= 0) { skipped++; continue; }
+
+    // Cooldown: skip if contacted recently
+    var lc = data[i][COL.lastContact-1];
+    if (lc) {
+      var lcMs = (lc instanceof Date) ? lc.getTime() : (new Date(lc).getTime() || 0);
+      if (lcMs && (nowMs - lcMs) < cooldownMs) { skipped++; continue; }
+    }
+
+    eligibleSeen++;
+    var kaiNo = String(data[i][COL.kaiNo-1]||'').trim();
+    var firstName = name.split(' ')[0] || 'Candidate';
+    var role = cand.trade || cand.positionApplied || 'your trade';
+    var missingLabels = missing.map(function(m){ return m.label; });
+
+    var subject = 'Complete Your Profile — Al Yousuf Recruitment' + (kaiNo ? ' (Ref: ' + kaiNo + ')' : '');
+    var body =
+      'Dear ' + firstName + ',\n\n' +
+      'We have your application on file with Al Yousuf Enterprises LLP' +
+      (kaiNo ? ' (Reference: ' + kaiNo + ')' : '') + ' for ' + role + '.\n\n' +
+      'We have active openings in the Gulf and would like to move your profile forward. ' +
+      'To do that, please simply REPLY TO THIS EMAIL WITH YOUR UPDATED CV ATTACHED (PDF).\n\n' +
+      'It also helps if you confirm the following in your reply:\n' +
+      missingLabels.map(function(l,idx){ return '  ' + (idx+1) + '. ' + l; }).join('\n') + '\n\n' +
+      'Once we receive your updated CV, your profile is matched automatically to suitable positions.\n\n' +
+      'Best regards,\n' +
+      RECONTACT_NAME_ + '\n' +
+      'Al Yousuf Enterprises LLP\n' +
+      RECONTACT_FROM_;
+
+    if (samples.length < 10) {
+      samples.push({ row:i+2, name:name.slice(0,22), email:cand.email,
+                     missing:missingLabels.join(', ') });
+    }
+
+    if (dryRun) { sent++; continue; }
+
+    // ── Live send ──
+    try {
+      try {
+        GmailApp.sendEmail(cand.email, subject, body,
+          { from: RECONTACT_FROM_, name: RECONTACT_NAME_, replyTo: RECONTACT_FROM_ });
+      } catch(aliasErr) {
+        GmailApp.sendEmail(cand.email, subject, body); // alias not configured
+      }
+      remainingQuota--;
+      sheet.getRange(i + 2, COL.lastContact).setValue(new Date());
+      logSheet.appendRow([new Date(), kaiNo, name, cand.email,
+                          missingLabels.join(', '), 'email', 'SENT', 'Recontact campaign']);
+      sent++;
+      Utilities.sleep(150);
+    } catch(sendErr) {
+      errors++;
+      logSheet.appendRow([new Date(), kaiNo, name, cand.email,
+                          missingLabels.join(', '), 'email', 'ERROR', sendErr.message]);
+    }
+  }
+
+  var result = {
+    ok: true, dryRun: dryRun, sent: sent, eligibleSeen: eligibleSeen,
+    skipped: skipped, errors: errors, aborted: abortReason,
+    remainingQuota: dryRun ? null : remainingQuota,
+    samples: samples,
+    summary: (dryRun ? '[DRY RUN] Would email ' : 'Emailed ') + sent +
+             ' candidate(s). Skipped (no email / opted-out / cooldown): ' + skipped +
+             '. Errors: ' + errors +
+             (abortReason ? '. ABORTED: ' + abortReason : '')
+  };
+  Logger.log('recontactMissingInfo: ' + JSON.stringify(result));
+  return result;
+}
+
+function recontactMissingInfoDry() {
+  Logger.log(JSON.stringify(recontactMissingInfo_({ dryRun:'true', batch:'50' })));
+}
+function recontactMissingInfoNow() {
+  Logger.log(JSON.stringify(recontactMissingInfo_({ batch:'50' })));
+}
+
+// ── Self-driving recontact (respects Gmail quota, self-deletes when done) ─────
+function startRecontactCampaign() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === RECONTACT_TICK_FN_) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(RECONTACT_TICK_FN_).timeBased().everyMinutes(10).create();
+  var msg = 'Recontact campaign STARTED — sends within Gmail quota every 10 min, self-deletes when no eligible candidates remain.';
+  Logger.log(msg);
+  return { ok:true, message:msg };
+}
+
+function stopRecontactCampaign() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === RECONTACT_TICK_FN_) { ScriptApp.deleteTrigger(t); removed++; }
+  });
+  Logger.log('Recontact campaign STOPPED — removed ' + removed + ' trigger(s).');
+  return { ok:true, removed:removed };
+}
+
+function runRecontactTick() {
+  // No shared ScriptLock — must never block the email intake pipeline.
+  var res = recontactMissingInfo_({ batch:'80' });
+  // Done only when a full scan finds zero eligible candidates (not a quota/deadline cut).
+  var done = (res.aborted === null && res.eligibleSeen === 0);
+  if (done) {
+    stopRecontactCampaign();
+    Logger.log('recontactTick: COMPLETE — trigger removed. ' + res.summary);
+  } else {
+    Logger.log('recontactTick: ' + res.summary);
+  }
+}
+
 // ── Helper: get or create Gmail label ────────────────────────────────────────
 
 function getOrCreateLabel_(name) {
