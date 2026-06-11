@@ -13771,6 +13771,10 @@ var RECONTACT_FROM_    = 'ai@alyousufent.com';
 var RECONTACT_NAME_    = 'Al Yousuf Recruitment';
 var RECONTACT_COOLDOWN_DAYS_ = 21;   // don't re-email the same candidate within this window
 var RECONTACT_TICK_FN_ = 'runRecontactTick';
+// Reserve a slice of the daily Gmail send quota for the LIVE system (auto-replies,
+// missing-info drafts). The campaign stops once remaining quota hits this floor,
+// so it can never starve operational email. Resumes next day when quota resets.
+var RECONTACT_QUOTA_RESERVE_ = 300;
 
 function ensureRecontactLog_(ss) {
   var s = ss.getSheetByName('_RecontactLog');
@@ -13806,7 +13810,7 @@ function recontactMissingInfo_(params) {
   var cooldown  = parseInt(params.cooldownDays||'') || RECONTACT_COOLDOWN_DAYS_;
   var startMs   = Date.now();
   var DEADLINE  = 270000; // 4m30s
-  var QUOTA_FLOOR = 5;    // keep a little headroom
+  var QUOTA_FLOOR = RECONTACT_QUOTA_RESERVE_; // protect live auto-reply quota
 
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('Candidates');
