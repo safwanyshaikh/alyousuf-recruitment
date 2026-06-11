@@ -13877,14 +13877,6 @@ function recontactMissingInfo_(params) {
     var role = cand.trade || cand.positionApplied || 'your trade';
     var missingLabels = missing.map(function(m){ return m.label; });
 
-    // Passport is a SET — collect Expiry + ECR/ECNR opportunistically from
-    // candidates we are already emailing (does NOT widen the audience).
-    var hasVal = function(v){ var s=String(v||'').trim(); return s && s!=='—' && s.length>1; };
-    var ppExp  = data[i][COL.passportExpiry-1];
-    var ecr    = data[i][COL.ecrStatus-1];
-    if (!hasVal(ppExp)) missingLabels.push('Passport Expiry Date');
-    if (!hasVal(ecr))   missingLabels.push('Passport Type — ECR or ECNR');
-
     var subject = 'Complete Your Profile — Al Yousuf Recruitment' + (kaiNo ? ' (Ref: ' + kaiNo + ')' : '');
     var body =
       'Dear ' + firstName + ',\n\n' +
