@@ -13455,19 +13455,240 @@ function repairCorruptedEducationNow() {
   Logger.log(JSON.stringify(repairCorruptedEducation_({})));
 }
 
-// ── Education recovery: NOT possible from sheet text (audited 2026-06) ────────
+// ════════════════════════════════════════════════════════════════════
+// SECTION 44 — EDUCATION TOP-UP (paid: Gemini re-reads stored CV PDFs)
 //
-// Verdict from a full-data audit of the live Candidates sheet:
-//   • 0 corrupted cells remain (scalarizeParsedCV_ guard prevents recurrence).
-//   • 52% of active candidates have blank Education — a real DATA GAP, not a bug.
-//   • The KAI Assessment column is a verdict/strengths summary; it almost never
-//     states education. A safe text-miner recovers only ~4 of 3,300 blanks;
-//     a loose one writes garbage ("be", "details"). Text recovery is rejected.
-//   • Of the blanks, only ~206 have a real CV Link (re-parse ceiling). The rest
-//     arrived as contact-only / application emails with no CV — their education
-//     never existed anywhere and is unrecoverable by any means.
-// Conclusion: blank Education is correct for those rows. New CVs parsed after
-// the scalarize fix populate Education normally. No auto-fill function is shipped.
+// Scans every active candidate with blank Education + a real CV Link.
+// Re-opens the stored CV from Google Drive, asks Gemini for the highest
+// education qualification only (30-token reply = minimal cost).
+// Writes Education + Education Enum when found; leaves blank if genuinely absent.
+//
+// Balance guard: 8 consecutive Gemini failures → abort (signals dead credits).
+// Deadline guard: exits at 4m30s so trigger never times out.
+// Batch default: 20 per manual run (run repeatedly to process all ~206+).
+//
+// Wrappers:
+//   enrichMissingEducationDry()  — preview 10, no writes
+//   enrichMissingEducationNow()  — live run, batch 20
+// ════════════════════════════════════════════════════════════════════
+
+function extractDriveFileId_(url) {
+  if (!url) return '';
+  // https://drive.google.com/file/d/FILE_ID/view  OR  /document/d/FILE_ID/edit
+  var m = url.match(/\/d\/([a-zA-Z0-9_-]{10,})/);
+  if (m) return m[1];
+  // https://drive.google.com/open?id=FILE_ID
+  m = url.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+  return m ? m[1] : '';
+}
+
+function enrichMissingEducation_(params) {
+  params = params || {};
+  var dryRun    = String(params.dryRun||'') === 'true';
+  var batchSize = Math.min(50, parseInt(params.batch||'20') || 20);
+  var startMs   = Date.now();
+  var DEADLINE  = 270000; // 4m30s hard stop
+  var GUARD     = 8;      // consecutive failures before aborting
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return { ok:false, error:'GEMINI_API_KEY not set' };
+
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, processed:0, message:'No candidates' };
+
+  var n    = sheet.getLastRow() - 1;
+  var data = sheet.getRange(2, 1, n, 42).getValues();
+
+  var processed = 0, skipped = 0, errors = 0, noFile = 0;
+  var consecutiveFail = 0, abortReason = null, samples = [];
+
+  for (var i = 0; i < data.length; i++) {
+    if (Date.now() - startMs > DEADLINE) { abortReason = 'deadline'; break; }
+    if (processed >= batchSize)          { abortReason = 'batch-limit'; break; }
+    if (consecutiveFail >= GUARD)        { abortReason = 'balance-guard'; break; }
+
+    var active = String(data[i][COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') continue;
+
+    var name = String(data[i][COL.name-1]||'').trim();
+    if (!name) continue;
+
+    var edu = String(data[i][COL.education-1]||'').trim();
+    if (edu) { skipped++; continue; }
+
+    var cvLink = String(data[i][COL.cvLink-1]||'').trim();
+    if (!cvLink || !cvLink.startsWith('http')) { skipped++; continue; }
+
+    var fileId = extractDriveFileId_(cvLink);
+    if (!fileId) { skipped++; continue; }
+
+    try {
+      var file     = DriveApp.getFileById(fileId);
+      var mimeType = file.getMimeType();
+      var b64      = Utilities.base64Encode(file.getBlob().getBytes());
+
+      var prompt =
+        'This is a candidate CV/resume. What is the highest education qualification of this person?\n' +
+        'Reply with ONLY the qualification in 1-10 words. Examples:\n' +
+        '  Diploma in Mechanical Engineering\n' +
+        '  B.Tech Electrical Engineering\n' +
+        '  ITI Fitter\n' +
+        '  MBA Finance\n' +
+        '  Matriculation\n' +
+        'If no education information is present anywhere in the document, reply exactly: NONE';
+
+      var resp = UrlFetchApp.fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + apiKey,
+        { method:'post', contentType:'application/json', muteHttpExceptions:true,
+          payload: JSON.stringify({
+            contents:[{ parts:[
+              { inline_data: { mime_type: mimeType, data: b64 } },
+              { text: prompt }
+            ]}],
+            generationConfig:{ temperature:0, maxOutputTokens:30 }
+          })
+        }
+      );
+
+      var httpCode = resp.getResponseCode();
+      if (httpCode === 429 || httpCode >= 500) {
+        consecutiveFail++; errors++;
+        Logger.log('enrichMissingEducation_ HTTP ' + httpCode + ' row ' + (i+2));
+        Utilities.sleep(2000);
+        continue;
+      }
+
+      var result = JSON.parse(resp.getContentText());
+      if (!result.candidates || !result.candidates[0]) {
+        consecutiveFail++; errors++;
+        continue;
+      }
+
+      var text = String(result.candidates[0].content.parts[0].text||'')
+                  .trim().replace(/^["'`]+|["'`]+$/g,'').trim();
+
+      consecutiveFail = 0; // good response — reset guard
+
+      if (!text || text.toUpperCase() === 'NONE' || text.length < 2 || text.length > 80) {
+        skipped++; // genuinely no education in CV
+        continue;
+      }
+
+      var eduParsed = parseEducation_(text);
+      processed++;
+
+      if (!dryRun) {
+        sheet.getRange(i + 2, COL.education).setValue(text);
+        if (eduParsed.level) sheet.getRange(i + 2, COL.educationEnum).setValue(eduParsed.level);
+      }
+
+      if (samples.length < 12) {
+        samples.push({ row: i+2, name: name.slice(0,20), education: text, level: eduParsed.level });
+      }
+      Utilities.sleep(300);
+
+    } catch(ex) {
+      // File not found in Drive (deleted/moved) or network error
+      if (ex.message && ex.message.indexOf('no item') >= 0) { noFile++; continue; }
+      consecutiveFail++; errors++;
+      Logger.log('enrichMissingEducation_ error row ' + (i+2) + ': ' + ex.message);
+    }
+  }
+
+  var result = {
+    ok:        true,
+    dryRun:    dryRun,
+    processed: processed,
+    skipped:   skipped,
+    errors:    errors,
+    noFile:    noFile,
+    aborted:   abortReason,
+    samples:   samples,
+    summary:   (dryRun ? '[DRY RUN] Would fill ' : 'Filled ') + processed +
+               ' | skipped (no CV/already filled): ' + skipped +
+               ' | errors: ' + errors +
+               (abortReason ? ' | ABORTED: ' + abortReason : '')
+  };
+  Logger.log('enrichMissingEducation: ' + JSON.stringify(result));
+  return result;
+}
+
+function enrichMissingEducationDry() {
+  Logger.log(JSON.stringify(enrichMissingEducation_({ dryRun:'true', batch:'10' })));
+}
+function enrichMissingEducationNow() {
+  Logger.log(JSON.stringify(enrichMissingEducation_({ batch:'20' })));
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 45 — TRIGGER GOVERNANCE (SaaS migration readiness)
+//
+// BLESSED_TRIGGERS: the exact set of time-based triggers that must run.
+// Any trigger NOT in this list is stale/deprecated and should be removed.
+//
+// auditTriggers()         — lists all triggers + blessed/stale status (no changes)
+// cleanupStaleTriggers()  — REMOVES all triggers not in the blessed list
+//
+// Run auditTriggers() first, confirm the report, then cleanupStaleTriggers().
+// ════════════════════════════════════════════════════════════════════
+
+var BLESSED_TRIGGERS_ = [
+  'processAllInboxEmails',   // every 5 min  — Gmail CV intake + reply processing
+  'watchNewCandidates',      // every 5 min  — assigns kaiNo to new rows
+  'runQueueBatch',           // every 10 min — enrichment queue
+  'enrichTop3Positions',     // every 10 min — scores top 3 positions
+  'processNightBacklog'      // every 10 min — time-gated 10pm-6am, error + junk rescue
+];
+
+function auditTriggers() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var report = { total: triggers.length, blessed: [], stale: [] };
+
+  triggers.forEach(function(t) {
+    var fn      = t.getHandlerFunction();
+    var type    = t.getEventType().toString();
+    var src     = t.getTriggerSource().toString();
+    var rec     = { fn: fn, type: type, source: src };
+    if (BLESSED_TRIGGERS_.indexOf(fn) >= 0) {
+      report.blessed.push(rec);
+    } else {
+      report.stale.push(rec);
+    }
+  });
+
+  report.verdict = report.stale.length === 0
+    ? 'CLEAN — all ' + report.total + ' triggers are blessed'
+    : 'ACTION NEEDED — ' + report.stale.length + ' stale trigger(s) found';
+
+  Logger.log('auditTriggers: ' + JSON.stringify(report, null, 2));
+  return report;
+}
+
+function cleanupStaleTriggers() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = [], kept = [];
+
+  triggers.forEach(function(t) {
+    var fn = t.getHandlerFunction();
+    if (BLESSED_TRIGGERS_.indexOf(fn) < 0) {
+      ScriptApp.deleteTrigger(t);
+      removed.push(fn);
+    } else {
+      kept.push(fn);
+    }
+  });
+
+  var result = {
+    ok:      true,
+    kept:    kept,
+    removed: removed,
+    summary: 'Kept: [' + kept.join(', ') + ']  |  Removed: [' + removed.join(', ') + ']'
+  };
+  Logger.log('cleanupStaleTriggers: ' + JSON.stringify(result));
+  return result;
+}
 
 // ── Helper: get or create Gmail label ────────────────────────────────────────
 
