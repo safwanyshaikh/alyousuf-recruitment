@@ -12435,11 +12435,17 @@ function processEmailMessage_(ss, message, sourceLabel) {
     // Step 1: Classify sender tier — pass hasAttach so a real CV reply is never
     // junked on subject alone (e.g. "Your Updated CV — Al Yousuf Recruitment").
     var classification = classifyEmailSender_(from, subject, hasAttach);
-    if (classification.tier === 'IGNORE' || classification.tier === 'INTERNAL') {
-      return 'IGNORED';
-    }
 
-    var fromEmail = classification.senderEmail;
+    if (classification.tier === 'IGNORE') return 'IGNORED';
+
+    // INTERNAL senders (jobs@alyousufent.com etc.) are forwarding aliases, not candidates.
+    // Allow through ONLY when a CV is attached (the thing we actually want to parse).
+    // Without a CV there is nothing to process — skip silently.
+    if (classification.tier === 'INTERNAL' && !hasAttach) return 'IGNORED';
+
+    // For INTERNAL: fromEmail must stay blank — candidate email lives ONLY in the CV.
+    // (Sender ≠ Candidate rule — never store the forwarding alias as candidate email.)
+    var fromEmail = classification.tier === 'INTERNAL' ? '' : classification.senderEmail;
 
     // Step 2: Detect reply intent
     var intent = detectReplyIntent_(subject, body, hasAttach, fromEmail, _ss);
