@@ -13297,6 +13297,81 @@ function rescueJunkedCVsNow() {
   Logger.log(JSON.stringify(rescueJunkedCVs({ batch: '30' })));
 }
 
+// ── Backlog audit: count exactly how many CVs are waiting + cost/time estimate ─
+//
+// Counts the pending CV backlog across all queues (junk-with-PDF, error, inbox)
+// back to 1 Jan 2026, and estimates Gemini cost + clearing time. Read-only.
+// Run auditBacklog() from the editor.
+function countGmailQuery_(query, cap) {
+  cap = cap || 6000;
+  var total = 0, page = 500;
+  for (var off = 0; off < cap; off += page) {
+    var found = 0;
+    try { found = GmailApp.search(query, off, page).length; } catch(e) { break; }
+    total += found;
+    if (found < page) break; // last page
+  }
+  return total >= cap ? (cap + '+') : total;
+}
+
+function auditBacklog() {
+  var sinceJan = 'after:2026/01/01';
+  var pdf = 'has:attachment filename:pdf';
+
+  var junkCVs = countGmailQuery_('label:karigar/junk ' + pdf + ' ' + sinceJan);
+  var errorQ  = countGmailQuery_('label:karigar/error ' + sinceJan);
+  var inboxCV = countGmailQuery_('in:inbox -label:karigar/processed -label:karigar/duplicate ' +
+                                 '-label:karigar/junk -label:karigar/error ' + pdf + ' ' + sinceJan);
+
+  // numeric estimate (strip the "+" if capped)
+  var num = function(v){ return parseInt(String(v).replace('+',''),10) || 0; };
+  var totalCVs = num(junkCVs) + num(errorQ) + num(inboxCV);
+
+  var costInr   = (totalCVs * 0.05).toFixed(0);          // generous ₹0.05/CV
+  var secsEach  = 20;                                     // observed ~20s per multimodal parse
+  var triggerHrsPerDay = 6;                               // Workspace daily trigger runtime budget
+  var perDayByTrigger  = Math.floor(triggerHrsPerDay * 3600 / secsEach); // ~1080/day automated
+  var daysToClear = Math.max(1, Math.ceil(totalCVs / perDayByTrigger));
+
+  var report = {
+    backlog: {
+      junkedCVs_withPDF: junkCVs,
+      errorQueue:        errorQ,
+      inboxUnprocessed:  inboxCV,
+      totalCVs:          totalCVs
+    },
+    cost: {
+      perCV_inr:        '~0.02-0.05',
+      totalEstimate_inr:'~' + costInr,
+      yourBudget_inr:   500,
+      verdict:          (costInr <= 500 ? 'WITHIN BUDGET — cost is not the limit' : 'over budget')
+    },
+    throughput: {
+      secondsPerCV:        secsEach,
+      automatedPerDay:     perDayByTrigger + ' (one self-driving trigger, ~6h Workspace runtime/day)',
+      estDaysToClearAll:   daysToClear,
+      clearsToday:         (totalCVs <= perDayByTrigger ? 'YES — fits in one day' :
+                            'NO — ~' + daysToClear + ' days automated, or add manual runs to go faster')
+    }
+  };
+  Logger.log('auditBacklog: ' + JSON.stringify(report, null, 2));
+  return report;
+}
+
+// ── TURBO catch-up (every 5 min) — for a one-day push to clear the backlog ─────
+// Same as startJunkRescueCatchup but fires every 5 min instead of 10 for higher
+// throughput today. Uses more of the daily trigger-runtime budget; if it hits the
+// Workspace limit it simply pauses and resumes tomorrow. Self-deletes when clear.
+function startJunkRescueTurbo() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === JUNK_RESCUE_TICK_FN_) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(JUNK_RESCUE_TICK_FN_).timeBased().everyMinutes(5).create();
+  var msg = 'Junk-CV TURBO catch-up STARTED — every 5 min, self-deletes when clear. Run manual rescueJunkedCVsNow in parallel for even faster clearing today.';
+  Logger.log(msg);
+  return { ok:true, message:msg };
+}
+
 /** Rescue only TODAY's wrongly-junked CVs immediately (honours the hard rule). */
 function rescueJunkedCVsToday() {
   var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy/MM/dd');
