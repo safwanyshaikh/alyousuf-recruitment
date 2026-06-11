@@ -13372,6 +13372,135 @@ function startJunkRescueTurbo() {
   return { ok:true, message:msg };
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// FULL BACKLOG CLEAR — one-time, newest→oldest to 1 Jan 2026, no conflicts
+//
+// Two lanes that never collide:
+//   LIVE   processAllInboxEmails (5 min)  → in:inbox only — freshest CVs first
+//   BULK   runFullBacklogClear   (5 min)  → karigar/error + karigar/junk-with-CV
+//
+// The bulk job:
+//   • PHASE 1 drains karigar/error newest-first; a CV that fails its retry is
+//     tagged karigar/error-checked (parked) so the job can actually finish and
+//     budget isn't burned re-failing the same dead CV every tick.
+//   • PHASE 2 rescues karigar/junk CVs newest-first across ALL dates to 1 Jan.
+//   • No shared ScriptLock → the LIVE lane always has priority, never blocked.
+//   • Pauses processNightBacklog while running (only other junk/error processor),
+//     and AUTO-RESTORES it on completion.
+//   • Self-deletes when both queues are clear. Stops + alerts on balance-guard
+//     (Gemini credits exhausted).
+//
+//   startFullBacklogClear()  — begin (pauses night backlog, installs 5-min trigger)
+//   stopFullBacklogClear()   — kill switch (restores night backlog)
+// ════════════════════════════════════════════════════════════════════════════
+var FULL_BACKLOG_TICK_FN_ = 'runFullBacklogClear';
+
+function startFullBacklogClear() {
+  var pausedNight = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    var fn = t.getHandlerFunction();
+    if (fn === 'processNightBacklog')   { ScriptApp.deleteTrigger(t); pausedNight++; }
+    if (fn === FULL_BACKLOG_TICK_FN_)   { ScriptApp.deleteTrigger(t); } // no duplicate
+  });
+  PropertiesService.getScriptProperties()
+    .setProperty('FULL_BACKLOG_RESTORE_NIGHT', pausedNight > 0 ? '1' : '0');
+  ScriptApp.newTrigger(FULL_BACKLOG_TICK_FN_).timeBased().everyMinutes(5).create();
+  var msg = 'Full backlog clear STARTED — newest→oldest to 1 Jan 2026, every 5 min. ' +
+            'Night backlog ' + (pausedNight ? 'PAUSED (auto-restored on completion)' : 'was not set') +
+            '. Live inbox trigger keeps priority.';
+  Logger.log(msg);
+  return { ok:true, message:msg, nightPaused: pausedNight > 0 };
+}
+
+function stopFullBacklogClear() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === FULL_BACKLOG_TICK_FN_) { ScriptApp.deleteTrigger(t); removed++; }
+  });
+  restoreNightBacklog_();
+  Logger.log('Full backlog clear STOPPED — removed ' + removed + ' trigger(s); night backlog restored.');
+  return { ok:true, removed:removed };
+}
+
+function restoreNightBacklog_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('FULL_BACKLOG_RESTORE_NIGHT') !== '1') return false;
+  var exists = ScriptApp.getProjectTriggers().some(function(t){
+    return t.getHandlerFunction() === 'processNightBacklog';
+  });
+  if (!exists) ScriptApp.newTrigger('processNightBacklog').timeBased().everyMinutes(10).create();
+  props.deleteProperty('FULL_BACKLOG_RESTORE_NIGHT');
+  return true;
+}
+
+function runFullBacklogClear() {
+  // No shared ScriptLock — the LIVE inbox lane must always have priority.
+  var ss       = SpreadsheetApp.openById(SS_ID);
+  var startMs  = Date.now();
+  var deadline = startMs + 280000;   // 4m40s
+
+  var errorLabel     = getOrCreateLabel_('karigar/error');
+  var errorChecked   = getOrCreateLabel_('karigar/error-checked');
+  var processedLabel = getOrCreateLabel_('karigar/processed');
+  var junkLabel      = getOrCreateLabel_('karigar/junk');
+  var duplicateLabel = getOrCreateLabel_('karigar/duplicate');
+
+  var stats = { cvUpdated:0, newCandidate:0, duplicate:0, infoUpdated:0,
+                notInterested:0, ignored:0, error:0, parked:0, total:0 };
+
+  // ── PHASE 1: error queue, newest-first, exclude already-parked failures ──────
+  var errThreads = GmailApp.search('label:karigar/error -label:karigar/error-checked', 0, 40);
+  for (var i = 0; i < errThreads.length; i++) {
+    if (Date.now() > deadline) break;
+    var th = errThreads[i], msgs = th.getMessages(), res = 'IGNORED';
+    for (var j = 0; j < msgs.length; j++) {
+      var er = processEmailMessage_(ss, msgs[j], 'full-backlog-error');
+      if (er === 'ERROR' || er === 'PARSE_FAILED') { res = 'ERROR'; break; }
+      if (er !== 'IGNORED') res = er;
+    }
+    stats.total++;
+    if (res === 'IGNORED')        { stats.ignored++;   th.removeLabel(errorLabel); th.addLabel(junkLabel); }
+    else if (res === 'ERROR')     { stats.parked++;    th.addLabel(errorChecked); /* one retry, then park */ }
+    else if (res === 'DUPLICATE') { stats.duplicate++; th.removeLabel(errorLabel); th.addLabel(duplicateLabel); }
+    else {
+      stats.cvUpdated     += res === 'CV_UPDATED'     ? 1 : 0;
+      stats.newCandidate  += res === 'NEW_CANDIDATE'  ? 1 : 0;
+      stats.infoUpdated   += res === 'INFO_UPDATED'   ? 1 : 0;
+      stats.notInterested += res === 'NOT_INTERESTED' ? 1 : 0;
+      th.removeLabel(errorLabel); th.addLabel(processedLabel);
+    }
+    if (i % 10 === 9) Utilities.sleep(1000);
+  }
+
+  // ── PHASE 2: junk-with-CV rescue, newest-first, ALL dates back to 1 Jan ──────
+  var rescue = null;
+  if (Date.now() < deadline - 5000) {
+    rescue = rescueJunkedCVs({ batch: '60', deadlineMs: deadline });
+  }
+
+  // Balance guard: Gemini credits exhausted → stop the whole job and alert.
+  if (rescue && rescue.aborted === 'balance-guard') {
+    stopFullBacklogClear();
+    Logger.log('⚠ runFullBacklogClear STOPPED — balance-guard (Gemini credits may be exhausted). ' +
+               'Check billing, then re-run startFullBacklogClear(). Night backlog restored.');
+    return;
+  }
+
+  // Completion: error queue (unparked) empty AND junk rescue reports remaining 0.
+  var errLeft = 0;
+  try { errLeft = GmailApp.search('label:karigar/error -label:karigar/error-checked', 0, 1).length; } catch(e) {}
+  var junkClear = (rescue && rescue.remaining === 0);
+
+  if (errLeft === 0 && junkClear) {
+    stopFullBacklogClear();
+    Logger.log('runFullBacklogClear: COMPLETE — error+junk queues clear. ' +
+               'Trigger removed, night backlog restored. ' + JSON.stringify(stats));
+  } else {
+    Logger.log('runFullBacklogClear: tick — phase1=' + JSON.stringify(stats) +
+               ' | junk=' + JSON.stringify(rescue) + ' | errLeft=' + errLeft);
+  }
+}
+
 /** Rescue only TODAY's wrongly-junked CVs immediately (honours the hard rule). */
 function rescueJunkedCVsToday() {
   var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy/MM/dd');
