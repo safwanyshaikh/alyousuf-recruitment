@@ -13303,6 +13303,52 @@ function rescueJunkedCVsToday() {
   Logger.log(JSON.stringify(rescueJunkedCVs({ batch: '30', after: today })));
 }
 
+// ── Self-driving junk-CV catch-up (clears the whole jobs@ backlog, then stops) ─
+//
+// One-time bulk job to clear hundreds of wrongly-junked CVs (e.g. forwarded from
+// jobs@alyousufent.com before the INTERNAL-with-CV fix). Runs every 10 min,
+// rescues a batch each tick, and DELETES ITS OWN TRIGGER when nothing remains.
+//
+// No shared ScriptLock: it reads label:karigar/junk only, while the live trigger
+// reads in:inbox only — disjoint queues, so they never collide. The night
+// backlog (processNightBacklog) also rescues junk but is time-gated to 10pm-6am,
+// so this daytime catch-up never overlaps it.
+//
+//   startJunkRescueCatchup()  — install the temporary 10-min trigger
+//   stopJunkRescueCatchup()   — kill switch
+var JUNK_RESCUE_TICK_FN_ = 'runJunkRescueTick';
+
+function startJunkRescueCatchup() {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === JUNK_RESCUE_TICK_FN_) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(JUNK_RESCUE_TICK_FN_).timeBased().everyMinutes(10).create();
+  var msg = 'Junk-CV catch-up STARTED — rescues a batch every 10 min, self-deletes when backlog is clear.';
+  Logger.log(msg);
+  return { ok:true, message:msg };
+}
+
+function stopJunkRescueCatchup() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === JUNK_RESCUE_TICK_FN_) { ScriptApp.deleteTrigger(t); removed++; }
+  });
+  Logger.log('Junk-CV catch-up STOPPED — removed ' + removed + ' trigger(s).');
+  return { ok:true, removed:removed };
+}
+
+function runJunkRescueTick() {
+  // No shared ScriptLock — reads label:karigar/junk only; never blocks live intake.
+  var res = rescueJunkedCVs({ batch: '40' });
+  if (res.remaining === 0) {
+    stopJunkRescueCatchup();
+    Logger.log('junkRescueTick: COMPLETE — backlog clear, trigger removed.');
+  } else {
+    Logger.log('junkRescueTick: rescued ' + (res.cvUpdated + res.newCandidate) +
+               ' this tick, more remain.');
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // REPAIR WRONGLY "NOT INTERESTED" CANDIDATES
 //
