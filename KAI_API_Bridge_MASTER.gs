@@ -13621,6 +13621,58 @@ function enrichMissingEducationNow() {
   Logger.log(JSON.stringify(enrichMissingEducation_({ batch:'20' })));
 }
 
+// ── TEMPORARY self-driving backfill ──────────────────────────────────────────
+//
+// One-time job to fill all blank Education (with CVs). Runs itself every 10 min
+// and DELETES ITS OWN TRIGGER the moment there is nothing left to fill — so it
+// leaves no permanent trigger behind (SaaS-clean).
+//
+//   startEducationBackfill()  — installs the temporary 10-min trigger
+//   stopEducationBackfill()   — manual kill switch (removes the trigger early)
+//
+// While running it is intentionally NOT in BLESSED_TRIGGERS_, so auditTriggers()
+// will show it as "stale" — that is expected; it removes itself when done.
+var EDU_BACKFILL_FN_ = 'runEducationBackfillTick';
+
+function startEducationBackfill() {
+  // remove any prior copy first (no duplicates)
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === EDU_BACKFILL_FN_) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(EDU_BACKFILL_FN_).timeBased().everyMinutes(10).create();
+  var msg = 'Education backfill STARTED — runs every 10 min, self-deletes when complete.';
+  Logger.log(msg);
+  return { ok:true, message:msg };
+}
+
+function stopEducationBackfill() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === EDU_BACKFILL_FN_) { ScriptApp.deleteTrigger(t); removed++; }
+  });
+  var msg = 'Education backfill STOPPED — removed ' + removed + ' trigger(s).';
+  Logger.log(msg);
+  return { ok:true, removed:removed };
+}
+
+function runEducationBackfillTick() {
+  // No shared ScriptLock here — the email pipeline uses that lock and must never
+  // be blocked. The 10-min interval vs 4m30s max runtime prevents self-overlap.
+  var res = enrichMissingEducation_({ batch: '40' });
+
+  // Completion = a full scan that found nothing left to fill (not a deadline cut),
+  // OR balance-guard tripped (dead Gemini credits — stop and let user check).
+  var done = (res.aborted === null && res.processed === 0) ||
+             (res.aborted === 'balance-guard');
+
+  if (done) {
+    stopEducationBackfill();
+    Logger.log('eduBackfill: COMPLETE — trigger removed. ' + res.summary);
+  } else {
+    Logger.log('eduBackfill: tick done — ' + res.summary);
+  }
+}
+
 
 // ════════════════════════════════════════════════════════════════════
 // SECTION 45 — TRIGGER GOVERNANCE (SaaS migration readiness)
