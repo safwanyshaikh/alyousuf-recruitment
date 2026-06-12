@@ -51,6 +51,8 @@ var NL_CONFIG = {
     possible: (typeof T13_POSSIBLE !== 'undefined') ? T13_POSSIBLE : 40
   },
   certBoost:     8,   // score bump when a demanded cert is mined from the CV
+  destBoost:     8,   // score bump when the demanded GCC destination is mined
+  gccExpBoost:  10,   // score bump when the man has GCC current/past experience
   shutdownBoost: 8,   // score bump when shutdown/TAR experience is mined
   learnLookbackDays: 7,
   geminiCallCap: 20   // hard cap of classify calls per weekly run (cost guard)
@@ -150,8 +152,11 @@ function nlSearch_(params) {
     var mult  = affinityMultiplierT13_(ctx.ss, reqClass.group, e.viaGroup || candClasses[0].group);
     var score = Math.round(e.score * mult);
 
-    // 3c. Skill mining — boost when the query DEMANDED a skill the CV carries.
-    //     Match against cert ALIASES (6g/6gr/nebosh/saudi), never the canonical
+    // 3c. Soft signals — boost when the query DEMANDED something the CV carries.
+    //     cert / GCC-destination / GCC-experience are PREFERENCES, not hard cuts:
+    //     a strong trade match still surfaces (at a lower tier) when these are
+    //     absent, instead of producing a 0-result screen.
+    //     Match cert against ALIASES (6g/6gr/nebosh/saudi), never the canonical
     //     display name — CVs carry the alias, not "6G Weld Test".
     var blob = nlBlob_(cand);
     var certHit = q.certAliases.length &&
@@ -160,24 +165,30 @@ function nlSearch_(params) {
     if (certHit) score = Math.min(100, score + NL_CONFIG.certBoost);
     if (shutHit) score = Math.min(100, score + NL_CONFIG.shutdownBoost);
 
-    // 3d. Gulf-reality HARD filters — a man who fails these cannot deploy.
-    //     Destination matched via aliases (saudi/ksa/aramco), across gulfExp + CV.
+    // GCC destination preference (saudi/ksa/aramco) — boost across gulfExp + CV.
     if (q.gccDest) {
       var hay = (String(cand.gulfExp || '') + ' ' + blob).toLowerCase();
-      var destHit = q.gccDestAliases.some(function (a) { return hay.indexOf(a) >= 0; });
-      if (!destHit) return;
+      if (q.gccDestAliases.some(function (a) { return hay.indexOf(a) >= 0; }))
+        score = Math.min(100, score + NL_CONFIG.destBoost);
     }
+
+    // GCC experience preference — boost, not filter. gulfExp is sparsely parsed,
+    // so a hard cut would hide real Gulf-returnees whose field is simply blank.
     if (q.gccExpRequired) {
       var mob = cand.gccMobility || classifyGCCMobility_(cand.gulfExp, cand.currentLocation);
-      if (mob !== 'GCC_CURRENT' && mob !== 'GCC_PAST') return;
+      if (mob === 'GCC_CURRENT' || mob === 'GCC_PAST')
+        score = Math.min(100, score + NL_CONFIG.gccExpBoost);
     }
+
+    // 3d. HARD filters — explicit recruiter requirements that genuinely exclude.
+    //     Source nationality and minimum experience stay mandatory: a wrong-country
+    //     or under-experienced man is not the requirement, regardless of trade fit.
     if (q.sourceCountry) {
       var src = (String(cand.nationality || '') + ' ' + String(cand.currentLocation || '')).toLowerCase();
       var srcAliases = q.sourceAliases.length ? q.sourceAliases : [q.sourceCountry.toLowerCase()];
       if (!srcAliases.some(function (a) { return src.indexOf(a) >= 0; })) return;
     }
     if (q.expMin > 0 && (parseFloat(cand.experience) || 0) < q.expMin) return;
-    if (q.certAliases.length && !certHit) return; // cert was REQUIRED, not optional
 
     // 3e. Final tier.
     var tier = score >= NL_CONFIG.tiers.strong   ? 'STRONG'   :
