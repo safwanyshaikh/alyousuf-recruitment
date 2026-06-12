@@ -602,7 +602,12 @@ var NL_CERTS = [
   { canonical: 'NDT Level II',          aliases: ['ndt', 'ndt level ii', 'ndt level 2', 'asnt'] },
   { canonical: 'Saudi Driving License', aliases: ['saudi license', 'saudi driving license', 'saudi dl'] },
   { canonical: 'GCC Driving License',   aliases: ['gcc license', 'gcc driving license', 'gcc dl', 'gulf license'] },
-  { canonical: 'BOSIET',                aliases: ['bosiet', 'huet', 'offshore survival'] }
+  { canonical: 'BOSIET',                aliases: ['bosiet', 'huet', 'offshore survival'] },
+  { canonical: 'CISRS',                 aliases: ['cisrs', 'cisrs card', 'cisrs scaffolder', 'cisrs foreman', 'cisrs advanced'] },
+  { canonical: 'Aramco JCC',            aliases: ['jcc', 'aramco jcc', 'joint certification', 'aramco approved welder', 'adnoc approved welder', 'adnoc approved', 'aramco approved'] },
+  { canonical: 'NACE CIP',              aliases: ['nace', 'nace cip', 'nace level 1', 'nace level 2', 'nace inspector', 'coating inspector cert'] },
+  { canonical: 'GMDSS',                 aliases: ['gmdss', 'gmdss certificate', 'global maritime distress'] },
+  { canonical: 'Work at Height',        aliases: ['work at height', 'wah', 'height certification', 'working at heights', 'height safety'] }
 ];
 
 var NL_GCC_DEST = [

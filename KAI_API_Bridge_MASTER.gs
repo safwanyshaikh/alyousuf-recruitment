@@ -951,7 +951,14 @@ var TRADE_FAMILIES = {
     'welder','welding','tig','arc welder','mig','pipe welder','structural welder',
     '6g','smaw','gtaw','gmaw','fcaw','coded welder','tig/mig','tig & arc',
     'stick welder','pressure welder','aluminium welder','ss welder','stainless welder',
-    'weld','argon welder','co2 welder','combo welder','multi-process welder'
+    'weld','argon welder','co2 welder','combo welder','multi-process welder',
+    'gouger','gouging','arc gouging','carbon arc gouger','carbon gouging','carbon arc gouging'
+  ],
+  FABRICATOR: [
+    'fabricator','fabrication','metal fabrication','structural fabrication',
+    'structural fabricator','steel fabricator','plate fabricator','fitter fabricator',
+    'fitter','structural fitter','plate fitter','steel fitter','structural steel fitter',
+    'metal assembly','fabrication fitter','yard fitter','steel assembly'
   ],
   PIPEFITTER: [
     'pipe fitter','pipefitter','pipe layer','pipe erector','piping',
@@ -1037,6 +1044,16 @@ var TRADE_FAMILIES = {
     'tipper driver','trailer driver','dump truck driver','tanker driver',
     'low-bed driver','low loader driver','heavy vehicle driver','commercial driver',
     'bus driver','van driver','heavy bus driver'
+  ],
+  OFFSHORE_DECK: [
+    'anchor handling','anchor handler','anchor operator','mooring','mooring operator',
+    'winch operator','winch','deck operator','ahts','marine mooring','anchor spread',
+    'deckhand','deck hand','able seaman','bosun','deck foreman',
+    'anchor foreman','mooring foreman','mooring supervisor'
+  ],
+  MARINE_COMMS: [
+    'radio operator','gmdss','vhf','marine radio','communications officer',
+    'radio officer','comms operator','communications operator','marine communications'
   ],
   SUPERVISOR: [
     'supervisor','foreman','site supervisor','construction supervisor',
