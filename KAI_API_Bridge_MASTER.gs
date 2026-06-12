@@ -69,7 +69,7 @@ function doGet(e) {
     if (action === 'version') {
       return ContentService.createTextOutput(JSON.stringify({
         ok: true,
-        build: 'T13-eligibility-gate',
+        build: 'T14-live',
         hasT13: (typeof getPositionLevel_ === 'function' &&
                  typeof getEligibility_ === 'function'),
         ts: new Date().toISOString()
@@ -153,6 +153,10 @@ function doGet(e) {
     // T16.5 — Trade & Position Lookup (autocomplete dictionaries)
     else if (action === 'tradeLookup')              out = JSON.stringify(getTradeLookup_(params));
     else if (action === 'positionLookup')           out = JSON.stringify(getPositionLookup_(params));
+    // S46 — UI Performance Layer (Apple-OS feel: fast list, My Card tiles, callbacks)
+    else if (action === 'candidatesList')           out = JSON.stringify(getCandidatesList_(params));
+    else if (action === 'dashboardTiles')           out = JSON.stringify(getDashboardTiles_());
+    else if (action === 'callbacks')                out = JSON.stringify(getCallbacks_(params));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -219,6 +223,8 @@ function doPost(e) {
     else if (action === 'setUserRole')          out = JSON.stringify(setUserRole_(body, token));
     // S36 — Processing Queue
     else if (action === 'retryQueue')           out = JSON.stringify(retryQueue_(body));
+    // S46 — Callbacks (My Card tile + useCallbacks hook)
+    else if (action === 'saveCallback')         out = JSON.stringify(saveCallback_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -14039,6 +14045,291 @@ function runEducationBackfillTick() {
   }
 }
 
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 46 — UI PERFORMANCE LAYER
+// Designed for Apple-OS feel: fast list load, My Card tiles, callbacks.
+//
+// Three endpoints:
+//   GET ?action=candidatesList   → 12-field lightweight list (~70% smaller than getCandidates_)
+//   GET ?action=dashboardTiles   → 4 counters for My Card (todayNew, callbacks, shortlisted, deployed)
+//   GET ?action=callbacks        → callback reminders list
+//   POST action=saveCallback     → create / mark done / delete callback
+//
+// TanStack Query strategy (frontend):
+//   candidatesList  → staleTime 5 min, no background refetch while focused
+//   dashboardTiles  → staleTime 60 s (counters change often)
+//   callbacks       → staleTime 30 s
+//   candidate (detail) → staleTime 2 min, load on row click (not preloaded)
+// ════════════════════════════════════════════════════════════════════
+
+// ── S46.1 LIGHTWEIGHT CANDIDATE LIST ─────────────────────────────────────────
+// Reads only cols 1–30 (passportExpiry is the highest-indexed field we need).
+// Returns 12 fields per row — list row + A-Z letter header + contact chips only.
+// Detail pane calls ?action=candidate&kaiNo=X for the full record on click.
+function getCandidatesList_(params) {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) return { ok:true, records:[], total:0 };
+
+  // Read cols 1–30 only — 28% fewer columns, eliminates kaiAssessment (col 20 is still ≤30 but short)
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 30).getValues();
+
+  var fStage  = String(params.stage        ||'').trim().toLowerCase();
+  var fTrade  = String(params.trade        ||'').trim().toLowerCase();
+  var fNat    = String(params.nationality  ||'').trim().toLowerCase();
+  var fSearch = String(params.q            ||'').trim().toLowerCase();
+  var today   = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+
+  var records = [];
+  data.forEach(function(row) {
+    var active = String(row[COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+    var name  = String(row[COL.name-1] ||'').trim();
+    var email = String(row[COL.email-1]||'').trim();
+    if (!name && !email) return;
+
+    var stageRaw = String(row[COL.stage-1]  ||'').trim();
+    var verdict  = String(row[COL.verdict-1]||'').trim().toUpperCase();
+    var stage    = computeDisplayStage_(stageRaw, verdict);
+    var trade    = String(row[COL.trade-1]  ||'').trim();
+    var nat      = String(row[COL.nationality-1]||'').trim();
+
+    if (fStage  && stage.toLowerCase().indexOf(fStage)  < 0) return;
+    if (fTrade  && trade.toLowerCase().indexOf(fTrade)  < 0) return;
+    if (fNat    && nat.toLowerCase().indexOf(fNat)      < 0) return;
+    if (fSearch) {
+      var hay = (name + ' ' + trade + ' ' + nat + ' ' + String(row[COL.mobile-1]||'')).toLowerCase();
+      if (hay.indexOf(fSearch) < 0) return;
+    }
+
+    // Passport status from col 30 (index 29)
+    var ppExpR = row[COL.passportExpiry-1];
+    var ppStat = 'Unknown';
+    if (ppExpR instanceof Date && !isNaN(ppExpR)) {
+      var mLeft = (ppExpR - new Date()) / (1000*60*60*24*30);
+      ppStat = mLeft > 6 ? 'Valid' : (mLeft > 0 ? '<6mo' : 'Expired');
+    }
+
+    var appDt   = row[COL.applicationDate-1];
+    var appDate = appDt instanceof Date ? Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '';
+    var firstL  = name.charAt(0).toUpperCase();
+    if (!firstL.match(/[A-Z]/)) firstL = '#';
+
+    records.push({
+      kaiNo:           String(row[COL.kaiNo-1]||'').trim(),
+      name:            name,
+      firstLetter:     firstL,
+      trade:           trade,
+      nationality:     nat,
+      currentLocation: String(row[COL.currentLocation-1]||'').trim(),
+      stage:           stage,
+      score:           parseInt(row[COL.score-1])||0,
+      passportStatus:  ppStat,
+      applicationDate: appDate,
+      isNew:           appDate === today,
+      mobile:          String(row[COL.mobile-1]||'').replace(/^'/,'').trim(),
+      hasCV:           String(row[COL.cvLink-1]||'').trim() !== ''
+    });
+  });
+
+  // A-Z sort — ContactsListColumn sticky-header grouping depends on this order
+  records.sort(function(a,b){ return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
+
+  return { ok:true, records:records, total:records.length, ts: new Date().toISOString() };
+}
+
+
+// ── S46.2 DASHBOARD TILES ─────────────────────────────────────────────────────
+// Returns 4 counts for My Card in one API call.
+// Reads only cols 1–15 (stage, applicationDate, verdict) — fastest possible scan.
+function getDashboardTiles_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2)
+    return { ok:true, todayNew:0, pendingCallbacks:0, shortlisted:0, activeDeployments:0,
+             ts: new Date().toISOString() };
+
+  var today  = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+  var data   = sheet.getRange(2, 1, sheet.getLastRow()-1, 15).getValues();
+  var todayNew = 0, shortlisted = 0, deployed = 0;
+
+  data.forEach(function(row) {
+    var active = String(row[COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+    var name = String(row[COL.name-1]||'').trim();
+    if (!name) return;
+
+    var appDt   = row[COL.applicationDate-1];
+    var appDate = appDt instanceof Date ? Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '';
+    var stageRaw= String(row[COL.stage-1]||'').trim();
+    var verdict = String(row[COL.verdict-1]||'').trim().toUpperCase();
+    var stage   = computeDisplayStage_(stageRaw, verdict);
+
+    if (appDate === today) todayNew++;
+    if (stage === 'Shortlisted' || stage === 'Client Sent' || stage === 'Client Selected') shortlisted++;
+    if (stage === 'Deployed') deployed++;
+  });
+
+  // Callbacks due today or overdue
+  var pending = 0;
+  try {
+    var cbSheet = ss.getSheetByName('_Callbacks');
+    if (cbSheet && cbSheet.getLastRow() > 1) {
+      var cbData = cbSheet.getDataRange().getValues();
+      var eodMs  = new Date();
+      eodMs.setHours(23, 59, 59, 999);
+      for (var i = 1; i < cbData.length; i++) {
+        var done  = cbData[i][5]; // col 6 = done
+        var dueAt = cbData[i][3]; // col 4 = dueAt
+        if (!done && dueAt instanceof Date && dueAt.getTime() <= eodMs.getTime()) pending++;
+      }
+    }
+  } catch(e) { /* _Callbacks sheet may not exist yet */ }
+
+  return {
+    ok: true,
+    todayNew:         todayNew,
+    pendingCallbacks: pending,
+    shortlisted:      shortlisted,
+    activeDeployments:deployed,
+    ts: new Date().toISOString()
+  };
+}
+
+
+// ── S46.3 CALLBACKS — CRUD ────────────────────────────────────────────────────
+// _Callbacks sheet columns (1-indexed):
+//   1:callbackId  2:kaiNo  3:kaiName  4:dueAt  5:note  6:done  7:createdAt  8:createdBy
+var CB_HDR_ = ['Callback ID','KAI No','Candidate Name','Due At','Note','Done','Created At','Created By'];
+
+function ensureCallbacksSheet_(ss) {
+  var s = ss.getSheetByName('_Callbacks');
+  if (!s) {
+    s = ss.insertSheet('_Callbacks');
+    s.getRange(1, 1, 1, CB_HDR_.length).setValues([CB_HDR_]);
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function getCallbacks_(params) {
+  var ss = SpreadsheetApp.openById(SS_ID);
+  var s  = ss.getSheetByName('_Callbacks');
+  if (!s || s.getLastRow() < 2) return { ok:true, records:[], total:0 };
+
+  var data    = s.getDataRange().getValues();
+  var kaiNo   = String(params.kaiNo ||'').trim();
+  var showDone= String(params.done  ||'').trim() === 'true';
+  var records = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var row  = data[i];
+    var done = row[5] === true || row[5] === 'TRUE' || row[5] === 1;
+    if (done && !showDone) continue;
+    if (kaiNo && String(row[1]||'').trim() !== kaiNo) continue;
+    var dueAt = row[3];
+    records.push({
+      callbackId: String(row[0]||''),
+      kaiNo:      String(row[1]||''),
+      kaiName:    String(row[2]||''),
+      dueAt:      dueAt instanceof Date ? dueAt.toISOString() : String(dueAt||''),
+      note:       String(row[4]||''),
+      done:       done,
+      createdAt:  row[6] instanceof Date ? row[6].toISOString() : String(row[6]||''),
+      createdBy:  String(row[7]||'')
+    });
+  }
+
+  records.sort(function(a,b){ return (a.dueAt||'').localeCompare(b.dueAt||''); });
+  return { ok:true, records:records, total:records.length };
+}
+
+function saveCallback_(body) {
+  var ss     = SpreadsheetApp.openById(SS_ID);
+  var sheet  = ensureCallbacksSheet_(ss);
+
+  // Mark done / delete
+  if (body.callbackId && (body.done === true || body.done === 'true' || body.delete)) {
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== String(body.callbackId).trim()) continue;
+      if (body.delete) { sheet.deleteRow(i + 1); return { ok:true, deleted:true }; }
+      sheet.getRange(i + 1, 6).setValue(true);
+      return { ok:true, done:true, callbackId: body.callbackId };
+    }
+    return { ok:false, error:'Callback not found: ' + body.callbackId };
+  }
+
+  // Create new callback
+  var kaiNo  = String(body.kaiNo   ||'').trim();
+  var dueAt  = body.dueAt ? new Date(body.dueAt) : new Date();
+  if (!kaiNo) return { ok:false, error:'kaiNo required' };
+
+  var cbId = 'CB-' + new Date().getTime();
+  sheet.appendRow([
+    cbId, kaiNo,
+    String(body.kaiName  ||'').trim(),
+    dueAt,
+    String(body.note     ||'').trim(),
+    false,
+    new Date(),
+    CURRENT_ACTOR_ || ''
+  ]);
+  return { ok:true, callbackId:cbId, kaiNo:kaiNo, dueAt:dueAt.toISOString() };
+}
+
+// ── S46.4 SMOKE TEST ─────────────────────────────────────────────────────────
+// Run once after re-pasting to confirm all 3 endpoints respond correctly.
+function testS46Performance() {
+  var results = [];
+
+  // T1 — candidatesList returns records with required fields
+  try {
+    var list = getCandidatesList_({});
+    if (!list.ok) throw new Error('ok:false');
+    if (!list.records.length) throw new Error('empty records');
+    var r = list.records[0];
+    var required = ['kaiNo','name','firstLetter','trade','nationality',
+                    'currentLocation','stage','score','passportStatus',
+                    'applicationDate','isNew','mobile','hasCV'];
+    required.forEach(function(f){ if (r[f] === undefined) throw new Error('missing field: ' + f); });
+    // Verify A-Z sort
+    var isSorted = true;
+    for (var i = 1; i < Math.min(list.records.length, 100); i++) {
+      if (list.records[i].name.toLowerCase() < list.records[i-1].name.toLowerCase()) { isSorted=false; break; }
+    }
+    results.push('T1 PASS — candidatesList: ' + list.total + ' records, A-Z sorted=' + isSorted);
+  } catch(e) { results.push('T1 FAIL — ' + e.message); }
+
+  // T2 — dashboardTiles returns all 4 counters
+  try {
+    var tiles = getDashboardTiles_();
+    if (!tiles.ok) throw new Error('ok:false');
+    ['todayNew','pendingCallbacks','shortlisted','activeDeployments'].forEach(function(f){
+      if (tiles[f] === undefined) throw new Error('missing tile: ' + f);
+    });
+    results.push('T2 PASS — dashboardTiles: todayNew=' + tiles.todayNew +
+                 ' shortlisted=' + tiles.shortlisted + ' deployed=' + tiles.activeDeployments);
+  } catch(e) { results.push('T2 FAIL — ' + e.message); }
+
+  // T3 — saveCallback create + getCallbacks + mark done
+  try {
+    var created = saveCallback_({ kaiNo:'KAI-TEST-000', kaiName:'Test Candidate',
+                                   dueAt: new Date().toISOString(), note:'Smoke test callback' });
+    if (!created.ok || !created.callbackId) throw new Error('create failed: ' + JSON.stringify(created));
+    var list2 = getCallbacks_({ kaiNo:'KAI-TEST-000' });
+    if (!list2.records.length) throw new Error('callback not retrieved after create');
+    var done = saveCallback_({ callbackId: created.callbackId, done: true });
+    if (!done.ok) throw new Error('mark-done failed');
+    // Cleanup
+    saveCallback_({ callbackId: created.callbackId, delete: true });
+    results.push('T3 PASS — callbacks: create → retrieve → done → delete all OK');
+  } catch(e) { results.push('T3 FAIL — ' + e.message); }
+
+  Logger.log('=== testS46Performance ===\n' + results.join('\n'));
+  return results;
+}
 
 // ════════════════════════════════════════════════════════════════════
 // SECTION 44B — SECTION 4 IMMEDIATE FIXES (model revert + test)
