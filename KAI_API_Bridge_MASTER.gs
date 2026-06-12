@@ -1271,14 +1271,16 @@ function getMatchedCandidates_(params) {
       if (gye < minGulfExp) return;
     }
 
-    // ── GCC RECRUITMENT INTELLIGENCE ENGINE V2 ───────────────────────────
-    // Nationality whitelist — requirement-level hard gate (blank = any nationality)
+    // ── T14 INTELLIGENCE ENGINE (successor to GCC V2) ────────────────────
+    // Nationality pre-check: performance gate — avoids scoring a blocked cand.
+    // T14 Stage 1 also handles this internally; keeping it here saves the call.
     if (reqNationality) {
       var candNat = String(r.nationality||'').trim().toLowerCase();
       var reqNatL = reqNationality.toLowerCase();
       if (candNat && candNat.indexOf(reqNatL) < 0 && reqNatL.indexOf(candNat) < 0) return;
     }
-    var ms = computeMatchScoreGCC_(reqTrade, minExp, reqCerts, campaignType, r);
+    var ms = computeMatchScoreT14_(reqTrade, minExp, reqCerts, campaignType,
+                                    reqNationality, reqMinAge, reqMaxAge, r);
 
     // Hard fails: trade mismatch or nationality block → exclude entirely
     if (ms.hardFail) return;
@@ -1337,6 +1339,7 @@ function getMatchedCandidates_(params) {
   // All-tiers response
   return {
     ok:true, reqId:reqId, trade:reqTrade,
+    engine:    'T14',
     reqLevel:reqLevel, reqCollar:getCollarType_(reqLevel), reqFamily:reqFamily,
     campaignType:campaignType,
     EXCELLENT: result.EXCELLENT.slice(0,100),
@@ -1345,6 +1348,72 @@ function getMatchedCandidates_(params) {
     POSSIBLE:  result.POSSIBLE.slice(0,100),
     counts:    counts
   };
+}
+
+// ── T14 LIVE PATH SMOKE TEST ─────────────────────────────────────────────────
+// Run once from GAS editor after re-pasting this file. Read-only.
+// Verifies that getMatchedCandidates_ now routes through T14, not old GCC engine.
+function testMatchPathT14() {
+  var results = [];
+
+  // T1 — computeMatchScoreT14_ is callable (T14 file is in project)
+  try {
+    if (typeof computeMatchScoreT14_ !== 'function')
+      throw new Error('computeMatchScoreT14_ not found — is KAI_T14_Intelligence.gs in the project?');
+    results.push('T1 PASS — computeMatchScoreT14_ is reachable');
+  } catch(e) { results.push('T1 FAIL — ' + e.message); }
+
+  // T2 — smoke score for a known trade pair (Welder req, Welder cand)
+  try {
+    var fakeCand = {
+      trade: 'Welder', positionApplied: 'Welder',
+      nationality: 'Indian', age: 30, experience: 5,
+      gulfExp: '3 years Saudi Arabia', currentLocation: 'India',
+      educationRaw: 'ITI', education: 'ITI',
+      passportNo: 'A1234567', passportStatus: 'Valid', passportExpiry: '2028-01-01',
+      mobile: '9999999999', ecrStatus: 'ECR', noticeDays: 30, medicalStatus: ''
+    };
+    var ms = computeMatchScoreT14_('Welder', 3, '', 'SHUTDOWN', '', 0, 0, fakeCand);
+    if (!ms || ms.score === undefined) throw new Error('computeMatchScoreT14_ returned no score');
+    if (ms.hardFail)                   throw new Error('Unexpected hardFail: ' + ms.hardFail);
+    if (!ms.recruitmentClass)          throw new Error('recruitmentClass missing from T14 result');
+    results.push('T2 PASS — T14 scored Welder/Welder: score=' + ms.score + ' tier=' + ms.tier +
+                 ' class=' + ms.recruitmentClass + ' compliance=' + ms.compliance.score);
+  } catch(e) { results.push('T2 FAIL — ' + e.message); }
+
+  // T3 — blocked pair (Welder req, HSE Officer cand) must be HIDDEN/hardFail
+  try {
+    var blockedCand = {
+      trade: 'HSE Officer', positionApplied: 'HSE Officer',
+      nationality: 'Indian', age: 35, experience: 8,
+      gulfExp: '', currentLocation: 'India',
+      educationRaw: 'Degree', education: 'Degree',
+      passportNo: 'B7654321', passportStatus: 'Valid', passportExpiry: '2027-06-01',
+      mobile: '8888888888', ecrStatus: 'ECNR', noticeDays: 30, medicalStatus: ''
+    };
+    var mb = computeMatchScoreT14_('Welder', 3, '', 'STANDARD', '', 0, 0, blockedCand);
+    if (!mb.hardFail && mb.tier !== 'HIDDEN')
+      throw new Error('Expected hardFail or HIDDEN for Welder/HSE mismatch, got tier=' + mb.tier);
+    results.push('T3 PASS — Welder/HSE cross-trade correctly blocked (hardFail=' + mb.hardFail + ')');
+  } catch(e) { results.push('T3 FAIL — ' + e.message); }
+
+  // T4 — getMatchedCandidates_ uses T14 on a live requirement
+  try {
+    var ss    = SpreadsheetApp.openById(SS_ID);
+    var rdata = ss.getSheetByName('_Requirements');
+    if (!rdata || rdata.getLastRow() < 2) throw new Error('No requirements to test against');
+    var firstReqId = String(rdata.getRange(2, 1).getValue()).trim();
+    if (!firstReqId) throw new Error('First reqId is blank');
+    var res = getMatchedCandidates_({ reqId: firstReqId, limit: '5' });
+    if (!res.ok)      throw new Error('getMatchedCandidates_ returned ok:false — ' + res.error);
+    if (res.engine !== 'T14') throw new Error('engine field is "' + res.engine + '", expected "T14"');
+    results.push('T4 PASS — getMatchedCandidates_ routes through T14. req=' + firstReqId +
+                 ' counts: EX=' + res.counts.EXCELLENT + ' ST=' + res.counts.STRONG +
+                 ' GD=' + res.counts.GOOD + ' PO=' + res.counts.POSSIBLE);
+  } catch(e) { results.push('T4 FAIL — ' + e.message); }
+
+  Logger.log('=== testMatchPathT14 ===\n' + results.join('\n'));
+  return results;
 }
 
 // ── T13 SELF-TEST ──────────────────────────────────────────────────────────
