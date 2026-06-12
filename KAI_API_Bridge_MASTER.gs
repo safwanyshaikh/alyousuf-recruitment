@@ -13976,10 +13976,11 @@ function runEducationBackfillTick() {
 // ════════════════════════════════════════════════════════════════════
 
 // Fix #2 — revert model override back to mandated gemini-2.5-flash-lite.
-// Run once from the GAS editor dropdown: ▶ revertGeminiModel_
+// Run once from the GAS editor dropdown: ▶ revertGeminiModel
 // patch_v291.txt:setupV291 sets this property to gemini-2.0-flash,
 // causing ~31% of CV parse failures (1,109 Gemini nulls in _Errors).
-function revertGeminiModel_() {
+// NOTE: no trailing underscore — GAS hides _-suffixed functions from the Run menu.
+function revertGeminiModel() {
   var props = PropertiesService.getScriptProperties();
   var prev  = props.getProperty('KAI_GEMINI_MODEL_OVERRIDE') || '(not set)';
   props.setProperty('KAI_GEMINI_MODEL_OVERRIDE', 'gemini-2.5-flash-lite');
@@ -14049,7 +14050,7 @@ function testSection4Fixes() {
     var props  = PropertiesService.getScriptProperties();
     var model  = props.getProperty('KAI_GEMINI_MODEL_OVERRIDE') || 'gemini-2.5-flash-lite';
     if (model === 'gemini-2.0-flash') {
-      results.push('T3 WARN — KAI_GEMINI_MODEL_OVERRIDE is still gemini-2.0-flash. Run revertGeminiModel_() to fix.');
+      results.push('T3 WARN — KAI_GEMINI_MODEL_OVERRIDE is still gemini-2.0-flash. Run revertGeminiModel() to fix.');
     } else {
       results.push('T3 PASS — Gemini model is: ' + model);
     }
