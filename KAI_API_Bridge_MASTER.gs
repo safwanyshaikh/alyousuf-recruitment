@@ -956,7 +956,7 @@ var TRADE_FAMILIES = {
   PIPEFITTER: [
     'pipe fitter','pipefitter','pipe layer','pipe erector','piping',
     'pipe fabricator','piping erector','pipe mechanic','pipeline','pipe fitting',
-    'piping fitter','pipe work','mechanical fitter'
+    'piping fitter','pipe work','mechanical fitter','plumber','plumbing','pipe installer'
   ],
   HVAC: [
     'hvac','air conditioning','refrigeration','chiller','ac technician',
@@ -1005,7 +1005,7 @@ var TRADE_FAMILIES = {
   ],
   SCAFFOLDER: [
     'scaffolder','scaffolding','scaffold erector','scaffold inspector',
-    'scaffold supervisor','tube and fitting','system scaffold'
+    'scaffold supervisor','tube and fitting','system scaffold','scaffold'
   ],
   MECHANICAL: [
     'mechanical','mechanical technician','mechanical engineer','rotating equipment',
@@ -1015,7 +1015,8 @@ var TRADE_FAMILIES = {
   CIVIL: [
     'civil','civil engineer','structural','mason','carpenter','formwork',
     'civil technician','surveyor','civil supervisor','shuttering','concrete',
-    'reinforced concrete','piling','foundation','civil works'
+    'reinforced concrete','piling','foundation','civil works',
+    'tile setter','tile fixer','tiler','block layer','bricklayer','plasterer'
   ],
   REBARMAN: [
     'rebar','rebarman','bar bender','steel fixer','iron worker','rebaring',
@@ -1029,7 +1030,13 @@ var TRADE_FAMILIES = {
   HEAVY_EQUIPMENT: [
     'heavy equipment','equipment operator','forklift','excavator','bulldozer',
     'grader','loader','backhoe','crane','compactor','roller',
-    'heavy plant','plant operator','machinery operator'
+    'heavy plant','plant operator','machinery operator','dozer','boom truck'
+  ],
+  HEAVY_DRIVER: [
+    'heavy driver','truck driver','lorry driver','hgv driver','lgv driver',
+    'tipper driver','trailer driver','dump truck driver','tanker driver',
+    'low-bed driver','low loader driver','heavy vehicle driver','commercial driver',
+    'bus driver','van driver','heavy bus driver'
   ],
   SUPERVISOR: [
     'supervisor','foreman','site supervisor','construction supervisor',
