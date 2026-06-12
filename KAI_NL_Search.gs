@@ -151,17 +151,21 @@ function nlSearch_(params) {
     var score = Math.round(e.score * mult);
 
     // 3c. Skill mining — boost when the query DEMANDED a skill the CV carries.
+    //     Match against cert ALIASES (6g/6gr/nebosh/saudi), never the canonical
+    //     display name — CVs carry the alias, not "6G Weld Test".
     var blob = nlBlob_(cand);
-    var certHit = q.certs.length &&
-                  q.certs.some(function (c) { return blob.indexOf(c.toLowerCase()) >= 0; });
+    var certHit = q.certAliases.length &&
+                  q.certAliases.some(function (a) { return blob.indexOf(a) >= 0; });
     var shutHit = q.shutdown && /shutdown|turnaround|\btar\b|overhaul|outage/.test(blob);
     if (certHit) score = Math.min(100, score + NL_CONFIG.certBoost);
     if (shutHit) score = Math.min(100, score + NL_CONFIG.shutdownBoost);
 
     // 3d. Gulf-reality HARD filters — a man who fails these cannot deploy.
+    //     Destination matched via aliases (saudi/ksa/aramco), across gulfExp + CV.
     if (q.gccDest) {
-      var gd = q.gccDest.toLowerCase();
-      if (String(cand.gulfExp || '').toLowerCase().indexOf(gd) < 0 && blob.indexOf(gd) < 0) return;
+      var hay = (String(cand.gulfExp || '') + ' ' + blob).toLowerCase();
+      var destHit = q.gccDestAliases.some(function (a) { return hay.indexOf(a) >= 0; });
+      if (!destHit) return;
     }
     if (q.gccExpRequired) {
       var mob = cand.gccMobility || classifyGCCMobility_(cand.gulfExp, cand.currentLocation);
@@ -169,10 +173,11 @@ function nlSearch_(params) {
     }
     if (q.sourceCountry) {
       var src = (String(cand.nationality || '') + ' ' + String(cand.currentLocation || '')).toLowerCase();
-      if (src.indexOf(q.sourceCountry.toLowerCase()) < 0) return;
+      var srcAliases = q.sourceAliases.length ? q.sourceAliases : [q.sourceCountry.toLowerCase()];
+      if (!srcAliases.some(function (a) { return src.indexOf(a) >= 0; })) return;
     }
     if (q.expMin > 0 && (parseFloat(cand.experience) || 0) < q.expMin) return;
-    if (q.certs.length && !certHit) return; // cert was REQUIRED, not optional
+    if (q.certAliases.length && !certHit) return; // cert was REQUIRED, not optional
 
     // 3e. Final tier.
     var tier = score >= NL_CONFIG.tiers.strong   ? 'STRONG'   :
@@ -231,7 +236,8 @@ function nlSearch_(params) {
 function parseNLQuery_(raw) {
   var s = String(raw || '').toLowerCase().trim().replace(/\s+/g, ' ');
   var q = {
-    tradeTerm: s, certs: [], gccDest: '', sourceCountry: '',
+    tradeTerm: s, certs: [], certAliases: [], gccDest: '', gccDestAliases: [],
+    sourceCountry: '', sourceAliases: [],
     gccExpRequired: false, shutdown: false, expMin: 0, expMax: 0,
     positionLevel: '', qty: 0, rawQuery: raw
   };
@@ -250,21 +256,32 @@ function parseNLQuery_(raw) {
     if (em) q.expMin = parseInt(em[1], 10);
   }
 
-  // Certifications (required + trade-hinting)
+  // Certifications (required + trade-hinting).
+  // Keep the alias list too — CVs contain the alias ("6g","saudi","nebosh"),
+  // NEVER the canonical display name ("6G Weld Test"). Matching must use aliases.
   NL_CERTS.forEach(function (c) {
     if (c.aliases.some(function (a) { return s.indexOf(a) >= 0; })) {
-      if (q.certs.indexOf(c.canonical) < 0) q.certs.push(c.canonical);
+      if (q.certs.indexOf(c.canonical) < 0) {
+        q.certs.push(c.canonical);
+        c.aliases.forEach(function (a) { if (q.certAliases.indexOf(a) < 0) q.certAliases.push(a); });
+      }
     }
   });
 
-  // GCC destination (deployment target)
+  // GCC destination (deployment target) — keep aliases for CV/gulfExp matching.
   NL_GCC_DEST.forEach(function (d) {
-    if (!q.gccDest && d.aliases.some(function (a) { return s.indexOf(a) >= 0; })) q.gccDest = d.canonical;
+    if (!q.gccDest && d.aliases.some(function (a) { return s.indexOf(a) >= 0; })) {
+      q.gccDest = d.canonical;
+      q.gccDestAliases = d.aliases.slice();
+    }
   });
 
-  // Source country (where the candidate is sourced from)
+  // Source country (where the candidate is sourced from) — keep aliases too.
   NL_SOURCE.forEach(function (d) {
-    if (!q.sourceCountry && d.aliases.some(function (a) { return s.indexOf(a) >= 0; })) q.sourceCountry = d.canonical;
+    if (!q.sourceCountry && d.aliases.some(function (a) { return s.indexOf(a) >= 0; })) {
+      q.sourceCountry = d.canonical;
+      q.sourceAliases = d.aliases.slice();
+    }
   });
 
   // GCC experience intent
