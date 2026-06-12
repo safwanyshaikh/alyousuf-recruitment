@@ -86,6 +86,11 @@ function doGet(e) {
     if      (action === 'candidates')       out = JSON.stringify(getCandidates_(params));
     else if (action === 'candidate')        out = JSON.stringify(getSingleCandidate_(params));
     else if (action === 'search')           out = JSON.stringify(globalSearch_(params));
+    // ── KAI NL SEARCH MODULE (KAI_NL_Search.gs) — one permanent hook ──
+    // Routes every action starting with "nl" (nlSearch, nlTaxonomy, nlLearnNow,
+    // nlVersion, + any future NL action) into the separate NL module. After this
+    // single line, all NL changes live in KAI_NL_Search.gs — master is untouched.
+    else if (action.indexOf('nl') === 0)    out = JSON.stringify(kaiNLRoute_(action, params));
     else if (action === 'requirements')     out = JSON.stringify(getRequirementsEnhanced_());
     else if (action === 'match')            out = JSON.stringify(getMatchedCandidates_(params));
     else if (action === 'metrics')          out = JSON.stringify(getMetrics_());
@@ -13947,7 +13952,8 @@ var BLESSED_TRIGGERS_ = [
   'watchNewCandidates',      // every 5 min  — assigns kaiNo to new rows
   'runQueueBatch',           // every 10 min — enrichment queue
   'enrichTop3Positions',     // every 10 min — scores top 3 positions
-  'processNightBacklog'      // every 10 min — time-gated 10pm-6am, error + junk rescue
+  'processNightBacklog',     // every 10 min — time-gated 10pm-6am, error + junk rescue
+  'learnTaxonomyWeekly'      // every 7 days — NL taxonomy mutation (KAI_NL_Search.gs)
 ];
 
 function auditTriggers() {
