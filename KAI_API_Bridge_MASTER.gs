@@ -1635,7 +1635,25 @@ function getSacPerformance_() {
 // SECTION 6 — STAGE + NOTES + ACTIVITY LOG (Write)
 // ════════════════════════════════════════════════════════════════════
 
+// Invalidate S46 caches whenever a write happens (stage, candidate create, etc.)
+// Called at the start of all mutating handlers. Fast — only removes keys, no sheet read.
+function invalidateListCaches_() {
+  try {
+    var c = CacheService.getScriptCache();
+    c.remove('kai:dashboardTiles');
+    // candidatesList chunks: meta key is enough to break reassembly
+    var prefixes = ['kai:candidatesList:'];
+    // Common filter combos — remove them all
+    var filterCombos = [
+      '||||||', 'Shortlisted||||', 'New||||', 'Deployed||||',
+      'Client Sent||||', 'Client Selected||||', 'Under Review||||'
+    ];
+    filterCombos.forEach(function(f) { c.remove('kai:candidatesList:' + f + ':meta'); });
+  } catch(e) { /* non-fatal */ }
+}
+
 function updateStage_(body) {
+  invalidateListCaches_();
   var rowIndex  = parseInt(body.rowIndex||'0');
   var newStage  = String(body.newStage  ||'').trim();
   var recruiter = String(body.recruiter ||'recruiter@system').trim();
@@ -14063,11 +14081,54 @@ function runEducationBackfillTick() {
 //   candidate (detail) → staleTime 2 min, load on row click (not preloaded)
 // ════════════════════════════════════════════════════════════════════
 
+// ── S46.0 CACHE HELPERS ───────────────────────────────────────────────────────
+// GAS ScriptCache: 100KB per key, no total limit documented.
+// Large payloads (> 90KB) are split across numbered chunk keys and reassembled.
+// TTL is per-chunk — all chunks share the same TTL so they expire together.
+// This eliminates the 3–8s GAS cold-start RTT on warm reads (~1s instead of ~10s).
+
+var CACHE_CHUNK_BYTES_ = 90000; // 90KB per chunk — safe under 100KB key limit
+
+function cachePutLarge_(cache, key, json, ttl) {
+  var chunks = Math.ceil(json.length / CACHE_CHUNK_BYTES_);
+  cache.put(key + ':meta', String(chunks), ttl);
+  for (var i = 0; i < chunks; i++) {
+    cache.put(key + ':' + i, json.slice(i * CACHE_CHUNK_BYTES_, (i+1) * CACHE_CHUNK_BYTES_), ttl);
+  }
+}
+
+function cacheGetLarge_(cache, key) {
+  var meta = cache.get(key + ':meta');
+  if (!meta) return null;
+  var chunks = parseInt(meta, 10);
+  var parts  = [];
+  for (var i = 0; i < chunks; i++) {
+    var part = cache.get(key + ':' + i);
+    if (!part) return null; // any chunk missing = cache miss (all expired together)
+    parts.push(part);
+  }
+  return parts.join('');
+}
+
+// Build a deterministic cache key from action + filter params.
+function cacheKey_(action, params) {
+  var p = params || {};
+  return 'kai:' + action + ':' +
+    [p.stage||'', p.trade||'', p.nationality||'', p.q||'', p.group||''].join('|');
+}
+
 // ── S46.1 LIGHTWEIGHT CANDIDATE LIST ─────────────────────────────────────────
 // Reads only cols 1–30 (passportExpiry is the highest-indexed field we need).
 // Returns 12 fields per row — list row + A-Z letter header + contact chips only.
 // Detail pane calls ?action=candidate&kaiNo=X for the full record on click.
+// Cache TTL: 60s (TanStack Query staleTime should be ≤ this).
 function getCandidatesList_(params) {
+  var cache    = CacheService.getScriptCache();
+  var cKey     = cacheKey_('candidatesList', params);
+  var cached   = cacheGetLarge_(cache, cKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch(e) { /* cache corrupt — fall through */ }
+  }
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet || sheet.getLastRow() < 2) return { ok:true, records:[], total:0 };
@@ -14136,14 +14197,23 @@ function getCandidatesList_(params) {
   // A-Z sort — ContactsListColumn sticky-header grouping depends on this order
   records.sort(function(a,b){ return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
 
-  return { ok:true, records:records, total:records.length, ts: new Date().toISOString() };
+  var result = { ok:true, records:records, total:records.length, ts: new Date().toISOString() };
+  try { cachePutLarge_(cache, cKey, JSON.stringify(result), 60); } catch(e) { /* non-fatal */ }
+  return result;
 }
 
 
 // ── S46.2 DASHBOARD TILES ─────────────────────────────────────────────────────
 // Returns 4 counts for My Card in one API call.
 // Reads only cols 1–15 (stage, applicationDate, verdict) — fastest possible scan.
+// Cache TTL: 30s (counter freshness matters more than list freshness).
 function getDashboardTiles_() {
+  var cache  = CacheService.getScriptCache();
+  var cKey   = 'kai:dashboardTiles';
+  var cached = cache.get(cKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch(e) {}
+  }
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet || sheet.getLastRow() < 2)
@@ -14187,7 +14257,7 @@ function getDashboardTiles_() {
     }
   } catch(e) { /* _Callbacks sheet may not exist yet */ }
 
-  return {
+  var result = {
     ok: true,
     todayNew:         todayNew,
     pendingCallbacks: pending,
@@ -14195,6 +14265,8 @@ function getDashboardTiles_() {
     activeDeployments:deployed,
     ts: new Date().toISOString()
   };
+  try { cache.put(cKey, JSON.stringify(result), 30); } catch(e) {}
+  return result;
 }
 
 
