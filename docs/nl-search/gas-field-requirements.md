@@ -232,18 +232,116 @@ Below this, the primary filter returns too few results for NL to be useful.
 
 ---
 
-## 6. No New Sheet Columns Required
+## 6. New Sheet: `_SkillIndex` — The Mined Skill Layer
 
-NL search uses only existing COL definitions (cols 1–42).
-No new columns are added to the Candidates sheet.
-`_NLQueryLog` is a new analytics sheet only — not part of the candidate record.
+KAI mines skill from every CV, not just the single `trade` cell. One row per
+active candidate. Written at parse time + by the weekly sweep + one-time backfill.
+
+Full column spec: **skill-mining-spec.md §2**. Summary:
+
+```
+kaiNo | primaryTrade | tradeFamily | collar | recruitmentClass |
+secondaryTrades | codedTests | certs | processSkills | shutdownSignal |
+gccEmployers | gccCountries | licenses | sourceCountry | skillBlob | lastMined
+```
+
+### `buildSkillIndexRow_(cand)` — mining function
+
+Reuses existing engines — does NOT re-parse CVs, does NOT call Gemini:
+```javascript
+function buildSkillIndexRow_(cand) {
+  var blob = [cand.kaiAssessment, cand.positionApplied, cand.top3Positions,
+              cand.gulfExp, cand.recommendedRoles].join(' ').toLowerCase();
+  return {
+    kaiNo:            cand.kaiNo,
+    primaryTrade:     cand.trade,
+    tradeFamily:      classifyTradeT13_(cand.trade).group,   // existing T13
+    collar:           classifyTradeT13_(cand.trade).collar,  // existing T13
+    recruitmentClass: getRecruitmentClassT14_(cand.trade),   // existing T14
+    secondaryTrades:  mineSecondaryTrades_(cand.top3Positions, cand.positionApplied),
+    codedTests:       (blob.match(/\b[1-6]g[r]?\b/g) || []).join(','),
+    certs:            mineCerts_(blob),          // match CERTIFICATIONS aliases
+    processSkills:    mineProcessSkills_(blob),  // tig,smaw,dcs,plc,ndt,...
+    shutdownSignal:   /shutdown|turnaround|\btar\b|overhaul|outage/.test(blob),
+    gccEmployers:     mineEmployers_(cand.gulfExp),
+    gccCountries:     mineGCCCountries_(cand.gulfExp),
+    licenses:         mineLicenses_(blob),
+    sourceCountry:    cand.nationality || cand.currentLocation,
+    skillBlob:        blob,
+    lastMined:        new Date()
+  };
+}
+```
+
+`nlSearch_` matches against `_SkillIndex.skillBlob` and structured tags — this is
+what lets a Fabricator CV surface for a 6G Welder requirement.
 
 ---
 
-## 7. BLESSED_TRIGGERS_ — No Change
+## 7. New Trigger: `learnTaxonomyWeekly` — The Mutation Loop
 
-`nlSearch_` is a web app request handler (`doGet`), not a time-based trigger.
-`BLESSED_TRIGGERS_` list is unchanged:
+Full spec: **taxonomy-learning-engine.md §2**. This is the heartbeat that makes
+the taxonomy grow wilder/sharper/bigger every week.
+
+### Function
+
+```javascript
+// SECTION 48 — TAXONOMY LEARNING ENGINE (weekly mutation)
+function learnTaxonomyWeekly() {
+  // 1. Harvest demand   — _KAI_Knowledge rows since last run
+  // 2. Harvest supply   — Candidates since last run → mine skills
+  // 3. Detect unknown trades/aliases (classifyTradeT13_ → UNRESOLVED)
+  // 4. Classify new trade (1 cheap Gemini call per new cluster)
+  // 5. Confidence gate  — auto-approve OR queue _T13_GovernanceQueue
+  // 6. Enrich known trades — append aliases/certs to _Taxonomy
+  // 7. Mutate affinity  — read _MatchFeedback, nudge T13_ALLOWED (±5 clamp)
+  // 8. Stamp _TaxonomyLearningLog
+}
+```
+
+### Reads/writes (all disjoint from live email pipeline — NO ScriptLock)
+
+| Sheet | Access | Purpose |
+|-------|--------|---------|
+| `_KAI_Knowledge` | read | weekly demand |
+| `Candidates` | read | weekly supply |
+| `_Taxonomy` | append | new trades/aliases (status LEARNED_AUTO) |
+| `_T13_GovernanceQueue` | append | uncertain trades → recruiter approval |
+| `_MatchFeedback` | read | recruiter accept/reject signal |
+| `_SkillIndex` | upsert | refresh skills for new candidates |
+| `_TaxonomyLearningLog` | append | visible proof of weekly growth |
+
+### Cost guard
+Gemini called ONLY on unresolved JD trade strings (a handful/week). No CV
+re-parsing. Pennies/week. Hard cap: 20 Gemini calls per run.
+
+---
+
+## 8. `nlSearch_` Reads SEED ∪ LEARNED (dynamic taxonomy)
+
+`nlSearch_` must NOT hardcode the trade list. At query time it resolves trade
+terms against the union:
+
+```javascript
+function resolveTradeDynamic_(term) {
+  // 1. SEED   — TRADE_FAMILIES dict (in-code)
+  // 2. LEARNED — _Taxonomy sheet rows (status SEED|LEARNED_AUTO|APPROVED)
+  // Cached 1 hour. A trade learned this week is searchable now.
+  var seed = resolveAgainstSeed_(term);
+  if (seed) return seed;
+  return resolveAgainstTaxonomySheet_(term);  // reads _Taxonomy
+}
+```
+
+This is the line between a static ATS and a mutating intelligence: the search
+vocabulary grows on its own.
+
+---
+
+## 9. BLESSED_TRIGGERS_ — Add the Heartbeat
+
+`nlSearch_` itself is a `doGet` handler (no trigger). But the learning loop adds
+ONE new time-based trigger:
 
 ```javascript
 var BLESSED_TRIGGERS_ = [
@@ -251,37 +349,54 @@ var BLESSED_TRIGGERS_ = [
   'watchNewCandidates',
   'runQueueBatch',
   'enrichTop3Positions',
-  'processNightBacklog'
+  'processNightBacklog',
+  'learnTaxonomyWeekly'      // NEW — weekly taxonomy mutation (every 7 days)
 ];
 ```
 
 ---
 
-## 8. Implementation Checklist (for GAS developer)
+## 10. Implementation Checklist (for GAS developer)
 
-Before marking NL search LIVE, verify each item:
+NL Search (Section 47):
+- [ ] `nlSearch_` added, `doGet` router entry for `action=nlSearch`
+- [ ] `trade2` OR logic tested with `"mechanical fitter"`
+- [ ] `cert` filter tested with `"nebosh"` → HSE only
+- [ ] `gccDest` filter tested with `"Saudi Arabia"`
+- [ ] `shutdownExp=1` tested
+- [ ] `positionLevel=WORKER` tested → welders in, inspectors blocked
+- [ ] `queryInterpreted` echo present
+- [ ] `nlSearch_` resolves trades via SEED ∪ `_Taxonomy` (not hardcoded)
+- [ ] matches against `_SkillIndex.skillBlob` (skill mining, not trade cell only)
+- [ ] Existing `?action=candidates` regression-identical
 
-- [ ] `nlSearch_` function added to `KAI_API_Bridge_MASTER.gs`
-- [ ] `doGet` router entry added for `action=nlSearch`
-- [ ] `trade2` OR logic implemented and tested with `"mechanical fitter"`
-- [ ] `cert` filter tested with `"nebosh"` → returns HSE candidates only
-- [ ] `gccDest` filter tested with `"Saudi Arabia"` → only Saudi gulfExp
-- [ ] `shutdownExp=1` tested → only candidates with shutdown in assessment
-- [ ] `positionLevel=WORKER` tested → welders returned, welding inspectors blocked
-- [ ] `queryInterpreted` echo present in every response
-- [ ] `_NLQueryLog` sheet auto-created on first search
-- [ ] Existing `?action=candidates` returns identical results as before (regression test)
-- [ ] New deployment version created and URL confirmed via `?action=version`
+Skill Index (Section 47b):
+- [ ] `buildSkillIndexRow_` written, reuses T13/T14 (no re-parse, no Gemini)
+- [ ] One-time `backfillSkillIndex()` run over all active candidates
+- [ ] Parse pipeline writes `_SkillIndex` row on every new CV
+
+Learning Engine (Section 48):
+- [ ] `learnTaxonomyWeekly` written (Steps 1–8)
+- [ ] Auto-approve confidence gate (≥3 JDs or ≥5 CVs)
+- [ ] Affinity mutation clamped ±5, floor 0 / ceiling 100
+- [ ] NEVER-ADD filter rejects IT/health/finance noise
+- [ ] `_TaxonomyLearningLog` written every run
+- [ ] `learnTaxonomyWeekly` added to `BLESSED_TRIGGERS_` + 7-day trigger installed
+- [ ] Gemini hard cap 20 calls/run verified
+- [ ] New deployment version confirmed via `?action=version`
 
 ---
 
-## 9. GAS Section Placement
+## 11. GAS Section Placement
 
-Add `nlSearch_` as **Section 47** in `KAI_API_Bridge_MASTER.gs`.
+| Section | Function | File |
+|---------|----------|------|
+| 47 | `nlSearch_` + `resolveTradeDynamic_` | KAI_API_Bridge_MASTER.gs |
+| 47b | `buildSkillIndexRow_` + `backfillSkillIndex` | KAI_API_Bridge_MASTER.gs |
+| 48 | `learnTaxonomyWeekly` + mutation helpers | KAI_API_Bridge_MASTER.gs (or new KAI_T15_Learning.gs) |
 
-Follow the existing section header pattern:
 ```javascript
 // ════════════════════════════════════════════════════════════════════
-// SECTION 47 — NL SEARCH ENGINE
+// SECTION 48 — TAXONOMY LEARNING ENGINE (the mutating brain)
 // ════════════════════════════════════════════════════════════════════
 ```
