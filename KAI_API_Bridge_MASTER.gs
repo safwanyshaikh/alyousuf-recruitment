@@ -13953,7 +13953,8 @@ var BLESSED_TRIGGERS_ = [
   'runQueueBatch',           // every 10 min — enrichment queue
   'enrichTop3Positions',     // every 10 min — scores top 3 positions
   'processNightBacklog',     // every 10 min — time-gated 10pm-6am, error + junk rescue
-  'learnTaxonomyWeekly'      // every 7 days — NL taxonomy mutation (KAI_NL_Search.gs)
+  'learnTaxonomyWeekly',     // every 7 days — NL taxonomy mutation (KAI_NL_Search.gs)
+  'harvestDriveJDsDaily'     // every  1 day — overseas JD Drive intake (KAI_JD_Drive_Harvester.gs)
 ];
 
 function auditTriggers() {
