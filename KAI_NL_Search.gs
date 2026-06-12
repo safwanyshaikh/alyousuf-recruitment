@@ -160,7 +160,7 @@ function nlSearch_(params) {
     //     display name — CVs carry the alias, not "6G Weld Test".
     var blob = nlBlob_(cand);
     var certHit = q.certAliases.length &&
-                  q.certAliases.some(function (a) { return blob.indexOf(a) >= 0; });
+                  q.certAliases.some(function (a) { return nlAliasHit_(blob, a); });
     var shutHit = q.shutdown && /shutdown|turnaround|\btar\b|overhaul|outage/.test(blob);
     if (certHit) score = Math.min(100, score + NL_CONFIG.certBoost);
     if (shutHit) score = Math.min(100, score + NL_CONFIG.shutdownBoost);
@@ -243,6 +243,16 @@ function nlSearch_(params) {
 }
 
 
+// Word-boundary alias match. Critical for tokens that are substrings of others:
+// "6g" must NOT match inside "6gr", "api" must NOT match inside "rapid".
+// A boundary = start/end of string or any non-alphanumeric char (space, -, _, /, .).
+function nlAliasHit_(haystack, alias) {
+  var a = String(alias || '').toLowerCase().trim();
+  if (!a) return false;
+  var esc = a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)').test(String(haystack || '').toLowerCase());
+}
+
 // ── Backend NL parser (mirrors docs/nl-search/search-parser-spec.md) ─────────────
 function parseNLQuery_(raw) {
   var s = String(raw || '').toLowerCase().trim().replace(/\s+/g, ' ');
@@ -271,7 +281,7 @@ function parseNLQuery_(raw) {
   // Keep the alias list too — CVs contain the alias ("6g","saudi","nebosh"),
   // NEVER the canonical display name ("6G Weld Test"). Matching must use aliases.
   NL_CERTS.forEach(function (c) {
-    if (c.aliases.some(function (a) { return s.indexOf(a) >= 0; })) {
+    if (c.aliases.some(function (a) { return nlAliasHit_(s, a); })) {
       if (q.certs.indexOf(c.canonical) < 0) {
         q.certs.push(c.canonical);
         c.aliases.forEach(function (a) { if (q.certAliases.indexOf(a) < 0) q.certAliases.push(a); });
@@ -624,7 +634,11 @@ var NL_NEVER_ADD = /\b(developer|programmer|nurse|doctor|physician|accountant|te
 var NL_CERTS = [
   { canonical: 'NEBOSH IGC',            aliases: ['nebosh', 'nebosh igc', 'nebosh diploma'] },
   { canonical: 'IOSH',                  aliases: ['iosh', 'iosh managing safely'] },
-  { canonical: '6G Weld Test',          aliases: ['6g', '6gr', '6g welder', '6gr welder', 'coded 6g', 'coded 6gr'] },
+  // 6G and 6GR are DIFFERENT tests — 6GR adds a Restriction ring (harder).
+  // Never alias one to the other. Matched with word boundaries (nlAliasHit_)
+  // so "6g" can never match inside "6gr".
+  { canonical: '6G Weld Test',          aliases: ['6g', '6g welder', '6g welding', 'coded 6g', '6g position'] },
+  { canonical: '6GR Weld Test',         aliases: ['6gr', '6gr welder', '6gr welding', 'coded 6gr', '6gr position'] },
   { canonical: 'CSWIP 3.1',             aliases: ['cswip', 'cswip 3.1', 'cswip 3.2'] },
   { canonical: 'API 570',               aliases: ['api 570', 'api 510', 'api 653', 'api570'] },
   { canonical: 'NDT Level II',          aliases: ['ndt', 'ndt level ii', 'ndt level 2', 'asnt'] },
