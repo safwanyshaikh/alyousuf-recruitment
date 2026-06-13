@@ -1229,6 +1229,18 @@ function getMatchedCandidates_(params) {
 
   if (!reqId) return { ok:false, error:'reqId required' };
 
+  // FIX-B: Cache all-tiers, no-filter calls per reqId — TTL 120s
+  // Epoch key in cache changes on every invalidateListCaches_() call (updateStage, addSlot, etc.)
+  var matchCacheEnabled = (tier === 'ALL' && !fNat && !hideAssigned && minGulfExp === 0 && sortBy === 'score');
+  var matchCache = CacheService.getScriptCache();
+  var matchCKey  = '';
+  if (matchCacheEnabled) {
+    var matchEpoch = matchCache.get('kai:matchEpoch') || '0';
+    matchCKey = 'kai:match:' + matchEpoch + ':' + reqId;
+    var matchHit = cacheGetLarge_(matchCache, matchCKey);
+    if (matchHit) { try { return JSON.parse(matchHit); } catch(e) {} }
+  }
+
   var ss = SpreadsheetApp.openById(SS_ID);
   var rs = ss.getSheetByName('_Requirements');
   if (!rs) return { ok:false, error:'_Requirements sheet not found' };
@@ -1343,7 +1355,7 @@ function getMatchedCandidates_(params) {
   }
 
   // All-tiers response
-  return {
+  var matchResult = {
     ok:true, reqId:reqId, trade:reqTrade,
     engine:    'T14',
     reqLevel:reqLevel, reqCollar:getCollarType_(reqLevel), reqFamily:reqFamily,
@@ -1354,6 +1366,10 @@ function getMatchedCandidates_(params) {
     POSSIBLE:  result.POSSIBLE.slice(0,100),
     counts:    counts
   };
+  if (matchCacheEnabled && matchCKey) {
+    try { cachePutLarge_(matchCache, matchCKey, JSON.stringify(matchResult), 120); } catch(e) {}
+  }
+  return matchResult;
 }
 
 // ── T14 LIVE PATH SMOKE TEST ─────────────────────────────────────────────────
@@ -1649,6 +1665,10 @@ function invalidateListCaches_() {
       'Client Sent||||', 'Client Selected||||', 'Under Review||||'
     ];
     filterCombos.forEach(function(f) { c.remove('kai:candidatesList:' + f + ':meta'); });
+    // FIX-A: requirementCommandCenter cache
+    c.remove('kai:reqCommandCenter:meta');
+    // FIX-B: match cache — bump epoch so all per-reqId keys are orphaned
+    c.put('kai:matchEpoch', String(Date.now()), 7200);
   } catch(e) { /* non-fatal */ }
 }
 
@@ -1794,6 +1814,8 @@ function getRequirementsEnhanced_() {
 }
 
 function createRequirement_(body) {
+  // FIX-A: Invalidate requirementCommandCenter cache on new requirement
+  try { CacheService.getScriptCache().remove('kai:reqCommandCenter:meta'); } catch(e) {}
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('_Requirements');
   if (!sheet) return { ok:false, error:'_Requirements sheet not found' };
@@ -1846,6 +1868,8 @@ function createRequirement_(body) {
 }
 
 function updateRequirement_(body) {
+  // FIX-A: Invalidate requirementCommandCenter cache on requirement update
+  try { CacheService.getScriptCache().remove('kai:reqCommandCenter:meta'); } catch(e) {}
   var reqId = String(body.reqId||'').trim();
   if (!reqId) return { ok:false, error:'reqId required' };
   var ss    = SpreadsheetApp.openById(SS_ID);
@@ -2882,6 +2906,16 @@ function getCandidateSlots_(params) {
   if (!reqId && !kaiNo && !rowIndex)
     return { ok:false, error:'reqId, kaiNo, or rowIndex required' };
 
+  // FIX-C: Cache reqId-only lookups — TTL 30s (submission counter on requirement row)
+  var slotsCache = null;
+  var slotsCKey  = '';
+  if (reqId && !kaiNo && !rowIndex) {
+    slotsCache = CacheService.getScriptCache();
+    slotsCKey  = 'kai:slots:req:' + reqId;
+    var slotsHit = slotsCache.get(slotsCKey);
+    if (slotsHit) { try { return JSON.parse(slotsHit); } catch(e) {} }
+  }
+
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('_CandidateSlots');
   if (!sheet || sheet.getLastRow() < 2) return { ok:true, slots:[], count:0 };
@@ -2915,7 +2949,11 @@ function getCandidateSlots_(params) {
       submissionDate:  String(row[16]||''),
     });
   }
-  return { ok:true, slots:slots, count:slots.length };
+  var slotsResult = { ok:true, slots:slots, count:slots.length };
+  if (slotsCache && slotsCKey) {
+    try { slotsCache.put(slotsCKey, JSON.stringify(slotsResult), 30); } catch(e) {}
+  }
+  return slotsResult;
 }
 
 // POST body: { action:'addSlot', token, reqId, kaiNo, rowIndex, candidateName,
@@ -2926,6 +2964,13 @@ function addCandidateToSlot_(body) {
   var rowIndex = parseInt(body.rowIndex    ||'0');
   if (!reqId) return { ok:false, error:'reqId required' };
   if (!kaiNo && !rowIndex) return { ok:false, error:'kaiNo or rowIndex required' };
+
+  // FIX-B/C: Invalidate slots cache for this req + bump match epoch
+  try {
+    var ic = CacheService.getScriptCache();
+    ic.remove('kai:slots:req:' + reqId);
+    ic.put('kai:matchEpoch', String(Date.now()), 7200);
+  } catch(e) {}
 
   var ss = SpreadsheetApp.openById(SS_ID);
 
@@ -3058,6 +3103,9 @@ function updateSlotStatus_(body) {
       }
       recordFeedback_(ss, String(data[i][1]), reqTrd, String(data[i][2]), candTrd, newStatus, actor);
     }
+
+    // FIX-C: Invalidate slots cache for this requirement
+    try { CacheService.getScriptCache().remove('kai:slots:req:' + String(data[i][1])); } catch(e) {}
 
     return { ok:true, slotId:slotId, prevStatus:prev,
              newStatus: newStatus || prev,
@@ -6908,12 +6956,21 @@ function buildCriticalActions_(req, supply, daysToInterview) {
 // GET ?action=requirementCommandCenter&reqId=AYE-REQ-2026-0001
 // Returns all open requirements enriched with live supply intelligence.
 function requirementCommandCenter_(params) {
+  var filterReqId = String((params && params.reqId)||'').trim();
+
+  // FIX-A: Cache full-list calls (no per-reqId filter) — TTL 120s
+  var rccCache = CacheService.getScriptCache();
+  var rccKey   = 'kai:reqCommandCenter';
+  if (!filterReqId) {
+    var rccHit = cacheGetLarge_(rccCache, rccKey);
+    if (rccHit) { try { return JSON.parse(rccHit); } catch(e) {} }
+  }
+
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('_Requirements');
   if (!sheet || sheet.getLastRow() < 2) return { ok:true, requirements:[], count:0 };
 
-  var filterReqId = String(params.reqId||'').trim();
-  var numCols     = Math.min(sheet.getLastColumn(), 25);
+  var numCols = Math.min(sheet.getLastColumn(), 25);
   var data        = sheet.getRange(2, 1, sheet.getLastRow()-1, numCols).getValues();
   var now         = new Date();
 
@@ -7049,7 +7106,11 @@ function requirementCommandCenter_(params) {
     });
   });
 
-  return { ok:true, requirements:results, count:results.length };
+  var rccResult = { ok:true, requirements:results, count:results.length };
+  if (!filterReqId) {
+    try { cachePutLarge_(rccCache, rccKey, JSON.stringify(rccResult), 120); } catch(e) {}
+  }
+  return rccResult;
 }
 
 // ── PHASE 1 SETUP + TEST ─────────────────────────────────────────────
