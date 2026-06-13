@@ -44,7 +44,7 @@ var VALID_STAGES = [
 
 var VALID_SLOT_STATUSES = [
   'ADDED','SHORTLISTED','SUBMITTED','INTERVIEWED',
-  'SELECTED','REJECTED','DEPLOYED'
+  'SELECTED','OFFERED','VISA','MOBILIZING','DEPLOYED','REJECTED'
 ];
 
 // ════════════════════════════════════════════════════════════════════
