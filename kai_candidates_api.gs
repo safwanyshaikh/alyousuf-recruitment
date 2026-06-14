@@ -324,7 +324,11 @@ function tradeOverlap_(trade, position, roles, keywords) {
   return false;
 }
 
-
+/**
+ * Write stage back to Candidates sheet row.
+ * Params: rowIndex, stage
+ */
+function routeUpdateStage_(p) {
   try {
     var rowIndex = parseInt(p.rowIndex || 0);
     var stage    = String(p.stage || '').trim();
