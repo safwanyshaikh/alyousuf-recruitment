@@ -55,6 +55,12 @@ function doPost(e) {
     var action = String(body.action || '');
     var params = body.params || {};
 
+    // For login: Lovable may send email/password at body root instead of nested under params
+    if (action === 'login') {
+      if (!params.email)    params.email    = body.email    || body.username || '';
+      if (!params.password) params.password = body.password || body.pass     || '';
+    }
+
     if (!action) {
       result = { ok: false, error: 'action is required.' };
     } else {

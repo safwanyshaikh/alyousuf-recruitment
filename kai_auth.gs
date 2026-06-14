@@ -28,11 +28,18 @@
  * @return {{ ok, data: { token, role, name, email } } | { ok, error }}
  */
 function kaiLogin_(email, password) {
-  if (!email || !password) {
-    return { ok: false, error: 'email and password are required.' };
+  // Accept objects too — kaiLogin_({ email, password }) or kaiLogin_(email, password)
+  if (email && typeof email === 'object') {
+    password = email.password || email.pass || '';
+    email    = email.email    || email.username || '';
   }
 
-  var emailNorm = String(email).toLowerCase().trim();
+  var emailNorm = String(email    || '').toLowerCase().trim();
+  var pw        = String(password || '').trim();
+
+  if (!emailNorm || !pw) {
+    return { ok: false, error: 'email and password are required.' };
+  }
 
   try {
     var ss    = getMasterSS_();
@@ -55,9 +62,8 @@ function kaiLogin_(email, password) {
 
       // Validate password — support plain text and SHA-256 hex
       var storedPw   = String(rows[i][1] || '').trim();
-      var inputPlain = String(password).trim();
-      var inputHash  = computeSha256Hex_(inputPlain);
-      var pwValid    = (storedPw === inputPlain) || (storedPw !== '' && storedPw === inputHash);
+      var inputHash  = computeSha256Hex_(pw);
+      var pwValid    = (storedPw === pw) || (storedPw !== '' && storedPw === inputHash);
 
       if (!pwValid) {
         return { ok: false, error: 'Invalid email or password.' };
