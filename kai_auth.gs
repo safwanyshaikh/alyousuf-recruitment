@@ -104,6 +104,96 @@ function kaiLogin_(email, password) {
 }
 
 // ───────────────────────────────────────────────────────────────────
+// SETUP — run once from Apps Script to provision user accounts
+// ───────────────────────────────────────────────────────────────────
+
+/**
+ * Provision KAI user accounts in _LoginSystem.
+ * Safe to run multiple times — skips any email that already has a row.
+ * hr5 is skipped if already present; others are added fresh.
+ *
+ * After running: check Apps Script Logs for the token list.
+ * Share each token with the corresponding user — Lovable stores it
+ * in localStorage after login; recruiters never see it directly.
+ *
+ * Run from Apps Script editor: select provisionKaiUsers → Run.
+ */
+function provisionKaiUsers() {
+  var ss    = getMasterSS_();
+  var sheet = ss ? ss.getSheetByName('_LoginSystem') : null;
+
+  if (!sheet) {
+    Logger.log('ERROR: _LoginSystem sheet not found. Run setupLoginSystem() first.');
+    return;
+  }
+
+  // Ensure header row
+  if (sheet.getLastRow() < 1) {
+    sheet.appendRow(['email','password','role','name','active','token','expiry','lastLogin']);
+  }
+
+  // Read existing emails to avoid duplicates
+  var existing = {};
+  if (sheet.getLastRow() >= 2) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().forEach(function(r) {
+      var e = String(r[0] || '').toLowerCase().trim();
+      if (e) existing[e] = true;
+    });
+  }
+
+  // Expiry: 1 year
+  var expiry = new Date();
+  expiry.setFullYear(expiry.getFullYear() + 1);
+
+  // User definitions
+  var users = [
+    { email: 'hr5@alyousufent.com',   password: 'KAI@2026hr5',   role: 'recruiter', name: 'Recruiter HR5'  },
+    { email: 'hr7@alyousufent.com',   password: 'KAI@2026hr7',   role: 'recruiter', name: 'Recruiter HR7'  },
+    { email: 'hr8@alyousufent.com',   password: 'KAI@2026hr8',   role: 'recruiter', name: 'Recruiter HR8'  },
+    { email: 'visa@alyousufent.com',  password: 'KAI@2026visa',  role: 'visa',      name: 'Visa Team'      },
+    { email: 'admin@alyousufent.com', password: 'KAIAdmin2026',  role: 'admin',     name: 'Al Yousuf Enterprises LLP' }
+  ];
+
+  var added = [], skipped = [];
+
+  users.forEach(function(u) {
+    var emailKey = u.email.toLowerCase().trim();
+    if (existing[emailKey]) {
+      skipped.push(u.email);
+      return;
+    }
+
+    var token = Utilities.getUuid();
+    var pwHash = computeSha256Hex_(u.password);
+
+    sheet.appendRow([
+      u.email,   // A: email
+      pwHash,    // B: password (SHA-256)
+      u.role,    // C: role
+      u.name,    // D: name
+      'TRUE',    // E: active
+      token,     // F: session token
+      expiry,    // G: expiry
+      ''         // H: lastLogin
+    ]);
+
+    added.push({ email: u.email, role: u.role, token: token });
+    existing[emailKey] = true;
+  });
+
+  Logger.log('═══ KAI USER PROVISIONING COMPLETE ═══');
+  Logger.log('Added   : ' + added.length);
+  Logger.log('Skipped : ' + skipped.join(', ') || 'none');
+  Logger.log('');
+  added.forEach(function(u) {
+    Logger.log('  ' + u.email + ' [' + u.role + ']  token: ' + u.token);
+  });
+  Logger.log('');
+  Logger.log('Tokens are stored in _LoginSystem col F.');
+  Logger.log('Lovable will receive the token on login and store it client-side.');
+}
+
+// ───────────────────────────────────────────────────────────────────
 // PRIVATE HELPERS
 // ───────────────────────────────────────────────────────────────────
 
