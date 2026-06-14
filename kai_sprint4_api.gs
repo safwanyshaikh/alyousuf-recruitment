@@ -99,6 +99,9 @@ function doGet(e) {
 
 var ROUTES_ = {
 
+  // ── Authentication ─────────────────────────────────────────────
+  'login':                     function(p) { return kaiLogin_(p.email, p.password); },
+
   // ── Project Candidates (Sprint 1 / S61) ────────────────────────
   // Replaces: addSlot in MatchPanel, AssignToRequirementModal, AssignCandidatesModal
   'addCandidateToProject':     function(p) { return addCandidateToProject(p.reqId, p.kaiNo, p.source); },
@@ -160,6 +163,7 @@ function healthCheckApi() {
   var actions  = Object.keys(ROUTES_);
   var ss       = getMasterSS_();
   var sheets   = [
+    '_LoginSystem',
     '_ProjectCandidates','_SubmissionBatches','_SubmissionBatchItems',
     '_RecruiterActivityLog','_Timeline',
     '_SubmissionPackages','_BatchTimeline',
