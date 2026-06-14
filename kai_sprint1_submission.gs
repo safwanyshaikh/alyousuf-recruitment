@@ -1,14 +1,22 @@
 /**
  * ═══════════════════════════════════════════════════════════════════
  *  KAI — Sprint 1 · Submission Module
- *  Entities : _ProjectCandidates · _SubmissionBatches
+ *  Entities : _CampaignCandidates · _SubmissionBatches
  *             _SubmissionBatchItems · _RecruiterActivityLog
- *  Version  : 1.0.0
+ *             _Timeline
+ *  Version  : 1.1.0
  *  Date     : 14-Jun-2026
+ *
+ *  Founder Decisions applied:
+ *    D1 — Campaign = Project (renamed throughout)
+ *    D2 — Pipeline Status ≠ Client Response Status (separate, already so)
+ *    D3 — Package output: Email Draft + Sheet + CVs + ZIP (Sprint 2)
+ *    D4 — _Timeline activated; every batch transition writes Timeline
+ *    D5 — _Submissions / _ClientSubs untouched; _SubmissionBatches only
  *
  *  SAFE — parallel build. Zero writes to:
  *    Candidates · _Requirements · existing pipeline ·
- *    email intake · matching engine
+ *    email intake · matching engine · _Submissions · _ClientSubs
  *
  *  SETUP
  *    1. Add this file to Apps Script as kai_sprint1_submission.gs
@@ -18,14 +26,15 @@
  */
 
 // ───────────────────────────────────────────────────────────────────
-// CONSTANTS — locked values from approved architecture
+// CONSTANTS
 // ───────────────────────────────────────────────────────────────────
 
 var SUB_SHEETS_ = {
-  PROJECT_CANDIDATES: '_ProjectCandidates',
-  BATCHES:            '_SubmissionBatches',
-  ITEMS:              '_SubmissionBatchItems',
-  ACTIVITY_LOG:       '_RecruiterActivityLog'
+  CAMPAIGN_CANDIDATES: '_CampaignCandidates',   // D1: renamed from _ProjectCandidates
+  BATCHES:             '_SubmissionBatches',
+  ITEMS:               '_SubmissionBatchItems',
+  ACTIVITY_LOG:        '_RecruiterActivityLog',
+  TIMELINE:            '_Timeline'               // D4: activated
 };
 
 var BATCH_STATUS_ = {
@@ -35,12 +44,12 @@ var BATCH_STATUS_ = {
   CLOSED:    'CLOSED'
 };
 
-var PC_SOURCE_ = { MATCH: 'MATCH', MANUAL: 'MANUAL' };
+var CC_SOURCE_ = { MATCH: 'MATCH', MANUAL: 'MANUAL' };
 
 var RAL_ENTITY_ = {
-  BATCH:     'BATCH',
-  ITEM:      'ITEM',
-  PROJECT:   'PROJECT_CANDIDATE'
+  BATCH:              'BATCH',
+  ITEM:               'ITEM',
+  CAMPAIGN_CANDIDATE: 'CAMPAIGN_CANDIDATE'   // D1
 };
 
 var BATCH_CAPACITY_DEFAULT_ = 10;
@@ -48,8 +57,9 @@ var BATCH_CAPACITY_MIN_     = 1;
 var BATCH_CAPACITY_MAX_     = 20;
 var REMARK_MAX_LEN_         = 300;
 
-// Column indices (1-based) for each sheet
-var PC_COL_ = {
+// Column indices (1-based)
+
+var CC_COL_ = {                              // D1: renamed from PC_COL_
   ID: 1, REQ: 2, KAI: 3, SOURCE: 4,
   ADDED_AT: 5, ADDED_BY: 6,
   REMOVED_AT: 7, REMOVED_BY: 8,
@@ -80,6 +90,13 @@ var RAL_COL_ = {
   LOGGED_AT: 9, LOGGED_BY: 10
 };
 
+var TL_COL_ = {                              // D4: _Timeline columns
+  ID: 1, BATCH: 2, REQ: 3,
+  FROM_STATUS: 4, TO_STATUS: 5,
+  TRIGGERED_BY: 6, TRIGGERED_AT: 7,
+  REMARK: 8
+};
+
 // ───────────────────────────────────────────────────────────────────
 // S60 · SETUP & HEALTH CHECK
 // ───────────────────────────────────────────────────────────────────
@@ -91,8 +108,8 @@ function setupSprint1() {
   var created = [], existed = [];
 
   var HEADERS = {};
-  HEADERS[SUB_SHEETS_.PROJECT_CANDIDATES] = [
-    'projectCandidateId','reqId','kaiNo','source',
+  HEADERS[SUB_SHEETS_.CAMPAIGN_CANDIDATES] = [     // D1
+    'campaignCandidateId','reqId','kaiNo','source',
     'addedAt','addedBy','removedAt','removedBy','recruiterRemark'
   ];
   HEADERS[SUB_SHEETS_.BATCHES] = [
@@ -113,6 +130,11 @@ function setupSprint1() {
     'kaiNo','batchId','reqId',
     'stage','remark','loggedAt','loggedBy'
   ];
+  HEADERS[SUB_SHEETS_.TIMELINE] = [               // D4
+    'timelineId','batchId','reqId',
+    'fromStatus','toStatus',
+    'triggeredBy','triggeredAt','remark'
+  ];
 
   Object.keys(SUB_SHEETS_).forEach(function(key) {
     var name = SUB_SHEETS_[key];
@@ -120,21 +142,18 @@ function setupSprint1() {
     var sheet = ss.insertSheet(name);
     var h = HEADERS[name];
     sheet.getRange(1, 1, 1, h.length).setValues([h]);
-    // Freeze header row
     sheet.setFrozenRows(1);
     created.push(name);
   });
 
-  // Write _Config defaults (idempotent)
   setConfigDefault_('submission_batch_capacity', String(BATCH_CAPACITY_DEFAULT_));
   setConfigDefault_('submission_batch_max',      String(BATCH_CAPACITY_MAX_));
 
-  var msg = [
+  Logger.log([
     'setupSprint1 complete.',
     '  Created : ' + (created.join(', ') || 'none'),
     '  Existed : ' + (existed.join(', ') || 'none')
-  ].join('\n');
-  Logger.log(msg);
+  ].join('\n'));
 }
 
 function healthCheckSprint1() {
@@ -147,11 +166,11 @@ function healthCheckSprint1() {
     else issues.push(name + ' MISSING — run setupSprint1()');
   });
 
-  // Verify _Requirements is untouched (read-only check)
-  if (ss && ss.getSheetByName('_Requirements')) ok.push('_Requirements present (read-only) ✓');
-  else issues.push('_Requirements not found — matching engine check');
+  // D5: confirm read-only sheets untouched
+  ['_Requirements', '_Submissions', '_ClientSubs'].forEach(function(name) {
+    if (ss && ss.getSheetByName(name)) ok.push(name + ' present (read-only) ✓');
+  });
 
-  // Verify Candidates is untouched
   var candName = (typeof CONFIG !== 'undefined' && CONFIG.sheetName) || 'Candidates';
   if (ss && ss.getSheetByName(candName)) ok.push(candName + ' present (read-only) ✓');
   else issues.push(candName + ' not found');
@@ -166,44 +185,41 @@ function healthCheckSprint1() {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// S61 · PROJECT CANDIDATES
+// S61 · CAMPAIGN CANDIDATES  (D1: renamed from Project Candidates)
 // ───────────────────────────────────────────────────────────────────
 
 /**
- * Add a candidate to a requirement's project pool.
- * Idempotent: re-adds if previously soft-removed.
+ * Add a candidate to a campaign (requirement) pool.
+ * Idempotent: reactivates if previously soft-removed.
  */
-function addCandidateToProject(reqId, kaiNo, source) {
+function addCandidateToCampaign(reqId, kaiNo, source) {
   if (!reqId) return _err_('reqId is required.');
   if (!kaiNo) return _err_('kaiNo is required.');
 
-  var src = String(source || PC_SOURCE_.MANUAL).toUpperCase();
-  if (src !== PC_SOURCE_.MATCH && src !== PC_SOURCE_.MANUAL)
+  var src = String(source || CC_SOURCE_.MANUAL).toUpperCase();
+  if (src !== CC_SOURCE_.MATCH && src !== CC_SOURCE_.MANUAL)
     return _err_('source must be MATCH or MANUAL.');
 
   var ss    = getMasterSS_();
-  var sheet = ss.getSheetByName(SUB_SHEETS_.PROJECT_CANDIDATES);
-  if (!sheet) return _err_('_ProjectCandidates missing. Run setupSprint1().');
+  var sheet = ss.getSheetByName(SUB_SHEETS_.CAMPAIGN_CANDIDATES);
+  if (!sheet) return _err_('_CampaignCandidates missing. Run setupSprint1().');
 
-  var existing = findProjectCandidate_(sheet, reqId, kaiNo);
+  var existing = findCampaignCandidate_(sheet, reqId, kaiNo);
 
-  // Already active — block duplicate
   if (existing.found && !existing.removed)
-    return _err_('Candidate ' + kaiNo + ' already in project ' + reqId + '.');
+    return _err_('Candidate ' + kaiNo + ' already in campaign ' + reqId + '.');
 
   var recruiter = getCallerEmail_();
   var id;
 
   if (existing.found && existing.removed) {
-    // Reactivate soft-removed row
     id = existing.id;
-    sheet.getRange(existing.rowNum, PC_COL_.REMOVED_AT).setValue('');
-    sheet.getRange(existing.rowNum, PC_COL_.REMOVED_BY).setValue('');
-    sheet.getRange(existing.rowNum, PC_COL_.ADDED_AT).setValue(new Date());
-    sheet.getRange(existing.rowNum, PC_COL_.ADDED_BY).setValue(recruiter);
+    sheet.getRange(existing.rowNum, CC_COL_.REMOVED_AT).setValue('');
+    sheet.getRange(existing.rowNum, CC_COL_.REMOVED_BY).setValue('');
+    sheet.getRange(existing.rowNum, CC_COL_.ADDED_AT).setValue(new Date());
+    sheet.getRange(existing.rowNum, CC_COL_.ADDED_BY).setValue(recruiter);
   } else {
-    // New row
-    id = generateId_('PC');
+    id = generateId_('CC');
     sheet.appendRow([
       id, reqId, kaiNo, src,
       new Date(), recruiter,
@@ -211,90 +227,90 @@ function addCandidateToProject(reqId, kaiNo, source) {
     ]);
   }
 
-  logActivity_(RAL_ENTITY_.PROJECT, id, 'PROJECT',
-    'PROJECT - Added to requirement ' + reqId + ' [' + src + ']',
+  logActivity_(RAL_ENTITY_.CAMPAIGN_CANDIDATE, id, 'CAMPAIGN',
+    'CAMPAIGN - Added to requirement ' + reqId + ' [' + src + ']',
     { kaiNo: kaiNo, reqId: reqId });
 
-  return { ok: true, projectCandidateId: id };
+  return { ok: true, campaignCandidateId: id, reactivated: !!(existing.found && existing.removed) };
 }
 
 /**
- * Soft-remove a candidate from a project pool.
+ * Soft-remove a candidate from a campaign pool.
  */
-function removeCandidateFromProject(projectCandidateId) {
-  if (!projectCandidateId) return _err_('projectCandidateId is required.');
+function removeCandidateFromCampaign(campaignCandidateId) {
+  if (!campaignCandidateId) return _err_('campaignCandidateId is required.');
 
   var ss    = getMasterSS_();
-  var sheet = ss.getSheetByName(SUB_SHEETS_.PROJECT_CANDIDATES);
-  if (!sheet) return _err_('_ProjectCandidates missing.');
+  var sheet = ss.getSheetByName(SUB_SHEETS_.CAMPAIGN_CANDIDATES);
+  if (!sheet) return _err_('_CampaignCandidates missing.');
 
-  var rowNum = findRowById_(sheet, PC_COL_.ID, projectCandidateId);
-  if (!rowNum) return _err_('Project candidate not found: ' + projectCandidateId);
+  var rowNum = findRowById_(sheet, CC_COL_.ID, campaignCandidateId);
+  if (!rowNum) return _err_('Campaign candidate not found: ' + campaignCandidateId);
 
   var data = sheet.getRange(rowNum, 1, 1, 9).getValues()[0];
-  if (data[PC_COL_.REMOVED_AT - 1]) return _err_('Already removed.');
+  if (data[CC_COL_.REMOVED_AT - 1]) return _err_('Already removed.');
 
   var recruiter = getCallerEmail_();
-  sheet.getRange(rowNum, PC_COL_.REMOVED_AT).setValue(new Date());
-  sheet.getRange(rowNum, PC_COL_.REMOVED_BY).setValue(recruiter);
+  sheet.getRange(rowNum, CC_COL_.REMOVED_AT).setValue(new Date());
+  sheet.getRange(rowNum, CC_COL_.REMOVED_BY).setValue(recruiter);
 
-  logActivity_(RAL_ENTITY_.PROJECT, projectCandidateId, 'PROJECT',
-    'PROJECT - Removed from requirement ' + data[PC_COL_.REQ - 1],
-    { kaiNo: data[PC_COL_.KAI - 1], reqId: data[PC_COL_.REQ - 1] });
+  logActivity_(RAL_ENTITY_.CAMPAIGN_CANDIDATE, campaignCandidateId, 'CAMPAIGN',
+    'CAMPAIGN - Removed from requirement ' + data[CC_COL_.REQ - 1],
+    { kaiNo: data[CC_COL_.KAI - 1], reqId: data[CC_COL_.REQ - 1] });
 
   return { ok: true };
 }
 
 /**
- * Get all active (non-removed) candidates in a requirement's project pool.
+ * Get all active candidates in a campaign pool.
  */
-function getProjectCandidates(reqId) {
+function getCampaignCandidates(reqId) {
   if (!reqId) return [];
   var ss    = getMasterSS_();
-  var sheet = ss.getSheetByName(SUB_SHEETS_.PROJECT_CANDIDATES);
+  var sheet = ss.getSheetByName(SUB_SHEETS_.CAMPAIGN_CANDIDATES);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  var data    = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
-  var results = [];
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
+  var out  = [];
   data.forEach(function(r) {
-    if (String(r[PC_COL_.REQ - 1])        !== reqId) return;
-    if (r[PC_COL_.REMOVED_AT - 1])                   return; // soft-deleted
-    results.push({
-      projectCandidateId: r[PC_COL_.ID     - 1],
-      reqId:              r[PC_COL_.REQ    - 1],
-      kaiNo:              r[PC_COL_.KAI    - 1],
-      source:             r[PC_COL_.SOURCE - 1],
-      addedAt:            r[PC_COL_.ADDED_AT - 1],
-      addedBy:            r[PC_COL_.ADDED_BY - 1],
-      recruiterRemark:    r[PC_COL_.REMARK  - 1]
+    if (String(r[CC_COL_.REQ - 1])      !== reqId) return;
+    if (r[CC_COL_.REMOVED_AT - 1])                 return;
+    out.push({
+      campaignCandidateId: r[CC_COL_.ID      - 1],
+      reqId:               r[CC_COL_.REQ     - 1],
+      kaiNo:               r[CC_COL_.KAI     - 1],
+      source:              r[CC_COL_.SOURCE  - 1],
+      addedAt:             r[CC_COL_.ADDED_AT - 1],
+      addedBy:             r[CC_COL_.ADDED_BY - 1],
+      recruiterRemark:     r[CC_COL_.REMARK  - 1]
     });
   });
-  return results;
+  return out;
 }
 
 /**
- * Get all active projects (requirements) a candidate has been added to.
+ * Get all active campaigns a candidate has been added to.
  */
-function getCandidateProjects(kaiNo) {
+function getCandidateCampaigns(kaiNo) {
   if (!kaiNo) return [];
   var ss    = getMasterSS_();
-  var sheet = ss.getSheetByName(SUB_SHEETS_.PROJECT_CANDIDATES);
+  var sheet = ss.getSheetByName(SUB_SHEETS_.CAMPAIGN_CANDIDATES);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  var data    = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
-  var results = [];
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
+  var out  = [];
   data.forEach(function(r) {
-    if (String(r[PC_COL_.KAI - 1])    !== kaiNo) return;
-    if (r[PC_COL_.REMOVED_AT - 1])               return;
-    results.push({
-      projectCandidateId: r[PC_COL_.ID     - 1],
-      reqId:              r[PC_COL_.REQ    - 1],
-      source:             r[PC_COL_.SOURCE - 1],
-      addedAt:            r[PC_COL_.ADDED_AT - 1],
-      addedBy:            r[PC_COL_.ADDED_BY - 1]
+    if (String(r[CC_COL_.KAI - 1]) !== kaiNo) return;
+    if (r[CC_COL_.REMOVED_AT - 1])            return;
+    out.push({
+      campaignCandidateId: r[CC_COL_.ID      - 1],
+      reqId:               r[CC_COL_.REQ     - 1],
+      source:              r[CC_COL_.SOURCE  - 1],
+      addedAt:             r[CC_COL_.ADDED_AT - 1],
+      addedBy:             r[CC_COL_.ADDED_BY - 1]
     });
   });
-  return results;
+  return out;
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -303,9 +319,7 @@ function getCandidateProjects(kaiNo) {
 
 /**
  * Create a new DRAFT submission batch.
- * Resolves trade from _Requirements automatically.
- * @param {string} reqId
- * @param {{capacity:number, recruiterRemark:string}} options
+ * Resolves trade + clientName from _Requirements automatically.
  */
 function createSubmissionBatch(reqId, options) {
   if (!reqId) return _err_('reqId is required.');
@@ -314,7 +328,6 @@ function createSubmissionBatch(reqId, options) {
   var sheet = ss.getSheetByName(SUB_SHEETS_.BATCHES);
   if (!sheet) return _err_('_SubmissionBatches missing. Run setupSprint1().');
 
-  // Requirement must exist and have a trade
   var req = getRequirementById_(ss, reqId);
   if (!req)       return _err_('Requirement not found: ' + reqId);
   if (!req.trade) return _err_('Requirement ' + reqId + ' has no trade. Add trade to _Requirements first.');
@@ -340,6 +353,10 @@ function createSubmissionBatch(reqId, options) {
     opts.recruiterRemark || ''
   ]);
 
+  // D4: Timeline — null → DRAFT
+  appendTimelineEvent_(batchId, reqId, null, BATCH_STATUS_.DRAFT,
+    'Batch created for ' + req.clientName + ' · ' + req.trade);
+
   logActivity_(RAL_ENTITY_.BATCH, batchId, 'DRAFT',
     'DRAFT - Batch created for ' + req.clientName + ' · ' + req.trade,
     { batchId: batchId, reqId: reqId });
@@ -356,24 +373,22 @@ function getSubmissionBatches(filters) {
   var sheet = ss.getSheetByName(SUB_SHEETS_.BATCHES);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  var f    = filters || {};
+  var f   = filters || {};
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).getValues();
   var out  = [];
 
   data.forEach(function(r) {
     if (!r[0]) return;
-    if (f.trade      && String(r[BATCH_COL_.TRADE  - 1]).toLowerCase().indexOf(f.trade.toLowerCase()) < 0) return;
-    if (f.clientName && String(r[BATCH_COL_.CLIENT - 1]).toLowerCase().indexOf(f.clientName.toLowerCase()) < 0) return;
-    if (f.status     && String(r[BATCH_COL_.STATUS - 1]) !== f.status)    return;
-    if (f.createdBy  && String(r[BATCH_COL_.CREATED_BY - 1]) !== f.createdBy) return;
+    if (f.trade      && String(r[BATCH_COL_.TRADE      - 1]).toLowerCase().indexOf(f.trade.toLowerCase())      < 0) return;
+    if (f.clientName && String(r[BATCH_COL_.CLIENT     - 1]).toLowerCase().indexOf(f.clientName.toLowerCase()) < 0) return;
+    if (f.status     && String(r[BATCH_COL_.STATUS     - 1]) !== f.status)     return;
+    if (f.createdBy  && String(r[BATCH_COL_.CREATED_BY - 1]) !== f.createdBy)  return;
     out.push(rowToBatch_(r));
   });
   return out;
 }
 
-/**
- * Get a single submission batch by ID.
- */
+/** Get a single submission batch by ID. */
 function getSubmissionBatch(batchId) {
   if (!batchId) return null;
   var ss    = getMasterSS_();
@@ -384,14 +399,13 @@ function getSubmissionBatch(batchId) {
   return rowToBatch_(sheet.getRange(rowNum, 1, 1, 16).getValues()[0]);
 }
 
-/**
- * Update batch capacity. DRAFT only.
- */
+/** Update batch capacity. DRAFT only; capacity must be ≥ current itemCount. */
 function updateBatchCapacity(batchId, capacity) {
   var batch = getSubmissionBatch(batchId);
   if (!batch) return _err_('Batch not found: ' + batchId);
   if (batch.status !== BATCH_STATUS_.DRAFT)
     return _err_('Capacity can only change on DRAFT batches.');
+
   var cap = parseInt(capacity);
   if (isNaN(cap) || cap < BATCH_CAPACITY_MIN_ || cap > BATCH_CAPACITY_MAX_)
     return _err_('Capacity must be ' + BATCH_CAPACITY_MIN_ + '–' + BATCH_CAPACITY_MAX_ + '.');
@@ -408,9 +422,7 @@ function updateBatchCapacity(batchId, capacity) {
   return { ok: true };
 }
 
-/**
- * Update batch recruiter remark. Format: [STAGE] - detail. Max 300 chars.
- */
+/** Update batch recruiter remark. Max 300 chars. */
 function updateBatchRemark(batchId, remark) {
   var rv = validateRemark_(remark);
   if (!rv.ok) return _err_(rv.error);
@@ -423,14 +435,12 @@ function updateBatchRemark(batchId, remark) {
   return { ok: true };
 }
 
-/**
- * Close a SUBMITTED batch → CLOSED.
- */
+/** Close a SUBMITTED batch → CLOSED. D4: writes Timeline. */
 function closeSubmissionBatch(batchId) {
   var batch = getSubmissionBatch(batchId);
   if (!batch) return _err_('Batch not found: ' + batchId);
   if (batch.status !== BATCH_STATUS_.SUBMITTED)
-    return _err_('Only SUBMITTED batches can be closed. Current status: ' + batch.status);
+    return _err_('Only SUBMITTED batches can be closed. Current: ' + batch.status);
 
   var ss        = getMasterSS_();
   var sheet     = ss.getSheetByName(SUB_SHEETS_.BATCHES);
@@ -440,6 +450,10 @@ function closeSubmissionBatch(batchId) {
   sheet.getRange(rowNum, BATCH_COL_.STATUS).setValue(BATCH_STATUS_.CLOSED);
   sheet.getRange(rowNum, BATCH_COL_.CLOSED_AT).setValue(new Date());
   sheet.getRange(rowNum, BATCH_COL_.CLOSED_BY).setValue(recruiter);
+
+  // D4: Timeline — SUBMITTED → CLOSED
+  appendTimelineEvent_(batchId, batch.reqId, BATCH_STATUS_.SUBMITTED, BATCH_STATUS_.CLOSED,
+    'Batch closed');
 
   logActivity_(RAL_ENTITY_.BATCH, batchId, 'CLOSED',
     'CLOSED - Batch closed',
@@ -453,7 +467,7 @@ function closeSubmissionBatch(batchId) {
 
 /**
  * Add a candidate to a DRAFT submission batch.
- * Guards: batch must be DRAFT · capacity not exceeded · no duplicate.
+ * Guards: DRAFT only · capacity not exceeded · no duplicate active item.
  */
 function addCandidateToBatch(batchId, kaiNo) {
   if (!batchId) return _err_('batchId is required.');
@@ -461,9 +475,8 @@ function addCandidateToBatch(batchId, kaiNo) {
 
   var batch = getSubmissionBatch(batchId);
   if (!batch) return _err_('Batch not found: ' + batchId);
-
   if (batch.status !== BATCH_STATUS_.DRAFT)
-    return _err_('Items can only be added to DRAFT batches. Current status: ' + batch.status);
+    return _err_('Items can only be added to DRAFT batches. Current: ' + batch.status);
   if (batch.itemCount >= batch.capacity)
     return _err_('Batch is at capacity (' + batch.capacity + '). Increase capacity or create a new batch.');
 
@@ -475,14 +488,12 @@ function addCandidateToBatch(batchId, kaiNo) {
   if (existing.found && !existing.removed)
     return _err_('Candidate ' + kaiNo + ' is already in batch ' + batchId + '.');
 
-  // Resolve CV data from Candidates (read-only)
-  var cvData   = getCandidateCvData_(ss, kaiNo);
+  var cvData    = getCandidateCvData_(ss, kaiNo);
   var recruiter = getCallerEmail_();
   var itemId    = generateId_('ITEM');
   var nextOrder = batch.itemCount + 1;
 
   if (existing.found && existing.removed) {
-    // Reactivate soft-removed item
     itemId = existing.id;
     var r  = existing.rowNum;
     itemSheet.getRange(r, ITEM_COL_.REMOVED_AT).setValue('');
@@ -502,7 +513,6 @@ function addCandidateToBatch(batchId, kaiNo) {
     ]);
   }
 
-  // Increment batch itemCount
   var batchSheet = ss.getSheetByName(SUB_SHEETS_.BATCHES);
   var batchRow   = findRowById_(batchSheet, BATCH_COL_.ID, batchId);
   batchSheet.getRange(batchRow, BATCH_COL_.ITEM_COUNT).setValue(batch.itemCount + 1);
@@ -515,8 +525,7 @@ function addCandidateToBatch(batchId, kaiNo) {
 }
 
 /**
- * Soft-remove a candidate from a batch.
- * Only allowed when batch is DRAFT or READY.
+ * Soft-remove a candidate from a batch. DRAFT or READY only.
  */
 function removeCandidateFromBatch(batchId, kaiNo) {
   if (!batchId) return _err_('batchId is required.');
@@ -539,7 +548,6 @@ function removeCandidateFromBatch(batchId, kaiNo) {
   itemSheet.getRange(item.rowNum, ITEM_COL_.REMOVED_AT).setValue(new Date());
   itemSheet.getRange(item.rowNum, ITEM_COL_.REMOVED_BY).setValue(recruiter);
 
-  // Decrement batch itemCount
   var batchSheet = ss.getSheetByName(SUB_SHEETS_.BATCHES);
   var batchRow   = findRowById_(batchSheet, BATCH_COL_.ID, batchId);
   batchSheet.getRange(batchRow, BATCH_COL_.ITEM_COUNT).setValue(Math.max(0, batch.itemCount - 1));
@@ -551,9 +559,7 @@ function removeCandidateFromBatch(batchId, kaiNo) {
   return { ok: true };
 }
 
-/**
- * Get all active items in a batch, sorted by displayOrder.
- */
+/** Get all active items in a batch, sorted by displayOrder. */
 function getBatchItems(batchId) {
   if (!batchId) return [];
   var ss        = getMasterSS_();
@@ -583,8 +589,7 @@ function getBatchItems(batchId) {
 
 /**
  * Reorder items within a DRAFT batch.
- * @param {string} batchId
- * @param {string[]} orderedKaiNos — full ordered list of kaiNos
+ * @param {string[]} orderedKaiNos — complete ordered list of kaiNos
  */
 function reorderBatchItems(batchId, orderedKaiNos) {
   if (!batchId || !orderedKaiNos || !orderedKaiNos.length)
@@ -613,9 +618,7 @@ function reorderBatchItems(batchId, orderedKaiNos) {
   return { ok: true };
 }
 
-/**
- * Update a batch item's recruiter remark. Format: [STAGE] - detail. Max 300 chars.
- */
+/** Update a batch item's recruiter remark. Max 300 chars. */
 function updateItemRemark(itemId, remark) {
   var rv = validateRemark_(remark);
   if (!rv.ok) return _err_(rv.error);
@@ -635,15 +638,13 @@ function updateItemRemark(itemId, remark) {
 // S64 · RECRUITER ACTIVITY LOG
 // ───────────────────────────────────────────────────────────────────
 
-/**
- * Get activity log entries. Filters: batchId, kaiNo, reqId, entityType.
- */
+/** Get activity log entries. Filters: entityType, batchId, kaiNo, reqId. */
 function getActivityLog(filters) {
   var ss    = getMasterSS_();
   var sheet = ss.getSheetByName(SUB_SHEETS_.ACTIVITY_LOG);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  var f    = filters || {};
+  var f   = filters || {};
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
   var out  = [];
 
@@ -669,30 +670,29 @@ function getActivityLog(filters) {
   return out;
 }
 
-/**
- * Private: append one row to _RecruiterActivityLog. Append-only. No updates.
- */
-function logActivity_(entityType, entityId, stage, remark, meta) {
-  try {
-    var ss    = getMasterSS_();
-    var sheet = ss.getSheetByName(SUB_SHEETS_.ACTIVITY_LOG);
-    if (!sheet) return;
-    var m = meta || {};
-    sheet.appendRow([
-      generateId_('RAL'),
-      entityType,
-      entityId,
-      m.kaiNo   || '',
-      m.batchId || '',
-      m.reqId   || '',
-      stage,
-      String(remark || '').slice(0, REMARK_MAX_LEN_),
-      new Date(),
-      getCallerEmail_()
-    ]);
-  } catch (e) {
-    Logger.log('logActivity_: ' + e.message);
-  }
+/** Get timeline for a specific batch. */
+function getBatchTimeline(batchId) {
+  if (!batchId) return [];
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(SUB_SHEETS_.TIMELINE);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+  var out  = [];
+  data.forEach(function(r) {
+    if (String(r[TL_COL_.BATCH - 1]) !== batchId) return;
+    out.push({
+      timelineId:   r[TL_COL_.ID           - 1],
+      batchId:      r[TL_COL_.BATCH        - 1],
+      reqId:        r[TL_COL_.REQ          - 1],
+      fromStatus:   r[TL_COL_.FROM_STATUS  - 1],
+      toStatus:     r[TL_COL_.TO_STATUS    - 1],
+      triggeredBy:  r[TL_COL_.TRIGGERED_BY - 1],
+      triggeredAt:  r[TL_COL_.TRIGGERED_AT - 1],
+      remark:       r[TL_COL_.REMARK       - 1]
+    });
+  });
+  return out;
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -737,7 +737,6 @@ function getCallerEmail_() {
   try { return Session.getActiveUser().getEmail() || 'system'; } catch (e) { return 'system'; }
 }
 
-/** Find a row number (1-based) by matching value in a given column. Returns null if not found. */
 function findRowById_(sheet, col, id) {
   if (!sheet || sheet.getLastRow() < 2) return null;
   var vals = sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues();
@@ -747,17 +746,17 @@ function findRowById_(sheet, col, id) {
   return null;
 }
 
-function findProjectCandidate_(sheet, reqId, kaiNo) {
+function findCampaignCandidate_(sheet, reqId, kaiNo) {    // D1: renamed from findProjectCandidate_
   if (sheet.getLastRow() < 2) return { found: false };
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
   for (var i = 0; i < data.length; i++) {
-    if (String(data[i][PC_COL_.REQ - 1]) === reqId &&
-        String(data[i][PC_COL_.KAI - 1]) === kaiNo) {
+    if (String(data[i][CC_COL_.REQ - 1]) === reqId &&
+        String(data[i][CC_COL_.KAI - 1]) === kaiNo) {
       return {
         found:   true,
         rowNum:  i + 2,
-        id:      data[i][PC_COL_.ID - 1],
-        removed: !!data[i][PC_COL_.REMOVED_AT - 1]
+        id:      data[i][CC_COL_.ID - 1],
+        removed: !!data[i][CC_COL_.REMOVED_AT - 1]
       };
     }
   }
@@ -783,26 +782,71 @@ function findBatchItem_(sheet, batchId, kaiNo) {
 
 function rowToBatch_(r) {
   return {
-    batchId:         r[BATCH_COL_.ID          - 1],
-    reqId:           r[BATCH_COL_.REQ         - 1],
-    clientName:      r[BATCH_COL_.CLIENT      - 1],
-    trade:           r[BATCH_COL_.TRADE       - 1],
-    status:          r[BATCH_COL_.STATUS      - 1],
-    capacity:        r[BATCH_COL_.CAPACITY    - 1],
-    itemCount:       r[BATCH_COL_.ITEM_COUNT  - 1],
-    createdAt:       r[BATCH_COL_.CREATED_AT  - 1],
-    createdBy:       r[BATCH_COL_.CREATED_BY  - 1],
-    readyAt:         r[BATCH_COL_.READY_AT    - 1],
-    readyBy:         r[BATCH_COL_.READY_BY    - 1],
+    batchId:         r[BATCH_COL_.ID           - 1],
+    reqId:           r[BATCH_COL_.REQ          - 1],
+    clientName:      r[BATCH_COL_.CLIENT       - 1],
+    trade:           r[BATCH_COL_.TRADE        - 1],
+    status:          r[BATCH_COL_.STATUS       - 1],
+    capacity:        r[BATCH_COL_.CAPACITY     - 1],
+    itemCount:       r[BATCH_COL_.ITEM_COUNT   - 1],
+    createdAt:       r[BATCH_COL_.CREATED_AT   - 1],
+    createdBy:       r[BATCH_COL_.CREATED_BY   - 1],
+    readyAt:         r[BATCH_COL_.READY_AT     - 1],
+    readyBy:         r[BATCH_COL_.READY_BY     - 1],
     submittedAt:     r[BATCH_COL_.SUBMITTED_AT - 1],
     submittedBy:     r[BATCH_COL_.SUBMITTED_BY - 1],
-    closedAt:        r[BATCH_COL_.CLOSED_AT   - 1],
-    closedBy:        r[BATCH_COL_.CLOSED_BY   - 1],
-    recruiterRemark: r[BATCH_COL_.REMARK      - 1]
+    closedAt:        r[BATCH_COL_.CLOSED_AT    - 1],
+    closedBy:        r[BATCH_COL_.CLOSED_BY    - 1],
+    recruiterRemark: r[BATCH_COL_.REMARK       - 1]
   };
 }
 
-/** Read-only lookup into _Requirements. Returns {reqId, clientName, trade, country, quantity} or null. */
+/** D4: Append-only event to _Timeline. Never updated. Never deleted. */
+function appendTimelineEvent_(batchId, reqId, fromStatus, toStatus, remark) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(SUB_SHEETS_.TIMELINE);
+    if (!sheet) return;
+    sheet.appendRow([
+      generateId_('TL'),
+      batchId,
+      reqId || '',
+      fromStatus || '',
+      toStatus,
+      getCallerEmail_(),
+      new Date(),
+      String(remark || '').slice(0, REMARK_MAX_LEN_)
+    ]);
+  } catch (e) {
+    Logger.log('appendTimelineEvent_: ' + e.message);
+  }
+}
+
+/** Private: append one row to _RecruiterActivityLog. Append-only. */
+function logActivity_(entityType, entityId, stage, remark, meta) {
+  try {
+    var ss    = getMasterSS_();
+    var sheet = ss.getSheetByName(SUB_SHEETS_.ACTIVITY_LOG);
+    if (!sheet) return;
+    var m = meta || {};
+    sheet.appendRow([
+      generateId_('RAL'),
+      entityType,
+      entityId,
+      m.kaiNo   || '',
+      m.batchId || '',
+      m.reqId   || '',
+      stage,
+      String(remark || '').slice(0, REMARK_MAX_LEN_),
+      new Date(),
+      getCallerEmail_()
+    ]);
+  } catch (e) {
+    Logger.log('logActivity_: ' + e.message);
+  }
+}
+
+/** Read-only lookup into _Requirements. Returns {reqId, clientName, trade, country, quantity}. */
 function getRequirementById_(ss, reqId) {
   var sheet = ss.getSheetByName('_Requirements');
   if (!sheet || sheet.getLastRow() < 2) return null;
@@ -821,17 +865,16 @@ function getRequirementById_(ss, reqId) {
   return null;
 }
 
-/** Read-only CV data from Candidates sheet. Returns {cvLink, cvFileId}. */
+/** Read-only CV data from Candidates sheet. KAI No = col 25, cvLink = col 22. */
 function getCandidateCvData_(ss, kaiNo) {
   var candName  = (typeof CONFIG !== 'undefined' && CONFIG.sheetName) || 'Candidates';
   var candSheet = ss.getSheetByName(candName);
   if (!candSheet || candSheet.getLastRow() < 2) return { cvLink: '', cvFileId: '' };
-  // KAI No = col 25, cvLink = col 22 (1-based)
   var data = candSheet.getRange(2, 1, candSheet.getLastRow() - 1, 25).getValues();
   for (var i = 0; i < data.length; i++) {
     if (String(data[i][24]) === kaiNo) {
-      var link    = String(data[i][21] || '');
-      var fmatch  = link.match(/\/d\/([a-zA-Z0-9_-]+)\//);
+      var link   = String(data[i][21] || '');
+      var fmatch = link.match(/\/d\/([a-zA-Z0-9_-]+)\//);
       return { cvLink: link, cvFileId: fmatch ? fmatch[1] : '' };
     }
   }
@@ -864,4 +907,4 @@ function getConfigInt_(key, fallback) {
   return fallback;
 }
 
-// END OF FILE — kai_sprint1_submission.gs
+// END OF FILE — kai_sprint1_submission.gs  v1.1.0
