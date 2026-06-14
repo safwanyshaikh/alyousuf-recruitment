@@ -174,6 +174,10 @@ function generatePackage(batchId, options) {
   if (!items || items.length === 0)
     return _err_('Batch has no items. Add candidates before generating a package.');
 
+  // GAS validation: item count must not exceed batch capacity
+  if (items.length > batch.capacity)
+    return _err_('Item count (' + items.length + ') exceeds batch capacity (' + batch.capacity + '). Reduce items or increase capacity first.');
+
   var ss       = getMasterSS_();
   var pkgSheet = ss.getSheetByName(PKG_SHEETS_.PACKAGES);
   if (!pkgSheet) return _err_('_SubmissionPackages missing. Run setupSprint2().');
@@ -190,8 +194,12 @@ function generatePackage(batchId, options) {
 
   // Build package content
   var version    = getNextPackageVersion_(pkgSheet, batchId);
-  var emailDraft = buildEmailDraft_(batch, items);
-  var cvManifest = buildCvManifest_(items);
+  var profileMap = {};
+  items.forEach(function(item) {
+    profileMap[item.kaiNo] = getCandidateProfile_(ss, item.kaiNo);
+  });
+  var emailDraft = buildEmailDraft_(batch, items, profileMap);
+  var cvManifest = buildCvManifest_(items, profileMap);
   var packageId  = generateId_('PKG');
 
   pkgSheet.appendRow([
@@ -399,29 +407,41 @@ function appendBatchEvent_(batchId, reqId, packageId, eventType, fromStatus, toS
 
 /**
  * Build HTML email draft from batch metadata and active items.
+ * Includes candidateName, trade, nationality, experience columns.
  * Recruiter can edit the output via updatePackage().
+ * @param {object} batch
+ * @param {object[]} items
+ * @param {object} profileMap  — {kaiNo: {candidateName, trade, nationality, experience}}
  */
-function buildEmailDraft_(batch, items) {
+function buildEmailDraft_(batch, items, profileMap) {
+  var pm = profileMap || {};
   var rows = items.map(function(item) {
+    var p      = pm[item.kaiNo] || {};
     var cvCell = item.cvLink
       ? '<a href="' + item.cvLink + '" style="color:#1a73e8;">View CV</a>'
       : '<span style="color:#999;">No CV</span>';
     return '<tr>' +
-      '<td style="padding:6px 12px;text-align:center;border:1px solid #ddd;">' + item.displayOrder + '</td>' +
-      '<td style="padding:6px 12px;border:1px solid #ddd;">'                   + item.kaiNo       + '</td>' +
-      '<td style="padding:6px 12px;border:1px solid #ddd;">'                   + cvCell           + '</td>' +
+      '<td style="padding:6px 10px;text-align:center;border:1px solid #ddd;">' + item.displayOrder           + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #ddd;">'                   + item.kaiNo                  + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #ddd;">'                   + (p.candidateName || '')     + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #ddd;">'                   + (p.trade        || '')      + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #ddd;">'                   + (p.nationality   || '')     + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #ddd;">'                   + (p.experience    || '')     + '</td>' +
+      '<td style="padding:6px 10px;border:1px solid #ddd;">'                   + cvCell                      + '</td>' +
       '</tr>';
   }).join('');
 
-  return '<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:720px;margin:0 auto;">' +
+  var th = function(label) {
+    return '<td style="padding:8px 10px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">' + label + '</td>';
+  };
+
+  return '<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:900px;margin:0 auto;">' +
     '<p>Dear Hiring Team,</p>' +
     '<p>Please find below our candidate submission for the position of ' +
     '<strong>' + batch.trade + '</strong>.</p>' +
     '<table style="border-collapse:collapse;width:100%;margin:16px 0;">' +
-    '<thead><tr style="background:#f5f5f5;font-weight:bold;">' +
-    '<td style="padding:8px 12px;border:1px solid #ddd;width:50px;">#</td>' +
-    '<td style="padding:8px 12px;border:1px solid #ddd;">KAI No</td>' +
-    '<td style="padding:8px 12px;border:1px solid #ddd;">CV</td>' +
+    '<thead><tr>' +
+    th('#') + th('KAI No') + th('Name') + th('Trade') + th('Nationality') + th('Experience') + th('CV') +
     '</tr></thead>' +
     '<tbody>' + rows + '</tbody>' +
     '</table>' +
@@ -435,20 +455,64 @@ function buildEmailDraft_(batch, items) {
 }
 
 /**
- * Build JSON manifest of CV attachments.
- * Stored as string in _SubmissionPackages.cvManifestJson.
- * Lovable / ZIP generator reads this to assemble attachments.
+ * Build JSON manifest for CV attachment assembly and Submission Sheet generation.
+ * Fields: order, kaiNo, candidateName, trade, nationality, experience, cvLink, cvFileId.
+ * Lovable / ZIP generator reads this manifest to attach and label CVs.
+ * @param {object[]} items
+ * @param {object} profileMap  — {kaiNo: {candidateName, trade, nationality, experience}}
  */
-function buildCvManifest_(items) {
+function buildCvManifest_(items, profileMap) {
+  var pm = profileMap || {};
   var manifest = items.map(function(item) {
+    var p = pm[item.kaiNo] || {};
     return {
-      order:    item.displayOrder,
-      kaiNo:    item.kaiNo,
-      cvLink:   item.cvLink   || '',
-      cvFileId: item.cvFileId || ''
+      order:         item.displayOrder,
+      kaiNo:         item.kaiNo,
+      candidateName: p.candidateName || '',
+      trade:         p.trade         || '',
+      nationality:   p.nationality   || '',
+      experience:    p.experience    || '',
+      cvLink:        item.cvLink     || '',
+      cvFileId:      item.cvFileId   || ''
     };
   });
   return JSON.stringify(manifest);
+}
+
+/**
+ * Read candidate profile fields from Candidates sheet (read-only).
+ * Column positions sourced from _Config; defaults match standard KAI sheet layout.
+ * Adjust _Config keys if your sheet differs:
+ *   candidates_col_name        (default 2)
+ *   candidates_col_trade       (default 4)
+ *   candidates_col_nationality (default 6)
+ *   candidates_col_experience  (default 8)
+ * KAI No is always col 25.
+ */
+function getCandidateProfile_(ss, kaiNo) {
+  var candName  = (typeof CONFIG !== 'undefined' && CONFIG.sheetName) || 'Candidates';
+  var candSheet = ss.getSheetByName(candName);
+  if (!candSheet || candSheet.getLastRow() < 2)
+    return { candidateName: '', trade: '', nationality: '', experience: '' };
+
+  var colName        = getConfigInt_('candidates_col_name',        2);
+  var colTrade       = getConfigInt_('candidates_col_trade',       4);
+  var colNationality = getConfigInt_('candidates_col_nationality', 6);
+  var colExperience  = getConfigInt_('candidates_col_experience',  8);
+  var maxCol         = Math.max(colName, colTrade, colNationality, colExperience, 25);
+
+  var data = candSheet.getRange(2, 1, candSheet.getLastRow() - 1, maxCol).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][24]) === kaiNo) {          // col 25 = index 24
+      return {
+        candidateName: String(data[i][colName        - 1] || ''),
+        trade:         String(data[i][colTrade       - 1] || ''),
+        nationality:   String(data[i][colNationality - 1] || ''),
+        experience:    String(data[i][colExperience  - 1] || '')
+      };
+    }
+  }
+  return { candidateName: '', trade: '', nationality: '', experience: '' };
 }
 
 /**
@@ -501,4 +565,4 @@ function rowToPackage_(r) {
   };
 }
 
-// END OF FILE — kai_sprint2_packages.gs  v1.0.0
+// END OF FILE — kai_sprint2_packages.gs  v1.1.0
