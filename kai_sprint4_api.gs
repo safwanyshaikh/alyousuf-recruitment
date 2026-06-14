@@ -53,19 +53,24 @@ function doPost(e) {
   try {
     var body   = JSON.parse(e.postData.contents);
     var action = String(body.action || '');
-    var params = body.params || {};
 
-    // For login: Lovable may send email/password at body root instead of nested under params
-    if (action === 'login') {
-      if (!params.email)    params.email    = body.email    || body.username || '';
-      if (!params.password) params.password = body.password || body.pass     || '';
+    // Merge: nested params take precedence, flat body fields fill gaps.
+    // Lovable sends flat bodies (no params wrapper); Sprint 1–3 calls use params.
+    var params = {};
+    var bodyParams = body.params || {};
+    for (var bp in bodyParams) { params[bp] = bodyParams[bp]; }
+    for (var bk in body) {
+      if (bk !== 'action' && bk !== 'params' && !params.hasOwnProperty(bk)) {
+        params[bk] = body[bk];
+      }
     }
 
     if (!action) {
       result = { ok: false, error: 'action is required.' };
     } else {
       var handler = ROUTES_[action] ||
-                    (typeof PERF_ROUTES_ !== 'undefined' ? PERF_ROUTES_[action] : null);
+                    (typeof CANDIDATES_ROUTES_ !== 'undefined' ? CANDIDATES_ROUTES_[action] : null) ||
+                    (typeof PERF_ROUTES_       !== 'undefined' ? PERF_ROUTES_[action]       : null);
       if (!handler) {
         result = { ok: false, error: 'Unknown action: ' + action + '. See healthCheckApi() for available actions.' };
       } else {
@@ -166,7 +171,9 @@ var ROUTES_ = {
 // ───────────────────────────────────────────────────────────────────
 
 function healthCheckApi() {
-  var actions  = Object.keys(ROUTES_);
+  var actions  = Object.keys(ROUTES_)
+    .concat(typeof CANDIDATES_ROUTES_ !== 'undefined' ? Object.keys(CANDIDATES_ROUTES_) : [])
+    .concat(typeof PERF_ROUTES_       !== 'undefined' ? Object.keys(PERF_ROUTES_)       : []);
   var ss       = getMasterSS_();
   var sheets   = [
     '_LoginSystem',
