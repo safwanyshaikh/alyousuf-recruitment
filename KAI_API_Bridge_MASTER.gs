@@ -17,6 +17,9 @@
 // ── MASTER CONFIG ────────────────────────────────────────────────────
 var SS_ID = '101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE';
 
+// Compatibility shim: sprint files and patch files call getMasterSS_()
+function getMasterSS_() { return SpreadsheetApp.openById(SS_ID); }
+
 // ── COLUMN MAP (1-based, matches Code.gs CONFIG.inputColumns + extCol + extCol2)
 var COL = {
   // Standard cols 1–24
