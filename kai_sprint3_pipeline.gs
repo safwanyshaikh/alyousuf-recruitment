@@ -288,9 +288,11 @@ function getPipelineEntries(filters) {
   var sheet = ss.getSheetByName(PIPE_SHEETS_.PIPELINE);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  var f    = filters || {};
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).getValues();
-  var out  = [];
+  var f      = filters || {};
+  var limit  = f.limit  ? parseInt(f.limit)  : 200;
+  var offset = f.offset ? parseInt(f.offset) : 0;
+  var data   = sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).getValues();
+  var out    = [];
 
   data.forEach(function(r) {
     if (!r[0]) return;
@@ -301,6 +303,13 @@ function getPipelineEntries(filters) {
     if (f.clientResponseStatus && String(r[PIPE_COL_.CLIENT_STATUS - 1]) !== f.clientResponseStatus) return;
     out.push(rowToPipeline_(r));
   });
+
+  var total = out.length;
+  out = out.slice(offset, offset + limit);
+  // Return array for backward compat; attach pagination as properties
+  out._total  = total;
+  out._limit  = limit;
+  out._offset = offset;
   return out;
 }
 

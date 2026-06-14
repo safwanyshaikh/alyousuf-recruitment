@@ -193,11 +193,9 @@ function generatePackage(batchId, options) {
   supercedePriorPackages_(pkgSheet, batchId);
 
   // Build package content
+  // Read Candidates sheet ONCE for all kaiNos — not once per candidate
   var version    = getNextPackageVersion_(pkgSheet, batchId);
-  var profileMap = {};
-  items.forEach(function(item) {
-    profileMap[item.kaiNo] = getCandidateProfile_(ss, item.kaiNo);
-  });
+  var profileMap = getAllCandidateProfiles_(ss, items.map(function(i) { return i.kaiNo; }));
   var emailDraft = buildEmailDraft_(batch, items, profileMap);
   var cvManifest = buildCvManifest_(items, profileMap);
   var packageId  = generateId_('PKG');
@@ -480,20 +478,19 @@ function buildCvManifest_(items, profileMap) {
 }
 
 /**
- * Read candidate profile fields from Candidates sheet (read-only).
- * Column positions sourced from _Config; defaults match standard KAI sheet layout.
- * Adjust _Config keys if your sheet differs:
- *   candidates_col_name        (default 2)
- *   candidates_col_trade       (default 4)
- *   candidates_col_nationality (default 6)
- *   candidates_col_experience  (default 8)
- * KAI No is always col 25.
+ * Read profiles for MULTIPLE candidates in ONE sheet read.
+ * Called from generatePackage — reads Candidates sheet once for all items.
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {string[]} kaiNos
+ * @returns {{[kaiNo: string]: {candidateName, trade, nationality, experience}}}
  */
-function getCandidateProfile_(ss, kaiNo) {
+function getAllCandidateProfiles_(ss, kaiNos) {
+  var empty = { candidateName: '', trade: '', nationality: '', experience: '' };
+  if (!kaiNos || kaiNos.length === 0) return {};
+
   var candName  = (typeof CONFIG !== 'undefined' && CONFIG.sheetName) || 'Candidates';
   var candSheet = ss.getSheetByName(candName);
-  if (!candSheet || candSheet.getLastRow() < 2)
-    return { candidateName: '', trade: '', nationality: '', experience: '' };
+  if (!candSheet || candSheet.getLastRow() < 2) return {};
 
   var colName        = getConfigInt_('candidates_col_name',        2);
   var colTrade       = getConfigInt_('candidates_col_trade',       4);
@@ -501,18 +498,34 @@ function getCandidateProfile_(ss, kaiNo) {
   var colExperience  = getConfigInt_('candidates_col_experience',  8);
   var maxCol         = Math.max(colName, colTrade, colNationality, colExperience, 25);
 
-  var data = candSheet.getRange(2, 1, candSheet.getLastRow() - 1, maxCol).getValues();
+  // ONE read for entire sheet regardless of batch size
+  var data   = candSheet.getRange(2, 1, candSheet.getLastRow() - 1, maxCol).getValues();
+  var lookup = {};
+  kaiNos.forEach(function(k) { lookup[String(k)] = true; });
+
+  var map = {};
   for (var i = 0; i < data.length; i++) {
-    if (String(data[i][24]) === kaiNo) {          // col 25 = index 24
-      return {
-        candidateName: String(data[i][colName        - 1] || ''),
-        trade:         String(data[i][colTrade       - 1] || ''),
-        nationality:   String(data[i][colNationality - 1] || ''),
-        experience:    String(data[i][colExperience  - 1] || '')
-      };
-    }
+    var kai = String(data[i][24]);              // col 25 = index 24
+    if (!lookup[kai]) continue;
+    map[kai] = {
+      candidateName: String(data[i][colName        - 1] || ''),
+      trade:         String(data[i][colTrade       - 1] || ''),
+      nationality:   String(data[i][colNationality - 1] || ''),
+      experience:    String(data[i][colExperience  - 1] || '')
+    };
+    // Stop early once all requested kaiNos are found
+    if (Object.keys(map).length === kaiNos.length) break;
   }
-  return { candidateName: '', trade: '', nationality: '', experience: '' };
+  return map;
+}
+
+/**
+ * Single-candidate profile lookup. Still available for one-off calls.
+ * For batch use, call getAllCandidateProfiles_ instead.
+ */
+function getCandidateProfile_(ss, kaiNo) {
+  var m = getAllCandidateProfiles_(ss, [kaiNo]);
+  return m[kaiNo] || { candidateName: '', trade: '', nationality: '', experience: '' };
 }
 
 /**

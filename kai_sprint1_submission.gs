@@ -373,9 +373,11 @@ function getSubmissionBatches(filters) {
   var sheet = ss.getSheetByName(SUB_SHEETS_.BATCHES);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  var f    = filters || {};
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).getValues();
-  var out  = [];
+  var f      = filters || {};
+  var limit  = f.limit  ? parseInt(f.limit)  : 500;
+  var offset = f.offset ? parseInt(f.offset) : 0;
+  var data   = sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).getValues();
+  var out    = [];
 
   data.forEach(function(r) {
     if (!r[0]) return;
@@ -385,6 +387,12 @@ function getSubmissionBatches(filters) {
     if (f.createdBy  && String(r[BATCH_COL_.CREATED_BY - 1]) !== f.createdBy)  return;
     out.push(rowToBatch_(r));
   });
+
+  var total = out.length;
+  out = out.slice(offset, offset + limit);
+  out._total  = total;
+  out._limit  = limit;
+  out._offset = offset;
   return out;
 }
 
@@ -607,14 +615,21 @@ function reorderBatchItems(batchId, orderedKaiNos) {
   var orderMap = {};
   orderedKaiNos.forEach(function(k, i) { orderMap[String(k)] = i + 1; });
 
-  var data = itemSheet.getRange(2, 1, itemSheet.getLastRow() - 1, 11).getValues();
+  var lastRow   = itemSheet.getLastRow() - 1;
+  var data      = itemSheet.getRange(2, 1, lastRow, 11).getValues();
+
+  // Read entire ORDER column once, modify in memory, write back in one call
+  var orderCol  = itemSheet.getRange(2, ITEM_COL_.ORDER, lastRow, 1).getValues();
+
   data.forEach(function(r, i) {
     if (String(r[ITEM_COL_.BATCH - 1]) !== batchId) return;
     if (r[ITEM_COL_.REMOVED_AT - 1])                return;
     var newOrder = orderMap[String(r[ITEM_COL_.KAI - 1])];
-    if (newOrder !== undefined)
-      itemSheet.getRange(i + 2, ITEM_COL_.ORDER).setValue(newOrder);
+    if (newOrder !== undefined) orderCol[i][0] = newOrder;
   });
+
+  // One write call instead of N individual setValue calls
+  itemSheet.getRange(2, ITEM_COL_.ORDER, lastRow, 1).setValues(orderCol);
   return { ok: true };
 }
 

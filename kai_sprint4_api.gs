@@ -58,7 +58,8 @@ function doPost(e) {
     if (!action) {
       result = { ok: false, error: 'action is required.' };
     } else {
-      var handler = ROUTES_[action];
+      var handler = ROUTES_[action] ||
+                    (typeof PERF_ROUTES_ !== 'undefined' ? PERF_ROUTES_[action] : null);
       if (!handler) {
         result = { ok: false, error: 'Unknown action: ' + action + '. See healthCheckApi() for available actions.' };
       } else {
