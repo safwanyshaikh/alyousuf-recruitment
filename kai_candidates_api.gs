@@ -225,79 +225,34 @@ function routeSlots_(p) {
 }
 
 /**
- * V1 Match — trade-keyword filter on verified assets only.
- * No nlSearch_, no T13. Uses getRequirementById_ + getAllCandidatesRaw_ + getProjectCandidates.
+ * Match — delegates to the T14/v285 engine (matchCandidatesForReqPublic).
+ * Tags results with assigned flag via getProjectCandidates.
  *
  * Params: reqId (required), hideAssigned (bool, default false), limit (default 100)
- * Returns envelope MatchPanel expects:
- *   { ok, data: { requirement, matches, total, assignedKaiNos } }
+ * Returns: { ok, data: { matches, total, assignedKaiNos, ...engine fields } }
  */
 function routeMatch_(p) {
   try {
-    var reqId        = String(p.reqId || '').trim();
-    var hideAssigned = String(p.hideAssigned || '').toLowerCase() === 'true' || p.hideAssigned === true;
+    if (!p.reqId) return { ok: false, error: 'reqId is required.' };
     var limit        = Math.max(1, Math.min(200, parseInt(p.limit || 100)));
+    var hideAssigned = p.hideAssigned === true || String(p.hideAssigned) === 'true';
 
-    if (!reqId) return { ok: false, error: 'reqId is required.' };
+    // Delegate to v285 engine — runs 7-axis scoring across all candidates
+    var result = matchCandidatesForReqPublic(p.reqId, limit);
+    if (!result.ok) return { ok: false, error: result.msg || 'Match engine error.' };
 
-    var ss  = getMasterSS_();
-    var req = getRequirementById_(ss, reqId);
-    if (!req) return { ok: false, error: 'Requirement not found: ' + reqId };
-
-    // Build trade keyword list from requirement
-    var tradeKeywords = buildKeywords_(req.trade);
-
-    // Load all candidates (cached in memory, ~1.5s cold)
-    var all = getAllCandidatesRaw_();
-
-    // Get already-assigned kaiNos for this requirement
-    var assignedProjects = getProjectCandidates(reqId);
+    // Tag assigned candidates and optionally filter them out
+    var assigned = getProjectCandidates(p.reqId);
     var assignedSet = {};
-    assignedProjects.forEach(function(pc) {
-      if (pc.kaiNo) assignedSet[String(pc.kaiNo)] = true;
-    });
+    assigned.forEach(function(pc) { if (pc.kaiNo) assignedSet[String(pc.kaiNo)] = true; });
 
-    // Filter: trade keyword overlap + optional hide assigned + skip blanks
-    var matches = all.filter(function(c) {
-      if (!c.name) return false;
-      if (hideAssigned && assignedSet[c.kaiNo]) return false;
-      if (tradeKeywords.length === 0) return true;   // no trade on req → return all
-      return tradeOverlap_(c.trade, c.positionApplied, c.recommendedRoles, tradeKeywords);
-    });
+    if (hideAssigned) {
+      result.matches = (result.matches || []).filter(function(m) { return !assignedSet[m.kaiNo]; });
+    }
+    (result.matches || []).forEach(function(m) { m.assigned = !!assignedSet[m.kaiNo]; });
+    result.assignedKaiNos = Object.keys(assignedSet);
 
-    // Sort by score descending
-    matches.sort(function(a, b) { return b.score - a.score; });
-
-    // Tag each result with assigned flag (useful for MatchPanel highlight)
-    var page = matches.slice(0, limit).map(function(c) {
-      return {
-        kaiNo:           c.kaiNo,
-        name:            c.name,
-        nationality:     c.nationality,
-        trade:           c.trade,
-        positionApplied: c.positionApplied,
-        experience:      c.experience,
-        gulfExperience:  c.gulfExperience,
-        score:           c.score,
-        verdict:         c.verdict,
-        cvLink:          c.cvLink,
-        mobile:          c.mobile,
-        email:           c.email,
-        stage:           c.stage,
-        rowIndex:        c.rowIndex,
-        assigned:        !!assignedSet[c.kaiNo]
-      };
-    });
-
-    return {
-      ok: true,
-      data: {
-        requirement:    req,
-        matches:        page,
-        total:          matches.length,
-        assignedKaiNos: Object.keys(assignedSet)
-      }
-    };
+    return { ok: true, data: result };
   } catch (ex) {
     Logger.log('routeMatch_ error: ' + ex.message);
     return { ok: false, error: 'match error: ' + ex.message };
