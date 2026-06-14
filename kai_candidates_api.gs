@@ -225,10 +225,106 @@ function routeSlots_(p) {
 }
 
 /**
- * Write stage back to Candidates sheet row.
- * Params: rowIndex, stage
+ * V1 Match — trade-keyword filter on verified assets only.
+ * No nlSearch_, no T13. Uses getRequirementById_ + getAllCandidatesRaw_ + getProjectCandidates.
+ *
+ * Params: reqId (required), hideAssigned (bool, default false), limit (default 100)
+ * Returns envelope MatchPanel expects:
+ *   { ok, data: { requirement, matches, total, assignedKaiNos } }
  */
-function routeUpdateStage_(p) {
+function routeMatch_(p) {
+  try {
+    var reqId        = String(p.reqId || '').trim();
+    var hideAssigned = String(p.hideAssigned || '').toLowerCase() === 'true' || p.hideAssigned === true;
+    var limit        = Math.max(1, Math.min(200, parseInt(p.limit || 100)));
+
+    if (!reqId) return { ok: false, error: 'reqId is required.' };
+
+    var ss  = getMasterSS_();
+    var req = getRequirementById_(ss, reqId);
+    if (!req) return { ok: false, error: 'Requirement not found: ' + reqId };
+
+    // Build trade keyword list from requirement
+    var tradeKeywords = buildKeywords_(req.trade);
+
+    // Load all candidates (cached in memory, ~1.5s cold)
+    var all = getAllCandidatesRaw_();
+
+    // Get already-assigned kaiNos for this requirement
+    var assignedProjects = getProjectCandidates(reqId);
+    var assignedSet = {};
+    assignedProjects.forEach(function(pc) {
+      if (pc.kaiNo) assignedSet[String(pc.kaiNo)] = true;
+    });
+
+    // Filter: trade keyword overlap + optional hide assigned + skip blanks
+    var matches = all.filter(function(c) {
+      if (!c.name) return false;
+      if (hideAssigned && assignedSet[c.kaiNo]) return false;
+      if (tradeKeywords.length === 0) return true;   // no trade on req → return all
+      return tradeOverlap_(c.trade, c.positionApplied, c.recommendedRoles, tradeKeywords);
+    });
+
+    // Sort by score descending
+    matches.sort(function(a, b) { return b.score - a.score; });
+
+    // Tag each result with assigned flag (useful for MatchPanel highlight)
+    var page = matches.slice(0, limit).map(function(c) {
+      return {
+        kaiNo:           c.kaiNo,
+        name:            c.name,
+        nationality:     c.nationality,
+        trade:           c.trade,
+        positionApplied: c.positionApplied,
+        experience:      c.experience,
+        gulfExperience:  c.gulfExperience,
+        score:           c.score,
+        verdict:         c.verdict,
+        cvLink:          c.cvLink,
+        mobile:          c.mobile,
+        email:           c.email,
+        stage:           c.stage,
+        rowIndex:        c.rowIndex,
+        assigned:        !!assignedSet[c.kaiNo]
+      };
+    });
+
+    return {
+      ok: true,
+      data: {
+        requirement:    req,
+        matches:        page,
+        total:          matches.length,
+        assignedKaiNos: Object.keys(assignedSet)
+      }
+    };
+  } catch (ex) {
+    Logger.log('routeMatch_ error: ' + ex.message);
+    return { ok: false, error: 'match error: ' + ex.message };
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// MATCH HELPERS
+// ───────────────────────────────────────────────────────────────────
+
+function buildKeywords_(trade) {
+  if (!trade) return [];
+  return String(trade).toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(function(w) { return w.length > 2; });
+}
+
+function tradeOverlap_(trade, position, roles, keywords) {
+  var haystack = (String(trade || '') + ' ' + String(position || '') + ' ' + String(roles || '')).toLowerCase();
+  for (var i = 0; i < keywords.length; i++) {
+    if (haystack.indexOf(keywords[i]) >= 0) return true;
+  }
+  return false;
+}
+
+
   try {
     var rowIndex = parseInt(p.rowIndex || 0);
     var stage    = String(p.stage || '').trim();
@@ -298,6 +394,7 @@ var CANDIDATES_ROUTES_ = {
   'metrics':                  routeMetrics_,
   'requirementCommandCenter': routeRequirementCommandCenter_,
   'slots':                    routeSlots_,
+  'match':                    routeMatch_,
   'updateStage':              routeUpdateStage_,
   'updateRequirement':        routeUpdateRequirement_
 };
