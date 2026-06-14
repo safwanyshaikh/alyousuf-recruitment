@@ -1,0 +1,201 @@
+================================================================
+KAI — Task 05: Matching UI
+Paste this into Lovable AFTER the Drawer is built and working.
+================================================================
+
+SCOPE
+-----
+Add a Match button to the Campaigns/Requirements screen.
+When clicked: call the matching API and show results by tier.
+No changes to grid, drawer, or any other screen.
+
+================================================================
+API
+================================================================
+
+GAS_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec"
+
+Token: localStorage.getItem('kai_session_token')
+
+GET match results:
+  ${GAS_URL}?action=match&token=${token}&reqId=${reqId}
+
+Response:
+  {
+    ok: true,
+    reqId: "AYE-REQ-2026-0001",
+    STRONG:   [ ...candidates ],
+    GOOD:     [ ...candidates ],
+    POSSIBLE: [ ...candidates ],
+    REVIEW:   [ ...candidates ],
+    counts: {
+      STRONG: 12,
+      GOOD: 34,
+      POSSIBLE: 56,
+      REVIEW: 23,
+      total: 125
+    }
+  }
+
+Each candidate object in the match results:
+  rowIndex, kaiNo, name, nationality, age, trade, score,
+  confidenceTier, positionApplied, experience, gulfExp,
+  gccMobility, currentLocation, mobile, email, cvLink,
+  kaiSnippet (150-char KAI text), top3Positions, passportStatus
+
+================================================================
+WHERE MATCH UI LIVES
+================================================================
+
+On the Campaigns or Requirements screen:
+  Each requirement row has a "Match" button.
+
+  Show the button in the requirement row:
+    Column: after "Req ID" and "Trade" columns
+    Button: [🔍 Match Candidates]  (outlined, blue)
+    Also show match count if already available:
+    e.g. "🔍 Match  12 Strong · 34 Good"
+
+  When Match button clicked:
+    Open a full-height right panel (same style as drawer, 640px wide)
+    OR open a modal (full screen on mobile)
+    Panel title: "Matching: {trade} — {reqId}"
+
+================================================================
+MATCH RESULTS PANEL
+================================================================
+
+HEADER
+  Title: "Candidates for {trade}"
+  Subtitle: "{reqId}"
+  [X] Close button
+  Counts summary row:
+    🟢 {STRONG} Strong   🔵 {GOOD} Good
+    🟡 {POSSIBLE} Possible   ⚪ {REVIEW} Review
+    Total: {total}
+
+LOADING STATE
+  Show spinner centred.
+  "Finding matching candidates..."
+
+ERROR STATE
+  Red text: "Could not load matches: {error}"
+  [Retry] button
+
+EMPTY STATE (total = 0)
+  Grey centred text: "No candidates found matching this requirement."
+  "Trade: {trade}  |  Min Experience: {minExperience}yr"
+
+RESULTS (when loaded)
+  Show four collapsible sections, default all expanded.
+
+  ────────────────────────────────────────────────
+  SECTION: 🟢 STRONG MATCH ({count})
+  ────────────────────────────────────────────────
+  [Section header bar, green left border]
+
+  Each candidate card:
+  ┌────────────────────────────────────────────────┐
+  │ Name                          Score: 88%       │
+  │ Trade · {experience}yr · {nationality}         │
+  │ Gulf: {gulfExp truncated to 60 chars}          │
+  │ Location: {currentLocation}  GCC: {gccLabel}  │
+  │ [📞] [💬] [✉]     [View Profile]  [Shortlist]  │
+  └────────────────────────────────────────────────┘
+
+  gccLabel (short):
+    INDIA_AVAILABLE  → "India"
+    SAUDI_LOCAL      → "Saudi Local"
+    UAE_LOCAL        → "UAE Local"
+    QATAR_LOCAL      → "Qatar Local"
+    GCC_TRANSFERABLE → "GCC Transfer"
+    (other)          → gccMobility value
+
+  [View Profile] → opens the Candidate Drawer for this candidate
+    Pass: rowIndex + name + all available fields to drawer
+    Drawer opens on top of the match panel
+
+  [Shortlist] →
+    POST { action: 'updateStage', token, rowIndex, newStage: 'Shortlisted', recruiter: 'recruiter' }
+    On success: button becomes "✓ Shortlisted" (filled green), non-clickable
+    Toast: "Shortlisted: {name}"
+
+  ────────────────────────────────────────────────
+  SECTION: 🔵 GOOD MATCH ({count})
+  ────────────────────────────────────────────────
+  [Section header bar, blue left border]
+  Same card layout as STRONG.
+
+  ────────────────────────────────────────────────
+  SECTION: 🟡 POSSIBLE MATCH ({count})
+  ────────────────────────────────────────────────
+  [Section header bar, amber left border]
+  Same card layout.
+
+  ────────────────────────────────────────────────
+  SECTION: ⚪ REVIEW ({count})
+  ────────────────────────────────────────────────
+  [Section header bar, grey left border]
+  Default: collapsed (show [Expand] button in header).
+  Same card layout when expanded.
+
+================================================================
+SECTION COLLAPSE BEHAVIOUR
+================================================================
+
+Each section header has a ▼ / ▲ toggle.
+Click header: collapse/expand that section.
+REVIEW section starts collapsed.
+STRONG, GOOD, POSSIBLE start expanded.
+
+================================================================
+SHORTLISTING FROM MATCH RESULTS
+================================================================
+
+After Shortlist button is clicked successfully:
+  1. Update that candidate's button in the match panel to "✓ Shortlisted"
+  2. If the candidate grid is loaded (different screen), do NOT reload it
+  3. Toast: "Shortlisted: {name}"
+
+================================================================
+CONTACT ICONS IN MATCH CARDS
+================================================================
+
+  📞 → visible if mobile not empty → tel:{mobile}
+  💬 → visible if mobile not empty → https://wa.me/{mobile}
+  ✉  → visible if email not empty  → mailto:{email}
+
+If all three are empty: show "No contact" in grey.
+
+================================================================
+MOBILE LAYOUT
+================================================================
+
+Match panel: full screen (100vw, 100vh).
+Candidate cards: full width.
+View Profile: opens drawer full screen on top.
+
+================================================================
+STATE
+================================================================
+
+matchPanelOpen:   boolean
+matchReqId:       string
+matchReqTrade:    string
+matchResults:     { STRONG, GOOD, POSSIBLE, REVIEW, counts } | null
+matchLoading:     boolean
+matchError:       string | null
+shortlistedRows:  Set<number>   — rowIndex values already shortlisted
+
+================================================================
+RULES
+================================================================
+
+1. No mock data. Fetch from real API on every open.
+2. reqId comes from the requirements row — use the reqId field exactly as returned by the requirements API.
+3. View Profile opens the existing Candidate Drawer — reuse the same component.
+4. Shortlist uses the real updateStage API, not a toast placeholder.
+5. Collapse state is local UI state, not persisted.
+6. Do NOT change any other screen.
+
+================================================================
