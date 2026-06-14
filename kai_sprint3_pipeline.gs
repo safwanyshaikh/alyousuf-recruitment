@@ -52,13 +52,15 @@ var PIPE_SHEETS_ = {
 };
 
 var PIPELINE_STATUS_ = {
-  SUBMITTED:            'SUBMITTED',
-  INTERVIEW_SCHEDULED:  'INTERVIEW_SCHEDULED',
-  OFFERED:              'OFFERED',
-  ON_HOLD:              'ON_HOLD',
-  JOINED:               'JOINED',
-  REJECTED:             'REJECTED',
-  WITHDRAWN:            'WITHDRAWN'
+  SUBMITTED:           'SUBMITTED',
+  INTERVIEW_SCHEDULED: 'INTERVIEW_SCHEDULED',
+  INTERVIEWED:         'INTERVIEWED',
+  SELECTED:            'SELECTED',
+  OFFERED:             'OFFERED',
+  OFFER_ACCEPTED:      'OFFER_ACCEPTED',
+  REJECTED_BY_CLIENT:  'REJECTED_BY_CLIENT',
+  WITHDRAWN:           'WITHDRAWN',
+  ON_HOLD:             'ON_HOLD'
 };
 
 var INTERVIEW_TYPE_ = {
@@ -85,13 +87,20 @@ var RESPONSE_SOURCE_ = {
 
 // Forward-only valid transitions
 var PIPE_TRANSITIONS_ = {
-  'SUBMITTED':           ['INTERVIEW_SCHEDULED', 'ON_HOLD', 'REJECTED', 'WITHDRAWN'],
-  'INTERVIEW_SCHEDULED': ['OFFERED', 'REJECTED', 'WITHDRAWN'],
-  'OFFERED':             ['JOINED', 'REJECTED', 'WITHDRAWN'],
-  'ON_HOLD':             ['INTERVIEW_SCHEDULED', 'REJECTED', 'WITHDRAWN']
+  'SUBMITTED':           ['INTERVIEW_SCHEDULED', 'REJECTED_BY_CLIENT', 'WITHDRAWN', 'ON_HOLD'],
+  'INTERVIEW_SCHEDULED': ['INTERVIEWED',         'REJECTED_BY_CLIENT', 'WITHDRAWN', 'ON_HOLD'],
+  'INTERVIEWED':         ['SELECTED',            'REJECTED_BY_CLIENT', 'WITHDRAWN', 'ON_HOLD'],
+  'SELECTED':            ['OFFERED',             'REJECTED_BY_CLIENT', 'WITHDRAWN', 'ON_HOLD'],
+  'OFFERED':             ['OFFER_ACCEPTED',      'REJECTED_BY_CLIENT', 'WITHDRAWN', 'ON_HOLD']
 };
 
-var PIPE_TERMINAL_ = { JOINED: true, REJECTED: true, WITHDRAWN: true };
+// Terminal statuses — no further transitions allowed
+var PIPE_TERMINAL_ = {
+  REJECTED_BY_CLIENT: true,
+  WITHDRAWN:          true,
+  ON_HOLD:            true,
+  OFFER_ACCEPTED:     true
+};
 
 // Column indices (1-based)
 
@@ -374,7 +383,7 @@ function closePipelineEntry(pipelineId, closedStatus, remark) {
   if (!pipelineId)   return _err_('pipelineId is required.');
   if (!closedStatus) return _err_('closedStatus is required.');
   if (!PIPE_TERMINAL_[closedStatus])
-    return _err_('closedStatus must be JOINED, REJECTED, or WITHDRAWN. Got: ' + closedStatus);
+    return _err_('closedStatus must be REJECTED_BY_CLIENT, WITHDRAWN, ON_HOLD, or OFFER_ACCEPTED. Got: ' + closedStatus);
 
   var entry = getPipelineEntry(pipelineId);
   if (!entry) return _err_('Pipeline entry not found: ' + pipelineId);
@@ -622,4 +631,4 @@ function rowToClientResponse_(r) {
   };
 }
 
-// END OF FILE — kai_sprint3_pipeline.gs  v1.0.0
+// END OF FILE — kai_sprint3_pipeline.gs  v1.1.0
