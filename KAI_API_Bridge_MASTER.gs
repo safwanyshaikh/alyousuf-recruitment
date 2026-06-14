@@ -95,7 +95,7 @@ function doGet(e) {
     // single line, all NL changes live in KAI_NL_Search.gs — master is untouched.
     else if (action.indexOf('nl') === 0)    out = JSON.stringify(kaiNLRoute_(action, params));
     else if (action === 'requirements')     out = JSON.stringify(getRequirementsEnhanced_());
-    else if (action === 'match')            out = JSON.stringify(getMatchedCandidates_(params));
+    else if (action === 'match')            out = JSON.stringify(matchCandidatesT14_(params));
     else if (action === 'metrics')          out = JSON.stringify(getMetrics_());
     else if (action === 'sac')              out = JSON.stringify(getSacPerformance_());
     else if (action === 'activityLog')      out = JSON.stringify(getActivityLog_(params));
@@ -15137,3 +15137,170 @@ function unflagCandidatesByKaiNo(kaiNos) {
 // doPost additions for Section 43:
 // action=clearKarigarErrorBacklog → clearKarigarErrorBacklog()
 // action=processAllInboxEmails   → processAllInboxEmails()
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 45 — T14 MATCH ADAPTER
+// GET ?action=match&reqId=AYE-REQ-2026-0041&token=…
+// Loads requirement from _Requirements, scores all active candidates
+// through computeMatchScoreT14_, skips hardFail, returns top 100 sorted
+// score DESC then compliance.score DESC.
+// ════════════════════════════════════════════════════════════════════
+
+function matchCandidatesT14_(params) {
+  params = params || {};
+  var reqId = String(params.reqId || '').trim();
+  if (!reqId) return { ok:false, error:'reqId required' };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // ── 1. Load requirement row ────────────────────────────────────────
+  var rs = ss.getSheetByName('_Requirements');
+  if (!rs || rs.getLastRow() < 2) return { ok:false, error:'_Requirements sheet empty' };
+
+  var reqRows = rs.getDataRange().getValues();
+  var req     = null;
+  for (var r = 1; r < reqRows.length; r++) {
+    if (String(reqRows[r][0]).trim() === reqId) { req = reqRows[r]; break; }
+  }
+  if (!req) return { ok:false, error:'Requirement not found: ' + reqId };
+
+  var reqTrade       = String(req[4]  || '').trim();
+  var reqMinExp      = parseFloat(req[6])   || 0;
+  var reqCerts       = String(req[12] || '').trim();
+  var reqNationality = String(req[11] || '').trim();
+  var reqMinAge      = parseInt(req[7])     || 0;
+  var reqMaxAge      = parseInt(req[8])     || 0;
+  var campaignType   = inferCampaignType_(req);
+
+  // ── 2. Load candidate dataset (same sheet as action=candidates) ───
+  var cs = ss.getSheetByName('Candidates');
+  if (!cs || cs.getLastRow() < 2) return { ok:true, reqId:reqId, records:[], total:0, counts:{} };
+
+  var cData = cs.getRange(2, 1, cs.getLastRow()-1,
+              Math.min(cs.getLastColumn(), 42)).getValues();
+
+  var records = [];
+  var counts  = { EXCELLENT:0, STRONG:0, GOOD:0, POSSIBLE:0, REVIEW:0, skipped:0, scanned:0 };
+
+  // ── 3. Score every active candidate ───────────────────────────────
+  cData.forEach(function(row, i) {
+    var active = String(row[COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') { counts.skipped++; return; }
+    var name  = String(row[COL.name-1]||'').trim();
+    var email = String(row[COL.email-1]||'').trim();
+    if (!name && !email) { counts.skipped++; return; }
+
+    counts.scanned++;
+
+    var kaiText = String(row[COL.kaiAssessment-1]||'');
+    var cand = {
+      trade:           String(row[COL.trade-1]||'').trim(),
+      positionApplied: String(row[COL.positionApplied-1]||'').trim(),
+      experience:      parseFloat(row[COL.experience-1])||0,
+      gulfExp:         String(row[COL.gulfExp-1]||'').trim(),
+      dob:             String(row[COL.dob-1]||'').trim(),
+      age:             parseInt(row[COL.age-1])||0,
+      currentLocation: String(row[COL.currentLocation-1]||'').trim(),
+      nationality:     String(row[COL.nationality-1]||'').trim(),
+      education:       String(row[COL.education-1]||'').trim(),
+      educationRaw:    String(row[COL.education-1]||'').trim(),
+      name:            name,
+      mobile:          String(row[COL.mobile-1]||'').replace(/^'/,'').trim(),
+      email:           email,
+      passportNo:      extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
+      passportStatus:  computePassportStatus_(row[COL.passportExpiry-1]),
+      noticeDays:      parseInt(row[COL.noticeDays-1])||0,
+      medicalStatus:   String(row[COL.medicalStatus-1]||'').trim(),
+      ecrStatus:       String(row[COL.ecrStatus-1]||'').trim(),
+      mobilityStatus:  String(row[COL.mobility-1]||'').trim()
+    };
+
+    var result = computeMatchScoreT14_(
+      reqTrade, reqMinExp, reqCerts, campaignType,
+      reqNationality, reqMinAge, reqMaxAge, cand
+    );
+
+    // ── 4. Skip hard fails ─────────────────────────────────────────
+    if (result.hardFail) { counts.skipped++; return; }
+
+    var tier = result.tier || 'REVIEW';
+    if (counts[tier] !== undefined) counts[tier]++;
+
+    // ── Derive signals from compliance flags + education cap ───────
+    var signals = [];
+    if (result.compliance && result.compliance.flags) {
+      result.compliance.flags.forEach(function(f) {
+        signals.push({ type:'COMPLIANCE', code:f.code, detail:f.detail });
+      });
+    }
+    if (result.educationCapped) {
+      signals.push({
+        type:   'EDU_CAP',
+        code:   'EDUCATION_CAPPED',
+        detail: 'Score capped at ' + result.educationCapValue + ' (education below class minimum)'
+      });
+    }
+
+    records.push({
+      rowIndex:         i + 2,
+      kaiNo:            String(row[COL.kaiNo-1]||'').trim(),
+      name:             name,
+      nationality:      String(row[COL.nationality-1]||'').trim(),
+      trade:            cand.trade,
+      positionApplied:  cand.positionApplied,
+      experience:       cand.experience,
+      gulfExp:          cand.gulfExp,
+      currentLocation:  cand.currentLocation,
+      mobile:           cand.mobile,
+      email:            cand.email,
+      cvLink:           String(row[COL.cvLink-1]||'').trim(),
+      // ── T14 result fields (required by spec) ────────────────────
+      score:            result.score,
+      tier:             tier,
+      recruitmentClass: result.recruitmentClass,
+      compliance:       result.compliance,
+      breakdown:        result.breakdown,
+      signals:          signals
+    });
+  });
+
+  // ── 5. Sort: score DESC, then compliance.score DESC ───────────────
+  records.sort(function(a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    var ca = (a.compliance && a.compliance.score) || 0;
+    var cb = (b.compliance && b.compliance.score) || 0;
+    return cb - ca;
+  });
+
+  // ── 6. Cap at 100 ─────────────────────────────────────────────────
+  records = records.slice(0, 100);
+
+  return {
+    ok:       true,
+    reqId:    reqId,
+    reqTrade: reqTrade,
+    engine:   'T14',
+    records:  records,
+    total:    records.length,
+    counts:   counts
+  };
+}
+
+// ── TEST: run from GAS editor — Run → testMatchT14 ────────────────────────────
+// Picks first AYE-REQ requirement and logs score summary.
+function testMatchT14() {
+  var result = matchCandidatesT14_({ reqId: 'AYE-REQ-2026-0041' });
+  Logger.log('ok: '      + result.ok);
+  Logger.log('reqId: '   + result.reqId);
+  Logger.log('engine: '  + result.engine);
+  Logger.log('total: '   + result.total);
+  Logger.log('counts: '  + JSON.stringify(result.counts));
+  if (result.records && result.records.length > 0) {
+    var top = result.records[0];
+    Logger.log('Top candidate: ' + top.name + ' | score=' + top.score +
+               ' | tier=' + top.tier + ' | compliance=' + (top.compliance && top.compliance.score) +
+               ' (' + (top.compliance && top.compliance.riskLevel) + ')');
+    Logger.log('Breakdown: ' + JSON.stringify(top.breakdown));
+    Logger.log('Signals: '   + JSON.stringify(top.signals));
+  }
+}
