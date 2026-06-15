@@ -46,6 +46,20 @@ function rawEduRankT14_(rawEdu) {
   return 0;
 }
 
+// Returns the minimum realistic age at which a candidate could have
+// finished education and started work — used for contradiction detection.
+// Based on Indian/South Asian education system (GCC primary source market).
+function getEduExitAge_(rawEdu) {
+  var rank = rawEduRankT14_(rawEdu);
+  if (rank >= 7) return 25; // PhD/Doctorate
+  if (rank >= 6) return 24; // Masters / MBA / M.Tech
+  if (rank >= 5) return 22; // Degree / B.Tech / B.E / B.Sc
+  if (rank >= 4) return 21; // Diploma (10th + 3yr Diploma)
+  if (rank >= 3) return 18; // ITI / Certificate / 12th / HSC
+  if (rank >= 2) return 16; // SSC / Matric / 10th
+  return 16;                // Unknown / unskilled (minimum working age)
+}
+
 
 // ── SECTION B: RECRUITMENT CLASS ENGINE ──────────────────────────────────────
 
@@ -225,7 +239,7 @@ function ageScoreT14_(dob, ageField, reqMinAge, reqMaxAge) {
 
   if (!age) return { score: 70, archive: false, archiveReason: null };
 
-  var hardMin = (reqMinAge > 0) ? reqMinAge : 18;
+  var hardMin = (reqMinAge > 0) ? reqMinAge : 21;
   var hardMax = (reqMaxAge > 0) ? reqMaxAge : 50;
 
   if (age < hardMin) {
@@ -323,6 +337,49 @@ function computeComplianceScoreT14_(cand, recruitmentClass) {
   if (ecr === 'ECR') {
     flags.push({ code: 'ECR_STATUS', detail: 'ECR passport — Saudi local transfers restricted' });
     // No score deduction — informational only (not all roles are Saudi)
+  }
+
+  // ── Age-Experience Contradiction ─────────────────────────────────
+  // If candidate's stated age is less than the minimum realistic age
+  // (edu exit age + experience years), the CV is mathematically impossible.
+  // GCC coordinators catch this immediately — it signals fraud or data error.
+  // Deduction: -25 (significant but not terminal — recruiter must verify).
+  var candAge   = parseInt(cand.age)         || 0;
+  var candExp   = parseFloat(cand.experience) || 0;
+  var eduRaw    = cand.educationRaw || cand.education || '';
+  var eduExit   = getEduExitAge_(eduRaw);
+  var minRealAge = eduExit + candExp;
+  if (candAge > 0 && candExp > 0 && candAge < minRealAge) {
+    score -= 25;
+    flags.push({
+      code:   'AGE_EXP_CONTRADICTION',
+      detail: 'Age ' + candAge + ' is below minimum realistic age ' +
+              Math.round(minRealAge) + ' (edu exit ~' + eduExit +
+              ' + ' + candExp + 'yr exp). Verify CV before submission.'
+    });
+  }
+
+  // ── Career Gap Signal ─────────────────────────────────────────────
+  // GCC clients — especially major operators — prefer candidates with
+  // continuous employment. A gap does not reduce Match Score (trade fit
+  // is independent) but is a submission risk that coordinators will raise.
+  // gap = age − eduExitAge − experience (years unaccounted for)
+  if (candAge > 0 && candExp > 0 && candAge >= minRealAge) {
+    var careerGap = candAge - eduExit - candExp;
+    if (careerGap > 5) {
+      score -= 5; // Minor compliance deduction — gap exists, recruiter must explain
+      flags.push({
+        code:   'CAREER_GAP_SIGNIFICANT',
+        detail: 'Estimated career gap ~' + Math.floor(careerGap) +
+                ' years. GCC clients prefer continuous experience — prepare gap explanation.'
+      });
+    } else if (careerGap > 2) {
+      flags.push({
+        code:   'CAREER_GAP_MODERATE',
+        detail: 'Estimated career gap ~' + Math.floor(careerGap) +
+                ' years. Verify employment continuity before submission.'
+      });
+    }
   }
 
   var finalScore = Math.max(0, score);
