@@ -1871,7 +1871,17 @@ function createRequirement_(body) {
   // P1-C: flag open pool leads that match this new requirement
   var trade      = String(body.trade||body.jobTitle||'').trim();
   var poolResult = checkOpenPoolOnRequirement_(ss, reqId, trade);
-  return { ok:true, reqId:reqId, openPoolMatches: poolResult };
+  // T14: run match immediately so recruiter sees counts on creation screen
+  var matchCounts = { excellent:0, strong:0, good:0, possible:0, total:0 };
+  try {
+    var mr = matchCandidatesT14_({ reqId: reqId });
+    if (mr && mr.ok) {
+      var mc = mr.counts || {};
+      matchCounts = { excellent: mc.EXCELLENT||0, strong: mc.STRONG||0,
+                      good: mc.GOOD||0, possible: mc.POSSIBLE||0, total: mr.total||0 };
+    }
+  } catch(e) { Logger.log('T14 match on createRequirement error: ' + e.message); }
+  return { ok:true, reqId:reqId, openPoolMatches: poolResult, matchCounts: matchCounts };
 }
 
 function updateRequirement_(body) {
@@ -3483,6 +3493,16 @@ function createJDAndRequirement_(body) {
       parsed.trade, parsed.country, raw, null);
   } catch(e) { Logger.log('captureJDIntelligenceT14_ error: ' + e.message); }
 
+  // T14: run match immediately so recruiter sees counts on creation screen
+  var matchCounts = { excellent:0, strong:0, good:0, possible:0, total:0 };
+  try {
+    var mr = matchCandidatesT14_({ reqId: reqId });
+    if (mr && mr.ok) {
+      var mc = mr.counts || {};
+      matchCounts = { excellent: mc.EXCELLENT||0, strong: mc.STRONG||0,
+                      good: mc.GOOD||0, possible: mc.POSSIBLE||0, total: mr.total||0 };
+    }
+  } catch(e) { Logger.log('T14 match on createJDAndRequirement error: ' + e.message); }
   return {
     ok:true, jdId:jdId, reqId:reqId,
     trade:parsed.trade, department:dept,
@@ -3491,7 +3511,8 @@ function createJDAndRequirement_(body) {
     country:parsed.country,
     minExp:parsed.minExp,
     certifications:parsed.certifications,
-    summary:parsed.summary
+    summary:parsed.summary,
+    matchCounts: matchCounts
   };
 }
 
