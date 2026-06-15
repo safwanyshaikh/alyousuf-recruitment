@@ -160,6 +160,8 @@ function doGet(e) {
     else if (action === 'candidatesList')           out = JSON.stringify(getCandidatesList_(params));
     else if (action === 'dashboardTiles')           out = JSON.stringify(getDashboardTiles_());
     else if (action === 'callbacks')                out = JSON.stringify(getCallbacks_(params));
+    // S47 — Nurture: preview rejected candidates against open requirements (dryRun=true enforced in GET)
+    else if (action === 'nurturePreview')           out = JSON.stringify(nurtureRejectedCandidates_(Object.assign({}, params, { dryRun:'true' })));
     else out = JSON.stringify({ ok: false, error: 'Unknown action: ' + action });
 
   } catch(err) {
@@ -228,6 +230,8 @@ function doPost(e) {
     else if (action === 'retryQueue')           out = JSON.stringify(retryQueue_(body));
     // S46 — Callbacks (My Card tile + useCallbacks hook)
     else if (action === 'saveCallback')         out = JSON.stringify(saveCallback_(body));
+    // S47 — Nurture: batch revive REJECTED candidates against open requirements
+    else if (action === 'nurture')              out = JSON.stringify(nurtureRejectedCandidates_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -15137,6 +15141,223 @@ function unflagCandidatesByKaiNo(kaiNos) {
 // doPost additions for Section 43:
 // action=clearKarigarErrorBacklog → clearKarigarErrorBacklog()
 // action=processAllInboxEmails   → processAllInboxEmails()
+
+// ════════════════════════════════════════════════════════════════════
+// SECTION 47 — NURTURE ENGINE
+// Revives candidates with REJECT/REJECTED verdict by running T14
+// against every open AYE-REQ requirement.
+// Candidates scoring >= threshold (default 70) on at least one req
+// are written back to the sheet with verdict = NEEDS_REVIEW.
+//
+// GET  ?action=nurturePreview&token=…        → dryRun always true
+// POST { action:'nurture', token, dryRun?, minScore? }
+//   dryRun:   'true' = compute only, no writes (default false)
+//   minScore: integer threshold (default 70)
+//
+// Returns:
+// { ok, dryRun, threshold, openReqs, scanned, totalRevived,
+//   totalUnchanged, written, revived:[…], unchanged:[…] }
+// ════════════════════════════════════════════════════════════════════
+
+function nurtureRejectedCandidates_(params) {
+  params = params || {};
+  var dryRun    = String(params.dryRun    || '').toLowerCase() === 'true';
+  var threshold = parseInt(params.minScore || '70') || 70;
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // ── 1. Load all open AYE-REQ requirements ─────────────────────────
+  var rs = ss.getSheetByName('_Requirements');
+  var openReqs = [];
+  if (rs && rs.getLastRow() > 1) {
+    var reqData = rs.getDataRange().getValues();
+    for (var r = 1; r < reqData.length; r++) {
+      var rid    = String(reqData[r][0] || '').trim();
+      var status = String(reqData[r][14] || '').trim().toLowerCase();
+      if (rid.indexOf('AYE-REQ-') < 0) continue;   // skip old REQ-YYYYMMDD format
+      if (status === 'archived')        continue;   // skip archived
+      var trade = String(reqData[r][4] || '').trim();
+      if (!trade || trade.length < 2)   continue;   // skip reqs with no trade
+      openReqs.push({
+        reqId:          rid,
+        reqTrade:       trade,
+        reqMinExp:      parseFloat(reqData[r][6])   || 0,
+        reqCerts:       String(reqData[r][12] || '').trim(),
+        reqNationality: String(reqData[r][11] || '').trim(),
+        reqMinAge:      parseInt(reqData[r][7])      || 0,
+        reqMaxAge:      parseInt(reqData[r][8])      || 0,
+        campaignType:   inferCampaignType_(reqData[r])
+      });
+    }
+  }
+  if (openReqs.length === 0)
+    return { ok:false, error:'No open AYE-REQ requirements with a trade found' };
+
+  // ── 2. Load Candidates sheet ───────────────────────────────────────
+  var cs = ss.getSheetByName('Candidates');
+  if (!cs || cs.getLastRow() < 2)
+    return { ok:false, error:'Candidates sheet empty' };
+
+  var cData = cs.getRange(2, 1, cs.getLastRow()-1,
+              Math.min(cs.getLastColumn(), 42)).getValues();
+
+  var revived   = [];
+  var unchanged = [];
+  var batchWrites = [];   // { row, verdict }
+
+  // ── 3. Evaluate every REJECT/REJECTED candidate ────────────────────
+  cData.forEach(function(row, i) {
+    var active = String(row[COL.active-1]||'').toUpperCase().trim();
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+
+    var verdict = String(row[COL.verdict-1]||'').trim().toUpperCase();
+    if (verdict !== 'REJECT' && verdict !== 'REJECTED') return;
+
+    var name  = String(row[COL.name-1]||'').trim();
+    var email = String(row[COL.email-1]||'').trim();
+    if (!name && !email) return;
+
+    var kaiNo   = String(row[COL.kaiNo-1]||'').trim();
+    var kaiText = String(row[COL.kaiAssessment-1]||'');
+
+    var cand = {
+      trade:           String(row[COL.trade-1]||'').trim(),
+      positionApplied: String(row[COL.positionApplied-1]||'').trim(),
+      experience:      parseFloat(row[COL.experience-1])||0,
+      gulfExp:         String(row[COL.gulfExp-1]||'').trim(),
+      dob:             String(row[COL.dob-1]||'').trim(),
+      age:             parseInt(row[COL.age-1])||0,
+      currentLocation: String(row[COL.currentLocation-1]||'').trim(),
+      nationality:     String(row[COL.nationality-1]||'').trim(),
+      education:       String(row[COL.education-1]||'').trim(),
+      educationRaw:    String(row[COL.education-1]||'').trim(),
+      name:            name,
+      mobile:          String(row[COL.mobile-1]||'').replace(/^'/,'').trim(),
+      email:           email,
+      passportNo:      extractPassportNo_(kaiText, String(row[COL.notes-1]||'')),
+      passportStatus:  computePassportStatus_(row[COL.passportExpiry-1]),
+      noticeDays:      parseInt(row[COL.noticeDays-1])||0,
+      medicalStatus:   String(row[COL.medicalStatus-1]||'').trim(),
+      ecrStatus:       String(row[COL.ecrStatus-1]||'').trim(),
+      mobilityStatus:  String(row[COL.mobility-1]||'').trim()
+    };
+
+    // Run against every open requirement
+    var matches   = [];
+    openReqs.forEach(function(req) {
+      var result = computeMatchScoreT14_(
+        req.reqTrade, req.reqMinExp, req.reqCerts, req.campaignType,
+        req.reqNationality, req.reqMinAge, req.reqMaxAge, cand
+      );
+      if (result.hardFail)         return;   // nationality block or trade mismatch
+      if (result.score < threshold) return;
+      matches.push({
+        reqId:    req.reqId,
+        reqTrade: req.reqTrade,
+        score:    result.score,
+        tier:     result.tier
+      });
+    });
+
+    var sheetRow = i + 2;
+
+    if (matches.length > 0) {
+      matches.sort(function(a, b) { return b.score - a.score; });
+      revived.push({
+        kaiNo:           kaiNo,
+        name:            name,
+        trade:           cand.trade,
+        previousVerdict: verdict,
+        newVerdict:      'NEEDS_REVIEW',
+        bestScore:       matches[0].score,
+        bestReqId:       matches[0].reqId,
+        bestReqTrade:    matches[0].reqTrade,
+        matchCount:      matches.length,
+        matches:         matches
+      });
+      if (!dryRun) batchWrites.push({ row: sheetRow });
+    } else {
+      unchanged.push({
+        kaiNo:  kaiNo,
+        name:   name,
+        trade:  cand.trade,
+        reason: 'No open requirement scored >= ' + threshold
+      });
+    }
+  });
+
+  // ── 4. Write NEEDS_REVIEW back to sheet ───────────────────────────
+  var written = 0;
+  if (!dryRun && batchWrites.length > 0) {
+    batchWrites.forEach(function(w) {
+      try {
+        cs.getRange(w.row, COL.verdict).setValue('NEEDS_REVIEW');
+        written++;
+      } catch(e) { /* non-fatal — log skips */ }
+    });
+    // Invalidate list caches so UI shows updated verdicts immediately
+    try {
+      var cache = CacheService.getScriptCache();
+      cache.remove('kai:dashboardTiles');
+      cache.remove('kai:candidatesList:||||||:meta');
+    } catch(e) {}
+  }
+
+  return {
+    ok:             true,
+    dryRun:         dryRun,
+    threshold:      threshold,
+    openReqs:       openReqs.length,
+    scanned:        revived.length + unchanged.length,
+    totalRevived:   revived.length,
+    totalUnchanged: unchanged.length,
+    written:        written,
+    revived:        revived,
+    unchanged:      unchanged
+  };
+}
+
+// ── TEST: run from GAS editor ─────────────────────────────────────────────────
+// Step 1: Run testNurturePreview → see which candidates would be revived
+// Step 2: Run testNurtureWrite   → confirm and execute writes
+function testNurturePreview() {
+  var result = nurtureRejectedCandidates_({ dryRun: 'true' });
+  Logger.log('=== NURTURE PREVIEW (dry run) ===');
+  Logger.log('Open requirements scanned: ' + result.openReqs);
+  Logger.log('Rejected candidates checked: ' + result.scanned);
+  Logger.log('Would be revived: ' + result.totalRevived);
+  Logger.log('Remain unchanged: ' + result.totalUnchanged);
+  if (result.revived && result.revived.length > 0) {
+    Logger.log('--- CANDIDATES TO BE REVIVED ---');
+    result.revived.forEach(function(c) {
+      Logger.log(c.kaiNo + ' | ' + c.name + ' | ' + c.trade +
+                 ' | bestScore=' + c.bestScore + ' for ' + c.bestReqTrade +
+                 ' (' + c.bestReqId + ') | matches=' + c.matchCount);
+    });
+  }
+  if (result.unchanged && result.unchanged.length > 0) {
+    Logger.log('--- UNCHANGED (no match) ---');
+    result.unchanged.forEach(function(c) {
+      Logger.log(c.kaiNo + ' | ' + c.name + ' | ' + c.trade);
+    });
+  }
+}
+
+function testNurtureWrite() {
+  var result = nurtureRejectedCandidates_({ dryRun: 'false' });
+  Logger.log('=== NURTURE WRITE ===');
+  Logger.log('Open requirements: ' + result.openReqs);
+  Logger.log('Scanned: '         + result.scanned);
+  Logger.log('Revived: '         + result.totalRevived);
+  Logger.log('Written to sheet: '+ result.written);
+  Logger.log('Unchanged: '       + result.totalUnchanged);
+  if (result.revived) {
+    result.revived.forEach(function(c) {
+      Logger.log('REVIVED: ' + c.kaiNo + ' | ' + c.name + ' | ' + c.trade +
+                 ' → NEEDS_REVIEW | best=' + c.bestScore + ' ' + c.bestReqTrade);
+    });
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════
 // SECTION 45 — T14 MATCH ADAPTER
