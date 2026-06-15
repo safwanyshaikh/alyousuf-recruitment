@@ -20,6 +20,11 @@ var SS_ID = '101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE';
 // Compatibility shim: sprint files and patch files call getMasterSS_()
 function getMasterSS_() { return SpreadsheetApp.openById(SS_ID); }
 
+// Shim: old sprint files call matchCandidatesForReqPublic — redirect to T14
+function matchCandidatesForReqPublic(reqId, limit) {
+  return matchCandidatesT14_({ reqId: reqId, limit: limit });
+}
+
 // ── COLUMN MAP (1-based, matches Code.gs CONFIG.inputColumns + extCol + extCol2)
 var COL = {
   // Standard cols 1–24
@@ -232,6 +237,7 @@ function doPost(e) {
     else if (action === 'saveCallback')         out = JSON.stringify(saveCallback_(body));
     // S47 — Nurture: batch revive REJECTED candidates against open requirements
     else if (action === 'nurture')              out = JSON.stringify(nurtureRejectedCandidates_(body));
+    else if (action === 'match')                out = JSON.stringify(matchCandidatesT14_(body));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
