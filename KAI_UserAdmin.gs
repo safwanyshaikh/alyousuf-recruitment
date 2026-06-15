@@ -173,6 +173,40 @@ function resetPassword() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// ACTIVATE ALL SESSIONS — Extends all existing sessions to 30 days
+// Users whose browser has a token will be active immediately.
+// Users with no token (never logged in) must log in once first.
+// ══════════════════════════════════════════════════════════════════
+function activateAllSessions() {
+  var ss    = SpreadsheetApp.openById(ADMIN_SS_ID_);
+  var sheet = ss.getSheetByName('_LoginSystem');
+  if (!sheet || sheet.getLastRow() < 2) { Logger.log('_LoginSystem not found.'); return; }
+
+  var data    = sheet.getRange(2, 1, sheet.getLastRow()-1, 8).getValues();
+  var expiry  = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  var extended = 0;
+  var noToken  = 0;
+
+  data.forEach(function(r, i) {
+    var email = String(r[0]||'').trim();
+    var token = String(r[5]||'').trim();
+    if (!email) return;
+    if (token) {
+      sheet.getRange(i+2, 7).setValue(expiry.toISOString());
+      Logger.log('ACTIVATED (30d): ' + email);
+      extended++;
+    } else {
+      Logger.log('NO TOKEN — must log in first: ' + email);
+      noToken++;
+    }
+  });
+
+  Logger.log('--- activateAllSessions complete ---');
+  Logger.log('Extended: ' + extended + ' | Must log in: ' + noToken);
+  Logger.log('Sessions valid until: ' + expiry.toDateString());
+}
+
+// ══════════════════════════════════════════════════════════════════
 // DISABLE USER — Clears session, user is logged out immediately
 // ══════════════════════════════════════════════════════════════════
 function disableUser() {
