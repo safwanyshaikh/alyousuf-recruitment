@@ -1106,7 +1106,8 @@ function extractJdV284_(text, subject) {
 function saveRequirementV284_(jd) {
   var ss    = getMasterSS_();
   var sheet = ss.getSheetByName(CONFIG_V2.requirementsSheet) ||
-              ensureSheet_(ss, CONFIG_V2.requirementsSheet, CONFIG_V2.reqHeaders, '#1e3a5f');
+              ensureSheet_(ss, CONFIG_V2.requirementsSheet,
+                           CONFIG_V2.reqHeaders.concat(['Department']), '#1e3a5f');
 
   // Auto-increment Req ID
   var props   = PropertiesService.getScriptProperties();
@@ -1134,11 +1135,11 @@ function saveRequirementV284_(jd) {
     try { specStr = JSON.stringify(jd.specialRequirements); } catch(e) { specStr = ''; }
   }
 
-  // Map to reqHeaders:
+  // Map to reqHeaders (col 1-18) + Department (col 19):
   // 'Req ID','Received Date','Client Name','Deploy Country','Trade','Quantity',
   // 'Min Experience (yr)','Min Age','Max Age','Salary','Local Transfer',
   // 'Visit Visa OK','GCC Preferred','Certifications','Special Requirements',
-  // 'Urgency','Status','Notes'
+  // 'Urgency','Status','Notes','Department'
   sheet.appendRow([
     reqId,
     today,
@@ -1157,7 +1158,8 @@ function saveRequirementV284_(jd) {
     specStr,
     jd.urgency        || 'NORMAL',
     'OPEN',
-    notes
+    notes,
+    jd.department     || ''
   ]);
 
   SpreadsheetApp.flush();

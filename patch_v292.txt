@@ -391,6 +391,7 @@ function bulkCreateRequirementsFromJDs(batchId, indices, newCampaign, existingCa
         requirements.push({
           reqId:         reqId,
           trade:         jd.trade         || '',
+          department:    jd.department    || '',
           clientName:    jd.clientName    || '',
           deployCountry: jd.deployCountry || '',
           quantity:      jd.quantity      || 1
