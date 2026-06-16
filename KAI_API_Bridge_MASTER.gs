@@ -3473,24 +3473,35 @@ function createJDAndRequirement_(body) {
   }
   var reqId   = generateReqId_();
   var dept    = classifyDepartment_(parsed.trade);
+  // Column order matches createRequirement_ so T14 reads req[4]=trade, req[6]=minExp,
+  // req[7]=minAge, req[8]=maxAge, req[11]=nationality, req[12]=certs correctly.
   reqSheet.appendRow([
-    reqId,
-    parsed.title || parsed.trade,
-    clientName || parsed.client || '',
-    parsed.country || '',
-    parsed.trade   || '',
-    parseInt(body.qty||parsed.qty||'1') || 1,
-    parsed.minExp  || 0,
-    new Date(),
-    recruiter,
-    String(body.projectName||parsed.project||'').trim(),
-    String(body.nationality||'Indian').trim(),
-    0, 0,
-    String(body.urgency||'NORMAL').trim(),
-    'OPEN',
-    dept,
-    jdId,
-    '', ''
+    reqId,                                                   // col 1
+    new Date(),                                              // col 2: createdAt
+    clientName || parsed.client || '',                       // col 3: clientName
+    parsed.country || '',                                    // col 4: deployCountry
+    parsed.trade   || '',                                    // col 5: trade
+    parseInt(body.qty||parsed.qty||'1') || 1,               // col 6: requiredQty
+    parsed.minExp  || 0,                                     // col 7: minExperience
+    parseInt(parsed.minAge||'0') || 0,                      // col 8: minAge
+    parseInt(parsed.maxAge||'0') || 0,                      // col 9: maxAge
+    String(body.projectName||parsed.project||'').trim(),    // col 10: projectName
+    String(body.nationality||parsed.nationality||'').trim(), // col 11: nationality
+    String(parsed.certifications||'').trim(),               // col 12: certifications
+    '',                                                      // col 13
+    String(body.urgency||parsed.urgency||'NORMAL').trim(),  // col 14: urgency
+    'OPEN',                                                  // col 15: status
+    recruiter,                                               // col 16: sourcedBy
+    dept,                                                    // col 17: department
+    0, 0,                                                    // col 18, 19
+    String(body.notes||'').trim(),                          // col 20: notes
+    jdId,                                                    // col 21: jdId
+    '', '',                                                  // col 22, 23
+    0,                                                       // col 24: committedQty
+    '',                                                      // col 25: interviewDate
+    String(body.clientId||'').trim(),                       // col 26: clientId
+    String(body.campaignId||'').trim(),                     // col 27: campaignId
+    dept                                                     // col 28: department
   ]);
 
   // T14: capture JD intelligence
@@ -3523,7 +3534,8 @@ function createJDAndRequirement_(body) {
 }
 
 // Parse JD with Gemini — falls back to regex parser on failure
-function parseJDWithGemini_(text, clientHint) {
+function parseJDWithGeminiV1_(text, clientHint) {
+  // V1 — superseded by parseJDWithGemini_ (line ~10963). Renamed to prevent duplicate.
   try {
     var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
     if (!apiKey) throw new Error('No API key');
