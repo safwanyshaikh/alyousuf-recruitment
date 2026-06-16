@@ -630,7 +630,8 @@ function getCandidates_(params) {
       var kai    = String(row[COL.kaiAssessment-1]||'');
       var ppNo   = extractPassportNo_(kai, String(row[COL.notes-1]||''));
       var blob   = [name,kaiNo,mobile,email,ppNo,trade,pos,
-                    String(row[COL.educationEnum-1]||''),nat].join(' ').toLowerCase();
+                    String(row[COL.educationEnum-1]||''),nat,
+                    String(row[COL.top3Positions-1]||'')].join(' ').toLowerCase();
       if (blob.indexOf(fSearch) < 0) return;
     }
 
@@ -2174,6 +2175,16 @@ function uploadCV_(body) {
       uploadSheet.getRange(uploadRowNum, 12).setValue('GEMINI_API_KEY missing or Gemini error');
       return { ok:true, uploadId:uploadId, driveUrl:driveUrl, status:'PENDING_PARSE',
                message:'CV saved to Drive. Set GEMINI_API_KEY in Bridge script properties to enable instant parsing.' };
+    }
+
+    // Duplicate check before creating new record (Passport → Mobile → Email)
+    var dupMobile   = String(parsed.mobile||parsed.phone||'').replace(/\D/g,'');
+    var dupEmail    = String(parsed.email||'').trim().toLowerCase();
+    var dupPassport = String(parsed.passportNo||'').trim().toUpperCase();
+    var dupCheck    = checkDuplicateCandidate_(ss, dupMobile, dupEmail, dupPassport);
+    if (dupCheck.isDuplicate) {
+      return { ok:false, error:'DUPLICATE', existingKaiNo:dupCheck.existingKaiNo,
+               field:dupCheck.field, message:'Candidate already exists: ' + dupCheck.existingKaiNo };
     }
 
     // STEP 4 — Generate KI Number
