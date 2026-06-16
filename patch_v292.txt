@@ -1,59 +1,132 @@
 /**
  * ═══════════════════════════════════════════════════════════════
  *  KAI_16Jun2026_patch_v292.gs
- *  CAMPAIGN REQUIREMENT ENGINE — Gulf Recruitment OS
+ *  CLIENT & CAMPAIGN REQUIREMENT ENGINE — Gulf Recruitment OS
  *  Build : 16-Jun-2026  |  Al Yousuf Enterprises LLP
  * ═══════════════════════════════════════════════════════════════
  *
  *  SECTION INDEX
  *  ───────────────────────────────────────────────────────────────
- *  S92  CAMPAIGN REQUIREMENT ENGINE
- *       S92.F01  resolveOrCreateCampaign_()   — create/reuse _Projects row
- *       S92.F02  bulkCreateRequirementsFromJDs() — public dashboard endpoint
+ *  S92  CLIENT & CAMPAIGN ENGINE
+ *       S92.C01  CLIENT_HEADERS_              — _Clients sheet schema (5 cols)
+ *       S92.C02  CAMPAIGN_HEADERS_            — _Campaigns sheet schema (9 cols)
+ *       S92.F01  findOrCreateClient_()        — _Clients lookup / create
+ *       S92.F02  findOrCreateProject_()       — _Projects reuse-or-create wrapper
+ *       S92.F03  findOrCreateCampaign_()      — _Campaigns lookup / create
+ *       S92.F04  getCampaignById_()           — _Campaigns single-row fetch
+ *       S92.F05  incrementCampaignReqCount_() — _Campaigns counter update
+ *       S92.F06  bulkCreateRequirementsFromJDs() — public dashboard endpoint
  *
- *  ARCHITECTURE NOTES
+ *  HIERARCHY
  *  ───────────────────────────────────────────────────────────────
- *  • Depends on V284: saveRequirementV284_(), createProject_(),
- *    listProjects(), mapReqToProject_()
- *  • Depends on V291: extractJdPublicV2Fixed() cache pattern
- *    (JD_BATCH_* keys in ScriptCache)
- *  • Campaign = Project in _Projects sheet (9-column schema).
- *    No separate _Campaigns sheet is created — project name serves
- *    as the campaign identifier.
- *  • Create-or-reuse logic: exact match on projectName + clientName
- *    (case-insensitive). If found ACTIVE, reuse. Otherwise create.
- *  • All functions additive — nothing removed or renamed.
+ *    Client (_Clients)
+ *      └─ Project (_Projects)          — reuses V284 createProject_()
+ *           └─ Campaign (_Campaigns)    — one per Client+Project pair
+ *                └─ Requirements (_Requirements)  — via saveRequirementV284_()
+ *
+ *  BACKWARD COMPATIBILITY
+ *  ───────────────────────────────────────────────────────────────
+ *  bulkCreateRequirementsFromJDs supports three call patterns:
+ *    A  newCampaign object supplied  → full create/reuse flow
+ *    B  existingCampaignId supplied  → use campaign directly (compat)
+ *    C  neither supplied             → save requirements with no campaign
+ *
+ *  DEPENDENCIES
+ *  ───────────────────────────────────────────────────────────────
+ *  V282: getMasterSS_(), ensureSheet_()
+ *  V284: saveRequirementV284_(), createProject_(), listProjects(),
+ *        mapReqToProject_()
+ *  V291: ScriptCache JD_BATCH_* pattern
+ *
+ *  All functions in this file are additive. No existing functions
+ *  are modified or removed.
  * ═══════════════════════════════════════════════════════════════
  */
 
 // ═══════════════════════════════════════════════════════════════════
-// S92 · CAMPAIGN REQUIREMENT ENGINE
+// S92.C01 — Sheet header constants
+// ═══════════════════════════════════════════════════════════════════
+
+var CLIENT_HEADERS_V292_ = [
+  'Client ID', 'Client Name', 'Country', 'Status', 'Created Date'
+];
+
+var CAMPAIGN_HEADERS_V292_ = [
+  'Campaign ID',   // col 1
+  'Campaign Name', // col 2  (= projectName)
+  'Client ID',     // col 3
+  'Client Name',   // col 4
+  'Project ID',    // col 5
+  'Country',       // col 6
+  'Status',        // col 7
+  'Created Date',  // col 8
+  'Req Count'      // col 9
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// S92 · CLIENT & CAMPAIGN ENGINE
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * S92.F01 — Resolve an existing ACTIVE project or create a new one.
+ * S92.F01 — Find an existing client by name (case-insensitive) in _Clients,
+ * or create a new row and return the new Client ID.
  *
- * Match criteria: projectName + clientName, both compared case-insensitively.
- * Country is only used during creation; mismatched country on existing project
- * does not block reuse — the req's deployCountry field carries that data.
- *
- * @param {Object} newCampaign - { clientName, projectName, country }
- * @returns {{ projectId, projectName, campaignCreated }}
+ * @param  {string} clientName
+ * @param  {string} country
+ * @returns {string} clientId (e.g. "CLI-20260616-0001") or '' if name blank
  */
-function resolveOrCreateCampaign_(newCampaign) {
-  var clientName  = String(newCampaign.clientName  || '').trim();
-  var projectName = String(newCampaign.projectName || '').trim();
-  var country     = String(newCampaign.country     || '').trim();
+function findOrCreateClient_(clientName, country) {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName('_Clients') ||
+              ensureSheet_(ss, '_Clients', CLIENT_HEADERS_V292_, '#1a3650');
 
-  if (!projectName) {
-    throw new Error('newCampaign.projectName is required');
+  var cNameLc = String(clientName || '').trim().toLowerCase();
+  if (!cNameLc) return '';
+
+  // Scan existing rows
+  if (sheet.getLastRow() >= 2) {
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][1]).trim().toLowerCase() === cNameLc) {
+        return String(data[i][0]).trim(); // found — return existing ID
+      }
+    }
   }
 
-  var projects = listProjects();
-  var pNameLc  = projectName.toLowerCase();
-  var cNameLc  = clientName.toLowerCase();
+  // Not found — create
+  var props   = PropertiesService.getScriptProperties();
+  var counter = parseInt(props.getProperty('kai_client_id_counter') || '0') + 1;
+  props.setProperty('kai_client_id_counter', String(counter));
+  var clientId = 'CLI-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+                 '-' + String(counter).padStart(4, '0');
+  var today    = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy');
 
-  var match = null;
+  sheet.appendRow([
+    clientId,
+    String(clientName || '').trim(),
+    String(country    || '').trim(),
+    'ACTIVE',
+    today
+  ]);
+  SpreadsheetApp.flush();
+  return clientId;
+}
+
+/**
+ * S92.F02 — Find an existing ACTIVE project by clientName + projectName
+ * (case-insensitive) using existing listProjects(), or create a new one
+ * via existing createProject_().
+ *
+ * @param  {string} clientName
+ * @param  {string} projectName
+ * @param  {string} country
+ * @returns {string} projectId (e.g. "PROJ-20260616-001")
+ */
+function findOrCreateProject_(clientName, projectName, country) {
+  var pNameLc = String(projectName || '').trim().toLowerCase();
+  var cNameLc = String(clientName  || '').trim().toLowerCase();
+
+  var projects = listProjects();
   for (var i = 0; i < projects.length; i++) {
     var p = projects[i];
     if (
@@ -61,75 +134,176 @@ function resolveOrCreateCampaign_(newCampaign) {
       p.client.toLowerCase() === cNameLc &&
       p.status.toUpperCase() === 'ACTIVE'
     ) {
-      match = p;
-      break;
+      return p.id; // reuse existing
     }
   }
 
-  if (match) {
-    return {
-      projectId:       match.id,
-      projectName:     match.name,
-      campaignCreated: false
-    };
-  }
-
-  var newId = createProject_(projectName, clientName, country);
-  return {
-    projectId:       newId,
-    projectName:     projectName,
-    campaignCreated: true
-  };
+  // Not found — delegate to V284 createProject_
+  return createProject_(projectName, clientName, country);
 }
 
 /**
- * S92.F02 — Public dashboard endpoint.
+ * S92.F03 — Find an existing ACTIVE campaign for a given project, or create
+ * a new row in _Campaigns.
  *
- * Retrieves JD batch from ScriptCache (set by extractJdPublicV2Fixed or
- * extractJdFromPastePublicV2Fixed when isMulti=true), saves selected
- * positions as Requirements, creates or reuses a Campaign (Project),
- * and maps each requirement to that project.
+ * Match priority:
+ *   1. projectId match (most precise)
+ *   2. clientName + campaignName match (fallback, case-insensitive)
  *
- * Called from dashboard via:
- *   google.script.run
- *     .withSuccessHandler(handler)
- *     .bulkCreateRequirementsFromJDs(batchId, indices, newCampaign)
+ * @param  {string} clientId
+ * @param  {string} clientName
+ * @param  {string} projectId
+ * @param  {string} projectName   used as Campaign Name
+ * @param  {string} country
+ * @returns {{ campaignId, campaignName, campaignCreated }}
+ */
+function findOrCreateCampaign_(clientId, clientName, projectId, projectName, country) {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName('_Campaigns') ||
+              ensureSheet_(ss, '_Campaigns', CAMPAIGN_HEADERS_V292_, '#1e3a5f');
+
+  var pNameLc = String(projectName || '').trim().toLowerCase();
+  var cNameLc = String(clientName  || '').trim().toLowerCase();
+
+  if (sheet.getLastRow() >= 2) {
+    var rows = sheet.getRange(
+      2, 1, sheet.getLastRow() - 1, CAMPAIGN_HEADERS_V292_.length
+    ).getValues();
+
+    for (var i = 0; i < rows.length; i++) {
+      var r      = rows[i];
+      var status = String(r[6]).toUpperCase().trim();
+      if (status !== 'ACTIVE') continue;
+
+      var matchByProject = projectId && String(r[4]).trim() === projectId;
+      var matchByName    = String(r[3]).trim().toLowerCase() === cNameLc &&
+                           String(r[1]).trim().toLowerCase() === pNameLc;
+
+      if (matchByProject || matchByName) {
+        return {
+          campaignId:      String(r[0]).trim(),
+          campaignName:    String(r[1]).trim(),
+          campaignCreated: false
+        };
+      }
+    }
+  }
+
+  // Not found — create
+  var props    = PropertiesService.getScriptProperties();
+  var counter  = parseInt(props.getProperty('kai_campaign_id_counter') || '0') + 1;
+  props.setProperty('kai_campaign_id_counter', String(counter));
+  var campaignId   = 'CAMP-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+                     '-' + String(counter).padStart(4, '0');
+  var campaignName = String(projectName || '').trim();
+  var today        = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy');
+
+  sheet.appendRow([
+    campaignId,
+    campaignName,
+    clientId   || '',
+    clientName || '',
+    projectId  || '',
+    String(country || '').trim(),
+    'ACTIVE',
+    today,
+    0              // Req Count starts at 0
+  ]);
+  SpreadsheetApp.flush();
+  return { campaignId: campaignId, campaignName: campaignName, campaignCreated: true };
+}
+
+/**
+ * S92.F04 — Fetch a single campaign record from _Campaigns by Campaign ID.
+ * Returns the record object or null if not found.
+ * Used by the backward-compat path when caller supplies an existingCampaignId.
+ */
+function getCampaignById_(campaignId) {
+  var sheet = getMasterSS_().getSheetByName('_Campaigns');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  var rows = sheet.getRange(
+    2, 1, sheet.getLastRow() - 1, CAMPAIGN_HEADERS_V292_.length
+  ).getValues();
+
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]).trim() === String(campaignId).trim()) {
+      return {
+        campaignId:   String(rows[i][0]).trim(),
+        campaignName: String(rows[i][1]).trim(),
+        clientId:     String(rows[i][2]).trim(),
+        clientName:   String(rows[i][3]).trim(),
+        projectId:    String(rows[i][4]).trim()
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * S92.F05 — Add `count` to the Req Count column (col 9) on a _Campaigns row.
+ */
+function incrementCampaignReqCount_(campaignId, count) {
+  var sheet = getMasterSS_().getSheetByName('_Campaigns');
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  var ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === String(campaignId).trim()) {
+      var cell = sheet.getRange(i + 2, CAMPAIGN_HEADERS_V292_.length); // col 9
+      cell.setValue((parseInt(cell.getValue()) || 0) + (count || 1));
+      SpreadsheetApp.flush();
+      return;
+    }
+  }
+}
+
+/**
+ * S92.F06 — Public dashboard endpoint: create requirements from a JD batch,
+ * optionally under a new or existing campaign.
  *
- * @param {string}   batchId     - ScriptCache key from multi-JD extraction
- * @param {number[]} indices     - which positions in the batch to save
- * @param {Object}   newCampaign - { clientName, projectName, country }
+ * CALL PATTERNS
+ * ─────────────────────────────────────────────────────────────
+ * A) New Client / Project (frontend Option B):
+ *    bulkCreateRequirementsFromJDs(batchId, indices,
+ *      { clientName, projectName, country }, null)
+ *
+ * B) Existing campaign (frontend Option A / backward compat):
+ *    bulkCreateRequirementsFromJDs(batchId, indices, null, 'CAMP-xxx')
+ *
+ * C) No campaign (backward compat — saves requirements only):
+ *    bulkCreateRequirementsFromJDs(batchId, indices)
+ *
+ * @param {string}   batchId            ScriptCache key (JD_BATCH_*)
+ * @param {number[]} indices            Positions to save; [] or omit = save all
+ * @param {Object}   newCampaign        { clientName, projectName, country } or null
+ * @param {string}   existingCampaignId Existing CAMP-xxx ID or null
  *
  * @returns {{
  *   ok:              boolean,
- *   saved:           number,
- *   reqIds:          string[],
  *   campaignCreated: boolean,
- *   projectId:       string,
- *   projectName:     string,
+ *   campaignId:      string,
+ *   campaignName:    string,
+ *   requirements:    Array<{reqId, trade, clientName, deployCountry, quantity}>,
  *   msg:             string,
  *   errors:          string[]
  * }}
  */
-function bulkCreateRequirementsFromJDs(batchId, indices, newCampaign) {
+function bulkCreateRequirementsFromJDs(batchId, indices, newCampaign, existingCampaignId) {
   var result = {
     ok:              false,
-    saved:           0,
-    reqIds:          [],
     campaignCreated: false,
-    projectId:       '',
-    projectName:     '',
+    campaignId:      '',
+    campaignName:    '',
+    requirements:    [],
     msg:             '',
     errors:          []
   };
 
   try {
-    // ── 1. Validate inputs ──────────────────────────────────────────
+    // ── 1. Validate batchId ─────────────────────────────────────────
     if (!batchId) {
       result.msg = 'batchId is required.';
-      return result;
-    }
-    if (!newCampaign || !newCampaign.projectName) {
-      result.msg = 'newCampaign.projectName is required.';
       return result;
     }
 
@@ -144,9 +318,8 @@ function bulkCreateRequirementsFromJDs(batchId, indices, newCampaign) {
     var toSave  = [];
     var idxList = indices || [];
 
-    // If no indices supplied, save everything in the batch
     if (idxList.length === 0) {
-      toSave = allJds;
+      toSave = allJds;                            // save everything if no filter
     } else {
       idxList.forEach(function(idx) {
         if (idx >= 0 && idx < allJds.length) toSave.push(allJds[idx]);
@@ -158,53 +331,99 @@ function bulkCreateRequirementsFromJDs(batchId, indices, newCampaign) {
       return result;
     }
 
-    // ── 3. Create or reuse Campaign (Project) ──────────────────────
-    var campaign = resolveOrCreateCampaign_(newCampaign);
-    result.projectId       = campaign.projectId;
-    result.projectName     = campaign.projectName;
-    result.campaignCreated = campaign.campaignCreated;
+    // ── 3. Resolve campaign ─────────────────────────────────────────
+    var campaignId      = '';
+    var campaignName    = '';
+    var campaignCreated = false;
+    var projectId       = '';
 
-    // ── 4. Save each JD as a Requirement, map to Campaign ───────────
-    var reqIds = [];
-    var saved  = 0;
+    if (existingCampaignId) {
+      // ── Pattern B: caller supplies a known Campaign ID ───────────
+      var existingCamp = getCampaignById_(existingCampaignId);
+      if (!existingCamp) {
+        result.msg = 'Campaign not found: ' + existingCampaignId;
+        return result;
+      }
+      campaignId   = existingCamp.campaignId;
+      campaignName = existingCamp.campaignName;
+      projectId    = existingCamp.projectId;
+      // campaignCreated stays false
+
+    } else if (newCampaign && newCampaign.projectName) {
+      // ── Pattern A: create/reuse full hierarchy ───────────────
+      var clientName  = String(newCampaign.clientName  || '').trim();
+      var pName       = String(newCampaign.projectName || '').trim();
+      var country     = String(newCampaign.country     || '').trim();
+
+      var clientId = findOrCreateClient_(clientName, country);
+      projectId    = findOrCreateProject_(clientName, pName, country);
+      var camp     = findOrCreateCampaign_(clientId, clientName, projectId, pName, country);
+
+      campaignId      = camp.campaignId;
+      campaignName    = camp.campaignName;
+      campaignCreated = camp.campaignCreated;
+    }
+    // Pattern C: no campaign params — fall through with empty campaignId
+
+    result.campaignId      = campaignId;
+    result.campaignName    = campaignName;
+    result.campaignCreated = campaignCreated;
+
+    // ── 4. Save each JD as a Requirement ─────────────────────────
+    var requirements = [];
+    var saved = 0;
 
     toSave.forEach(function(jd) {
       try {
-        // Stamp campaign fields onto JD when not already populated
-        if (!jd.clientName   && newCampaign.clientName) jd.clientName   = newCampaign.clientName;
-        if (!jd.deployCountry && newCampaign.country)   jd.deployCountry = newCampaign.country;
+        // Stamp campaign fields onto JD only when not already set by extractor
+        if (newCampaign) {
+          if (!jd.clientName    && newCampaign.clientName) jd.clientName    = newCampaign.clientName;
+          if (!jd.deployCountry && newCampaign.country)    jd.deployCountry = newCampaign.country;
+        }
 
         var reqId = saveRequirementV284_(jd);
-        reqIds.push(reqId);
 
-        // Map requirement to the project in _Requirements Notes column
-        mapReqToProject_(reqId, campaign.projectId);
+        // Map requirement to project in _Requirements Notes column
+        if (projectId) {
+          mapReqToProject_(reqId, projectId);
+        }
 
+        requirements.push({
+          reqId:         reqId,
+          trade:         jd.trade         || '',
+          clientName:    jd.clientName    || '',
+          deployCountry: jd.deployCountry || '',
+          quantity:      jd.quantity      || 1
+        });
         saved++;
       } catch(saveErr) {
         result.errors.push('JD "' + (jd.trade || 'unknown') + '": ' + saveErr.message);
-        Logger.log('S92.F02 save error: ' + saveErr.message);
+        Logger.log('S92.F06 save error: ' + saveErr.message);
       }
     });
 
-    // ── 5. Build response ─────────────────────────────────────────
-    result.ok    = saved > 0;
-    result.saved = saved;
-    result.reqIds = reqIds;
-    result.msg   = saved + ' requirement' + (saved !== 1 ? 's' : '') + ' saved' +
-                   (campaign.projectId
-                     ? ' under ' + (campaign.campaignCreated ? 'new' : 'existing') +
-                       ' campaign ' + campaign.projectId
-                     : '') +
-                   (result.errors.length > 0
-                     ? ' (' + result.errors.length + ' error' +
-                       (result.errors.length !== 1 ? 's' : '') + ')'
-                     : '');
+    // ── 5. Update campaign Req Count ────────────────────────────
+    if (campaignId && saved > 0) {
+      try { incrementCampaignReqCount_(campaignId, saved); } catch(e) {}
+    }
+
+    // ── 6. Build response ─────────────────────────────────────
+    result.ok           = saved > 0;
+    result.requirements = requirements;
+    result.msg = saved + ' requirement' + (saved !== 1 ? 's' : '') + ' saved' +
+                 (campaignId
+                   ? ' under ' + (campaignCreated ? 'new' : 'existing') +
+                     ' campaign ' + campaignId
+                   : '') +
+                 (result.errors.length > 0
+                   ? ' (' + result.errors.length + ' error' +
+                     (result.errors.length !== 1 ? 's' : '') + ')'
+                   : '');
     return result;
 
   } catch(err) {
     result.msg = 'bulkCreateRequirementsFromJDs error: ' + err.message;
-    Logger.log('S92.F02 fatal: ' + err.message);
+    Logger.log('S92.F06 fatal: ' + err.message);
     return result;
   }
 }
