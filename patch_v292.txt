@@ -1,0 +1,210 @@
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  KAI_16Jun2026_patch_v292.gs
+ *  CAMPAIGN REQUIREMENT ENGINE — Gulf Recruitment OS
+ *  Build : 16-Jun-2026  |  Al Yousuf Enterprises LLP
+ * ═══════════════════════════════════════════════════════════════
+ *
+ *  SECTION INDEX
+ *  ───────────────────────────────────────────────────────────────
+ *  S92  CAMPAIGN REQUIREMENT ENGINE
+ *       S92.F01  resolveOrCreateCampaign_()   — create/reuse _Projects row
+ *       S92.F02  bulkCreateRequirementsFromJDs() — public dashboard endpoint
+ *
+ *  ARCHITECTURE NOTES
+ *  ───────────────────────────────────────────────────────────────
+ *  • Depends on V284: saveRequirementV284_(), createProject_(),
+ *    listProjects(), mapReqToProject_()
+ *  • Depends on V291: extractJdPublicV2Fixed() cache pattern
+ *    (JD_BATCH_* keys in ScriptCache)
+ *  • Campaign = Project in _Projects sheet (9-column schema).
+ *    No separate _Campaigns sheet is created — project name serves
+ *    as the campaign identifier.
+ *  • Create-or-reuse logic: exact match on projectName + clientName
+ *    (case-insensitive). If found ACTIVE, reuse. Otherwise create.
+ *  • All functions additive — nothing removed or renamed.
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S92 · CAMPAIGN REQUIREMENT ENGINE
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S92.F01 — Resolve an existing ACTIVE project or create a new one.
+ *
+ * Match criteria: projectName + clientName, both compared case-insensitively.
+ * Country is only used during creation; mismatched country on existing project
+ * does not block reuse — the req's deployCountry field carries that data.
+ *
+ * @param {Object} newCampaign - { clientName, projectName, country }
+ * @returns {{ projectId, projectName, campaignCreated }}
+ */
+function resolveOrCreateCampaign_(newCampaign) {
+  var clientName  = String(newCampaign.clientName  || '').trim();
+  var projectName = String(newCampaign.projectName || '').trim();
+  var country     = String(newCampaign.country     || '').trim();
+
+  if (!projectName) {
+    throw new Error('newCampaign.projectName is required');
+  }
+
+  var projects = listProjects();
+  var pNameLc  = projectName.toLowerCase();
+  var cNameLc  = clientName.toLowerCase();
+
+  var match = null;
+  for (var i = 0; i < projects.length; i++) {
+    var p = projects[i];
+    if (
+      p.name.toLowerCase()   === pNameLc &&
+      p.client.toLowerCase() === cNameLc &&
+      p.status.toUpperCase() === 'ACTIVE'
+    ) {
+      match = p;
+      break;
+    }
+  }
+
+  if (match) {
+    return {
+      projectId:       match.id,
+      projectName:     match.name,
+      campaignCreated: false
+    };
+  }
+
+  var newId = createProject_(projectName, clientName, country);
+  return {
+    projectId:       newId,
+    projectName:     projectName,
+    campaignCreated: true
+  };
+}
+
+/**
+ * S92.F02 — Public dashboard endpoint.
+ *
+ * Retrieves JD batch from ScriptCache (set by extractJdPublicV2Fixed or
+ * extractJdFromPastePublicV2Fixed when isMulti=true), saves selected
+ * positions as Requirements, creates or reuses a Campaign (Project),
+ * and maps each requirement to that project.
+ *
+ * Called from dashboard via:
+ *   google.script.run
+ *     .withSuccessHandler(handler)
+ *     .bulkCreateRequirementsFromJDs(batchId, indices, newCampaign)
+ *
+ * @param {string}   batchId     - ScriptCache key from multi-JD extraction
+ * @param {number[]} indices     - which positions in the batch to save
+ * @param {Object}   newCampaign - { clientName, projectName, country }
+ *
+ * @returns {{
+ *   ok:              boolean,
+ *   saved:           number,
+ *   reqIds:          string[],
+ *   campaignCreated: boolean,
+ *   projectId:       string,
+ *   projectName:     string,
+ *   msg:             string,
+ *   errors:          string[]
+ * }}
+ */
+function bulkCreateRequirementsFromJDs(batchId, indices, newCampaign) {
+  var result = {
+    ok:              false,
+    saved:           0,
+    reqIds:          [],
+    campaignCreated: false,
+    projectId:       '',
+    projectName:     '',
+    msg:             '',
+    errors:          []
+  };
+
+  try {
+    // ── 1. Validate inputs ──────────────────────────────────────────
+    if (!batchId) {
+      result.msg = 'batchId is required.';
+      return result;
+    }
+    if (!newCampaign || !newCampaign.projectName) {
+      result.msg = 'newCampaign.projectName is required.';
+      return result;
+    }
+
+    // ── 2. Retrieve JDs from ScriptCache ───────────────────────────
+    var cached = CacheService.getScriptCache().get('JD_BATCH_' + batchId);
+    if (!cached) {
+      result.msg = 'Batch data expired or not found. Please re-upload the JD file.';
+      return result;
+    }
+
+    var allJds  = JSON.parse(cached);
+    var toSave  = [];
+    var idxList = indices || [];
+
+    // If no indices supplied, save everything in the batch
+    if (idxList.length === 0) {
+      toSave = allJds;
+    } else {
+      idxList.forEach(function(idx) {
+        if (idx >= 0 && idx < allJds.length) toSave.push(allJds[idx]);
+      });
+    }
+
+    if (toSave.length === 0) {
+      result.msg = 'No valid JD indices found in batch.';
+      return result;
+    }
+
+    // ── 3. Create or reuse Campaign (Project) ──────────────────────
+    var campaign = resolveOrCreateCampaign_(newCampaign);
+    result.projectId       = campaign.projectId;
+    result.projectName     = campaign.projectName;
+    result.campaignCreated = campaign.campaignCreated;
+
+    // ── 4. Save each JD as a Requirement, map to Campaign ───────────
+    var reqIds = [];
+    var saved  = 0;
+
+    toSave.forEach(function(jd) {
+      try {
+        // Stamp campaign fields onto JD when not already populated
+        if (!jd.clientName   && newCampaign.clientName) jd.clientName   = newCampaign.clientName;
+        if (!jd.deployCountry && newCampaign.country)   jd.deployCountry = newCampaign.country;
+
+        var reqId = saveRequirementV284_(jd);
+        reqIds.push(reqId);
+
+        // Map requirement to the project in _Requirements Notes column
+        mapReqToProject_(reqId, campaign.projectId);
+
+        saved++;
+      } catch(saveErr) {
+        result.errors.push('JD "' + (jd.trade || 'unknown') + '": ' + saveErr.message);
+        Logger.log('S92.F02 save error: ' + saveErr.message);
+      }
+    });
+
+    // ── 5. Build response ─────────────────────────────────────────
+    result.ok    = saved > 0;
+    result.saved = saved;
+    result.reqIds = reqIds;
+    result.msg   = saved + ' requirement' + (saved !== 1 ? 's' : '') + ' saved' +
+                   (campaign.projectId
+                     ? ' under ' + (campaign.campaignCreated ? 'new' : 'existing') +
+                       ' campaign ' + campaign.projectId
+                     : '') +
+                   (result.errors.length > 0
+                     ? ' (' + result.errors.length + ' error' +
+                       (result.errors.length !== 1 ? 's' : '') + ')'
+                     : '');
+    return result;
+
+  } catch(err) {
+    result.msg = 'bulkCreateRequirementsFromJDs error: ' + err.message;
+    Logger.log('S92.F02 fatal: ' + err.message);
+    return result;
+  }
+}
