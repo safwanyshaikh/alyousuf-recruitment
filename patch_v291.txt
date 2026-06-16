@@ -269,10 +269,8 @@ function extractSingleJdBlock_v291_(text, subject) {
   try {
     var geminiPrompt =
       'Extract structured data from this job description. Return ONLY valid JSON, no markdown.\n\n' +
-      'Rules: map "Position Title" to the "trade" field. ' +
-      'For "department" use one of: Project Management, Operations, Maintenance, Construction, QA/QC, HSE.\n\n' +
       'Fields to extract:\n' +
-      '{"trade":"","department":"","quantity":1,"deployCountry":"","location":"","minExperience":0,"maxExperience":0,' +
+      '{"trade":"","quantity":1,"deployCountry":"","location":"","minExperience":0,"maxExperience":0,' +
       '"educationReq":"","salary":"","clientName":"","localTransfer":false,"visitVisaOK":false,' +
       '"gccPreference":false,"languageReq":"","certifications":[],"urgency":"NORMAL",' +
       '"specialRequirements":{"rotation":"","accommodation":"","transport":"","iqamaTransfer":false},' +
@@ -294,7 +292,7 @@ function extractSingleJdBlock_v291_(text, subject) {
       var s = gText.indexOf('{'), e2 = gText.lastIndexOf('}') + 1;
       if (s >= 0 && e2 > s) {
         var parsed = JSON.parse(gText.slice(s, e2));
-        if (parsed && typeof parsed === 'object' && (parsed.trade || parsed.department || parsed.externalRefNo)) jd = parsed;
+        if (parsed.trade) jd = parsed;
       }
     }
   } catch (gemErr) {
@@ -314,7 +312,6 @@ function extractSingleJdBlock_v291_(text, subject) {
   if (!jd.trade) {
     var cleaned = typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text;
     var tradePatterns = [
-      /position\s+title\s*:\s*([^\n]+)/im,
       /^position\s*:\s*([^\n]+)/im,
       /job\s+title\s*[:\s]+([^\n]+)/i,
       /role\s*:\s*([^\n]+)/i,
@@ -339,17 +336,6 @@ function extractSingleJdBlock_v291_(text, subject) {
       else if (/oman|muscat/.test(cl))     jd.deployCountry = 'Oman';
       else if (/kuwait/.test(cl))          jd.deployCountry = 'Kuwait';
       else if (/bahrain|manama/.test(cl))  jd.deployCountry = 'Bahrain';
-    }
-  }
-
-  // Department fallback — runs regardless of whether Gemini set trade
-  if (!jd.department) {
-    var deptText = typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text;
-    var deptMatch = deptText.match(/department\s*:\s*([^\n]+)/i) ||
-                    deptText.match(/division\s*:\s*([^\n]+)/i) ||
-                    deptText.match(/section\s*:\s*([^\n]+)/i);
-    if (deptMatch && deptMatch[1] && deptMatch[1].trim().length < 60) {
-      jd.department = deptMatch[1].trim();
     }
   }
 

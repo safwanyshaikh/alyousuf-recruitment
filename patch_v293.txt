@@ -1,0 +1,555 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — KARIGAR AI  |  patch_v293.gs
+ *  Purpose : JD Extraction Fix — department + Position Title / Designation
+ *  Version : 2.9.3
+ *  Date    : 16-Jun-2026
+ *  Author  : KAI Engineering
+ *  Paste   : Add as a NEW .gs file in the Apps Script editor
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  WHAT THIS PATCH FIXES
+ *  ─────────────────────────────────────────────────────────────────
+ *  Root cause: extractSingleJdBlock_v291_ regex only matched
+ *  "Position: ROLE" — not "Position Title: ROLE" or "Designation: ROLE".
+ *  Result: jd.trade = '' → validation gate dropped all JDs → 0 created.
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S93.C01  REQ_HEADERS_V293_        — 19-column _Requirements schema
+ *  S93.F01  extractSingleJdBlock_v293_(text, subject)
+ *           • Gemini prompt: "department" field + Position Title rule
+ *           • tradePatterns: Position Title / Designation / Position / Job Title
+ *           • Department regex fallback — always runs after Gemini
+ *  S93.F02  extractJdV284_v293_(text, subject)
+ *           • Orchestrator: splits blocks, calls S93.F01 per block
+ *  S93.F03  extractJdPublicV293Fixed(base64Data, filename, mimeType)
+ *           • Public file upload entry point (replaces extractJdPublicV2Fixed)
+ *           • Dashboard: google.script.run.extractJdPublicV293Fixed(...)
+ *  S93.F04  extractJdFromPastePublicV293Fixed(text, title)
+ *           • Public paste entry point
+ *  S93.F05  saveRequirementV293_(jd)
+ *           • 19-column save — columns 1-18 identical to saveRequirementV284_
+ *           • Column 19: Department
+ *  S93.F06  bulkCreateRequirementsFromJDsV293(batchId, indices, newCampaign, existingCampaignId)
+ *           • Bulk confirm-and-save; returns {reqId, trade, department, quantity, country}
+ *
+ *  DEPENDENCIES (all from earlier patches — no circular refs)
+ *  ─────────────────────────────────────────────────────────────────
+ *  V282  : getMasterSS_(), ensureSheet_()
+ *  V284  : CONFIG_V2, createProject_(), listProjects(), mapReqToProject_()
+ *  V291  : callGeminiString_v291_(), cleanOcrText_(), splitMultipleJds_()
+ *  V292  : findOrCreateClient_(), findOrCreateProject_(), findOrCreateCampaign_(),
+ *          getCampaignById_(), incrementCampaignReqCount_()
+ *
+ *  All functions in this file are additive — no existing functions
+ *  are removed or renamed.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S93.C01 — Requirements sheet schema (19 columns)
+// ═══════════════════════════════════════════════════════════════════
+
+var REQ_HEADERS_V293_ = [
+  'Req ID',              // col 1
+  'Received Date',       // col 2
+  'Client Name',         // col 3
+  'Deploy Country',      // col 4
+  'Trade',               // col 5
+  'Quantity',            // col 6
+  'Min Experience (yr)', // col 7
+  'Min Age',             // col 8
+  'Max Age',             // col 9
+  'Salary',              // col 10
+  'Local Transfer',      // col 11
+  'Visit Visa OK',       // col 12
+  'GCC Preferred',       // col 13
+  'Certifications',      // col 14
+  'Special Requirements',// col 15
+  'Urgency',             // col 16
+  'Status',              // col 17
+  'Notes',               // col 18
+  'Department'           // col 19  ← new in v293
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// S93 · JD EXTRACTION FIX
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S93.F01 — Fixed single JD block extractor.
+ * Replaces the call chain from extractSingleJdBlock_v291_ when called
+ * via the v293 entry points (extractJdPublicV293Fixed, etc.).
+ *
+ * Fixes over v291:
+ *   1. Gemini prompt includes "department" field and explicit mapping rule
+ *      for "Position Title" / "Designation" → trade
+ *   2. Gemini result accepted if department set, even when trade is empty
+ *      (regex fallback then fills trade from "Position Title:" pattern)
+ *   3. tradePatterns covers: Position Title / Designation / Position / Job Title
+ *   4. Department regex fallback always runs after Gemini
+ */
+function extractSingleJdBlock_v293_(text, subject) {
+  var jd = {};
+
+  // Step 1: Gemini extraction
+  try {
+    var geminiPrompt =
+      'Extract structured data from this job description. Return ONLY valid JSON, no markdown.\n\n' +
+      'Rules:\n' +
+      '- Map "Position Title", "Designation", "Position", or "Job Title" field value to "trade".\n' +
+      '- For "department" choose the closest match from: ' +
+        'Project Management, Operations, Maintenance, Construction, QA/QC, HSE.\n\n' +
+      'Fields to extract:\n' +
+      '{"trade":"","department":"","quantity":1,"deployCountry":"","location":"",' +
+      '"minExperience":0,"maxExperience":0,"educationReq":"","salary":"","clientName":"",' +
+      '"localTransfer":false,"visitVisaOK":false,"gccPreference":false,"languageReq":"",' +
+      '"certifications":[],"urgency":"NORMAL",' +
+      '"specialRequirements":{"rotation":"","accommodation":"","transport":"","iqamaTransfer":false},' +
+      '"externalRefNo":"","notes":""}\n\n' +
+      'JD Text:\n' +
+      (typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text).slice(0, 4000);
+
+    var rawResp = callGeminiString_v291_(geminiPrompt, null);
+    if (rawResp) {
+      var gText = rawResp;
+      try {
+        var envelope = JSON.parse(rawResp);
+        gText = ((envelope.candidates || [])[0] || {}).content
+          ? ((envelope.candidates[0].content.parts || [])[0] || {}).text || rawResp
+          : rawResp;
+      } catch(pe) {}
+      var s = gText.indexOf('{'), e2 = gText.lastIndexOf('}') + 1;
+      if (s >= 0 && e2 > s) {
+        var parsed = JSON.parse(gText.slice(s, e2));
+        // Accept if ANY of these are set — regex fallback fills the rest
+        if (parsed && typeof parsed === 'object' &&
+            (parsed.trade || parsed.department || parsed.externalRefNo)) {
+          jd = parsed;
+        }
+      }
+    }
+  } catch(gemErr) {
+    Logger.log('S93.F01: Gemini failed, using regex fallback: ' + gemErr.message);
+  }
+
+  // Step 2: Trade regex fallback (runs only if Gemini didn't set trade)
+  if (!jd.trade) {
+    var cleaned = typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text;
+    var tradePatterns = [
+      /position\s+title\s*:\s*([^\n]+)/im,   // "Position Title: C.P.TECHNICIAN"
+      /designation\s*:\s*([^\n]+)/im,          // "Designation: Admin Coordinator"
+      /^position\s*:\s*([^\n]+)/im,            // "Position: Welder"
+      /job\s+title\s*[:\s]+([^\n]+)/i,        // "Job Title  Foreman"
+      /role\s*:\s*([^\n]+)/i,                  // "Role: Site Engineer"
+      /seeking\s+(?:a\s+)?([^\n]+?)(?:\s+to\s+join|\s+for|\s*$)/i
+    ];
+    for (var ti = 0; ti < tradePatterns.length; ti++) {
+      var tm = cleaned.match(tradePatterns[ti]);
+      if (tm && tm[1] && tm[1].trim().length > 1 && tm[1].trim().length < 100) {
+        jd.trade = tm[1].trim();
+        break;
+      }
+    }
+    // Last resort: use subject/filename
+    if (!jd.trade && subject) {
+      jd.trade = subject.replace(/^(?:re:|fwd?:|fw:)\s*/i, '').replace(/\.[^.]+$/, '').trim();
+    }
+    // Ensure required defaults
+    if (!jd.quantity)    jd.quantity = 1;
+    if (!jd.salary)      jd.salary   = 'Not Stated';
+    if (!jd.urgency)     jd.urgency  = 'NORMAL';
+    // Country detection from text
+    if (!jd.deployCountry) {
+      var cl = cleaned.toLowerCase();
+      if (/saudi|ksa/.test(cl))            jd.deployCountry = 'Saudi Arabia';
+      else if (/\buae\b|dubai/.test(cl))   jd.deployCountry = 'UAE';
+      else if (/qatar|doha/.test(cl))      jd.deployCountry = 'Qatar';
+      else if (/oman|muscat/.test(cl))     jd.deployCountry = 'Oman';
+      else if (/kuwait/.test(cl))          jd.deployCountry = 'Kuwait';
+      else if (/bahrain|manama/.test(cl))  jd.deployCountry = 'Bahrain';
+    }
+  }
+
+  // Step 3: Department regex fallback — always runs, even when Gemini set trade
+  if (!jd.department) {
+    var deptText = typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text;
+    var deptMatch =
+      deptText.match(/department\s*:\s*([^\n]+)/i) ||
+      deptText.match(/division\s*:\s*([^\n]+)/i)   ||
+      deptText.match(/section\s*:\s*([^\n]+)/i);
+    if (deptMatch && deptMatch[1] && deptMatch[1].trim().length > 0 &&
+        deptMatch[1].trim().length < 60) {
+      jd.department = deptMatch[1].trim();
+    }
+  }
+
+  return jd;
+}
+
+/**
+ * S93.F02 — Orchestrator: splits multi-JD text, calls S93.F01 per block.
+ * Validation gate: accept block if trade OR externalRefNo is set.
+ */
+function extractJdV284_v293_(text, subject) {
+  var result = { ok: false, jds: [], count: 0, errors: [] };
+  var blocks = typeof splitMultipleJds_ === 'function' ? splitMultipleJds_(text) : [text];
+
+  blocks.forEach(function(block, idx) {
+    try {
+      var jd = extractSingleJdBlock_v293_(block, subject);
+      if (jd.trade || jd.externalRefNo) result.jds.push(jd);
+    } catch(e) {
+      result.errors.push('Block ' + (idx + 1) + ': ' + e.message);
+    }
+  });
+
+  result.ok    = result.jds.length > 0;
+  result.count = result.jds.length;
+  return result;
+}
+
+/**
+ * S93.F03 — Public file upload entry point.
+ * Dashboard: google.script.run.extractJdPublicV293Fixed(base64, filename, mimeType)
+ *
+ * Returns: {ok, count, jds:[], isMulti, batchId?, pendingSave?, msg, errors:[]}
+ *
+ * Single JD  → saved immediately via saveRequirementV293_, returned with reqId
+ * Multi JD   → stored in ScriptCache as JD_BATCH_{batchId}, previews returned
+ */
+function extractJdPublicV293Fixed(base64Data, filename, mimeType) {
+  var result = { ok:false, count:0, jds:[], isMulti:false, msg:'', errors:[] };
+  var tempFileId = null, docFileId = null;
+  try {
+    var mime = mimeType || 'application/pdf';
+    var blob = Utilities.newBlob(
+      Utilities.base64Decode(base64Data), mime, filename || 'jd_upload');
+
+    // Extract text via Drive → Google Doc conversion
+    var text = '';
+    try {
+      var tempFile = DriveApp.createFile(blob);
+      tempFileId   = tempFile.getId();
+      var docMeta  = Drive.Files.copy(
+        { title: 'kai_tmp_jd_v293_' + Date.now(),
+          mimeType: 'application/vnd.google-apps.document' },
+        tempFileId);
+      docFileId = docMeta.id;
+      text = DocumentApp.openById(docFileId).getBody().getText();
+    } catch(convErr) {
+      result.errors.push('Text extraction failed: ' + convErr.message);
+    }
+
+    if (!text || text.trim().length < 20) {
+      result.msg = 'Could not extract readable text. Please paste the JD text manually.';
+      return result;
+    }
+
+    var extracted = extractJdV284_v293_(text, filename);
+    if (!extracted.ok) {
+      result.msg = 'Could not identify a valid JD.';
+      result.errors = extracted.errors;
+      return result;
+    }
+
+    var jds = extracted.jds;
+
+    // Single JD — save now and return
+    if (jds.length === 1) {
+      var reqId = saveRequirementV293_(jds[0]);
+      jds[0].reqId = reqId;
+      result.ok = true; result.count = 1; result.jds = jds; result.isMulti = false;
+      result.msg = '1 position extracted and saved';
+      return result;
+    }
+
+    // Multi-JD — cache and return previews for user confirmation
+    var batchId = 'B' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    try {
+      CacheService.getScriptCache().put('JD_BATCH_' + batchId, JSON.stringify(jds), 1800);
+    } catch(ce) {
+      // Cache unavailable — save all immediately
+      var saved = [];
+      jds.forEach(function(jd) {
+        try {
+          var rId = saveRequirementV293_(jd);
+          jd.reqId = rId;
+          saved.push(jd);
+        } catch(e) {}
+      });
+      result.ok = true; result.count = saved.length; result.jds = saved; result.isMulti = true;
+      result.msg = saved.length + ' positions saved (cache unavailable)';
+      return result;
+    }
+
+    var previews = jds.map(function(jd, idx) {
+      return {
+        idx:          idx,
+        trade:        jd.trade        || '',
+        department:   jd.department   || '',
+        clientName:   jd.clientName   || '',
+        deployCountry:jd.deployCountry|| '',
+        quantity:     jd.quantity     || 1,
+        salary:       jd.salary       || '',
+        urgency:      jd.urgency      || ''
+      };
+    });
+
+    result.ok = true; result.isMulti = true; result.pendingSave = true;
+    result.batchId = batchId; result.count = jds.length; result.jds = previews;
+    result.msg = jds.length + ' positions found — please confirm which to save';
+    return result;
+
+  } catch(err) {
+    result.msg = 'Extraction error: ' + err.message;
+    return result;
+  } finally {
+    try { if (tempFileId) DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e) {}
+    try { if (docFileId)  DriveApp.getFileById(docFileId).setTrashed(true);  } catch(e) {}
+  }
+}
+
+/**
+ * S93.F04 — Public paste JD entry point.
+ * Dashboard: google.script.run.extractJdFromPastePublicV293Fixed(text, title)
+ */
+function extractJdFromPastePublicV293Fixed(text, title) {
+  var result = { ok:false, count:0, jds:[], isMulti:false, msg:'', errors:[] };
+  if (!text || text.trim().length < 15) {
+    result.msg = 'Please paste the JD text first.';
+    return result;
+  }
+  try {
+    var extracted = extractJdV284_v293_(text.trim(), title || '');
+    if (!extracted.ok) {
+      result.msg = 'Could not detect a valid JD in the pasted text.';
+      result.errors = extracted.errors;
+      return result;
+    }
+    var jds = extracted.jds;
+    if (jds.length === 1) {
+      var reqId = saveRequirementV293_(jds[0]);
+      jds[0].reqId = reqId;
+      result.ok = true; result.count = 1; result.jds = jds; result.isMulti = false;
+      result.msg = '1 position saved';
+      return result;
+    }
+    var batchId = 'B' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    try {
+      CacheService.getScriptCache().put('JD_BATCH_' + batchId, JSON.stringify(jds), 1800);
+    } catch(ce) {
+      var saved = [];
+      jds.forEach(function(jd) {
+        try { var r = saveRequirementV293_(jd); jd.reqId = r; saved.push(jd); } catch(e) {}
+      });
+      result.ok = true; result.count = saved.length; result.jds = saved; result.isMulti = true;
+      result.msg = saved.length + ' positions saved (cache fallback)';
+      return result;
+    }
+    var previews = jds.map(function(jd, idx) {
+      return {
+        idx:           idx,
+        trade:         jd.trade        || '',
+        department:    jd.department   || '',
+        clientName:    jd.clientName   || '',
+        deployCountry: jd.deployCountry|| '',
+        quantity:      jd.quantity     || 1
+      };
+    });
+    result.ok = true; result.isMulti = true; result.pendingSave = true;
+    result.batchId = batchId; result.count = jds.length; result.jds = previews;
+    result.msg = jds.length + ' positions found — please confirm which to save';
+    return result;
+  } catch(err) {
+    result.msg = 'Extraction error: ' + err.message;
+    return result;
+  }
+}
+
+/**
+ * S93.F05 — Save requirement with 19-column schema.
+ * Columns 1-18: identical to saveRequirementV284_ (backward compatible reads)
+ * Column 19: Department (new in v293)
+ *
+ * @param  {Object} jd  Extracted JD object from extractSingleJdBlock_v293_
+ * @returns {string}    Req ID (e.g. "REQ-20260616-0042")
+ */
+function saveRequirementV293_(jd) {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(CONFIG_V2.requirementsSheet) ||
+              ensureSheet_(ss, CONFIG_V2.requirementsSheet, REQ_HEADERS_V293_, '#1e3a5f');
+
+  var props   = PropertiesService.getScriptProperties();
+  var counter = parseInt(props.getProperty(CONFIG_V2.reqIdCounterKey) || '0') + 1;
+  props.setProperty(CONFIG_V2.reqIdCounterKey, String(counter));
+  var reqId = 'REQ-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+              '-' + String(counter).padStart(4, '0');
+  var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm');
+
+  var certsStr = Array.isArray(jd.certifications) ?
+    jd.certifications.join(', ') : (jd.certifications || '');
+
+  var notes = [
+    jd.educationReq  ? 'Edu: '    + jd.educationReq  : '',
+    jd.externalRefNo ? 'ExtRef: ' + jd.externalRefNo  : '',
+    jd.roleCategory  ? 'Type: '   + jd.roleCategory   : '',
+    jd.languageReq   ? jd.languageReq                 : '',
+    jd.salaryType === 'SALARY_CODE' ? 'SalaryRange: ' + (jd.salaryRange || '') : '',
+    jd.sourceFile    ? 'Source: ' + jd.sourceFile     : '',
+    jd.notes         || ''
+  ].filter(Boolean).join(' | ');
+
+  var specStr = '';
+  if (jd.specialRequirements && typeof jd.specialRequirements === 'object') {
+    try { specStr = JSON.stringify(jd.specialRequirements); } catch(e) {}
+  }
+
+  // Cols 1-18 match saveRequirementV284_ for row-read backward compat
+  // Col 19: Department
+  sheet.appendRow([
+    reqId,                            // 1  Req ID
+    today,                            // 2  Received Date
+    jd.clientName    || '',           // 3  Client Name
+    jd.deployCountry || jd.location || '', // 4  Deploy Country
+    jd.trade         || '',           // 5  Trade
+    jd.quantity      || 1,            // 6  Quantity
+    jd.minExperience || 0,            // 7  Min Experience (yr)
+    jd.minAge        || '',           // 8  Min Age
+    jd.maxAge        || '',           // 9  Max Age
+    jd.salary        || 'Not Stated', // 10 Salary
+    jd.localTransfer ? 'Yes' : '',    // 11 Local Transfer
+    jd.visitVisaOK   ? 'Yes' : '',    // 12 Visit Visa OK
+    jd.gccPreference ? 'Yes' : '',    // 13 GCC Preferred
+    certsStr,                         // 14 Certifications
+    specStr,                          // 15 Special Requirements
+    jd.urgency       || 'NORMAL',     // 16 Urgency
+    'OPEN',                           // 17 Status
+    notes,                            // 18 Notes
+    jd.department    || ''            // 19 Department  ← new
+  ]);
+
+  SpreadsheetApp.flush();
+  return reqId;
+}
+
+/**
+ * S93.F06 — Bulk confirm-and-save from multi-JD batch cache.
+ * Drop-in replacement for bulkCreateRequirementsFromJDs (patch_v292).
+ * Dashboard must call this function name for department to be saved.
+ *
+ * @param  {string} batchId             ScriptCache key suffix (from JD_BATCH_{batchId})
+ * @param  {number[]} indices            Which JDs to save; [] = save all
+ * @param  {Object}  newCampaign         {clientName, projectName, country} or null
+ * @param  {string}  existingCampaignId  Backward-compat: pass a campaign ID directly
+ *
+ * @returns {{ok, campaignCreated, campaignId, campaignName,
+ *            requirements:[{reqId,trade,department,quantity,country}],
+ *            msg, errors:[]}}
+ */
+function bulkCreateRequirementsFromJDsV293(batchId, indices, newCampaign, existingCampaignId) {
+  var result = {
+    ok: false, campaignCreated: false, campaignId: '', campaignName: '',
+    requirements: [], msg: '', errors: []
+  };
+  try {
+    if (!batchId) { result.msg = 'batchId is required.'; return result; }
+
+    var cached = CacheService.getScriptCache().get('JD_BATCH_' + batchId);
+    if (!cached) {
+      result.msg = 'Batch data expired or not found. Please re-upload the JD file.';
+      return result;
+    }
+    var allJds  = JSON.parse(cached);
+    var idxList = indices || [];
+    var toSave  = idxList.length === 0
+      ? allJds
+      : allJds.filter(function(_, i) { return idxList.indexOf(i) !== -1; });
+
+    if (toSave.length === 0) {
+      result.msg = 'No valid JD indices found in batch.';
+      return result;
+    }
+
+    // ── Campaign / Project resolution ────────────────────────────
+    var campaignId = '', campaignName = '', campaignCreated = false, projectId = '';
+
+    if (existingCampaignId) {
+      var existingCamp = getCampaignById_(existingCampaignId);
+      if (!existingCamp) {
+        result.msg = 'Campaign not found: ' + existingCampaignId;
+        return result;
+      }
+      campaignId   = existingCamp.campaignId;
+      campaignName = existingCamp.campaignName;
+      projectId    = existingCamp.projectId;
+
+    } else if (newCampaign && newCampaign.projectName) {
+      var clientName = String(newCampaign.clientName  || '').trim();
+      var pName      = String(newCampaign.projectName || '').trim();
+      var country    = String(newCampaign.country     || '').trim();
+      var clientId   = findOrCreateClient_(clientName, country);
+      projectId      = findOrCreateProject_(clientName, pName, country);
+      var camp       = findOrCreateCampaign_(clientId, clientName, projectId, pName, country);
+      campaignId     = camp.campaignId;
+      campaignName   = camp.campaignName;
+      campaignCreated = camp.campaignCreated;
+    }
+
+    result.campaignId      = campaignId;
+    result.campaignName    = campaignName;
+    result.campaignCreated = campaignCreated;
+
+    // ── Save each JD ─────────────────────────────────────────────
+    var requirements = [], saved = 0;
+
+    toSave.forEach(function(jd) {
+      try {
+        // Merge campaign-level defaults into JD if not already set
+        if (newCampaign) {
+          if (!jd.clientName    && newCampaign.clientName) jd.clientName    = newCampaign.clientName;
+          if (!jd.deployCountry && newCampaign.country)    jd.deployCountry = newCampaign.country;
+        }
+
+        var reqId = saveRequirementV293_(jd);
+
+        if (projectId) {
+          try { mapReqToProject_(reqId, projectId); } catch(me) {}
+        }
+
+        requirements.push({
+          reqId:      reqId,
+          trade:      jd.trade         || '',
+          department: jd.department    || '',
+          quantity:   jd.quantity      || 1,
+          country:    jd.deployCountry || ''
+        });
+        saved++;
+      } catch(saveErr) {
+        result.errors.push('JD "' + (jd.trade || 'unknown') + '": ' + saveErr.message);
+      }
+    });
+
+    // Update campaign requirement count
+    if (campaignId && saved > 0) {
+      try { incrementCampaignReqCount_(campaignId, saved); } catch(e) {}
+    }
+
+    result.ok           = saved > 0;
+    result.requirements = requirements;
+    result.msg          = saved + ' requirement' + (saved !== 1 ? 's' : '') + ' saved' +
+      (campaignId
+        ? ' under ' + (campaignCreated ? 'new' : 'existing') + ' campaign ' + campaignId
+        : '') +
+      (result.errors.length > 0
+        ? ' (' + result.errors.length + ' error' + (result.errors.length !== 1 ? 's' : '') + ')'
+        : '');
+    return result;
+
+  } catch(err) {
+    result.msg = 'bulkCreateRequirementsFromJDsV293 error: ' + err.message;
+    Logger.log('S93.F06 fatal: ' + err.message);
+    return result;
+  }
+}
