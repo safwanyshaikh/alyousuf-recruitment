@@ -45,9 +45,9 @@ var COL = {
 
 // Valid stage values
 var VALID_STAGES = [
-  'Pending action','New','Under Review','Shortlisted',
+  'Pending action','New','Needs Call','Ready','Under Review','Shortlisted',
   'Client Sent','Client Selected','Offer Issued',
-  'Visa Processing','Deployed','On Hold','Rejected','HOLD'
+  'Visa Processing','Mobilizing','Deployed','On Hold','Rejected','HOLD'
 ];
 
 var VALID_SLOT_STATUSES = [
@@ -238,6 +238,15 @@ function doPost(e) {
     // S47 — Nurture: batch revive REJECTED candidates against open requirements
     else if (action === 'nurture')              out = JSON.stringify(nurtureRejectedCandidates_(body));
     else if (action === 'match')                out = JSON.stringify(matchCandidatesT14_(body));
+    // Candidate detail — Lovable drawer may POST instead of GET
+    else if (action === 'candidate')            out = JSON.stringify(getSingleCandidate_(body));
+    // Stage convenience aliases — single-field calls from row-level actions
+    else if (action === 'shortlistCandidate')   out = JSON.stringify(updateStage_(Object.assign({}, body, { stage:'Shortlisted' })));
+    else if (action === 'rejectCandidate')      out = JSON.stringify(updateStage_(Object.assign({}, body, { stage:'Rejected' })));
+    else if (action === 'holdCandidate')        out = JSON.stringify(updateStage_(Object.assign({}, body, { stage:'On Hold' })));
+    else if (action === 'archiveCandidate')     out = JSON.stringify(archiveCandidate_(body));
+    else if (action === 'markNeedsCall')        out = JSON.stringify(updateStage_(Object.assign({}, body, { stage:'Needs Call' })));
+    else if (action === 'markReady')            out = JSON.stringify(updateStage_(Object.assign({}, body, { stage:'Ready' })));
     else out = JSON.stringify({ ok: false, error: 'Unknown POST action: ' + action });
 
   } catch(err) {
@@ -402,9 +411,10 @@ function computeDisplayStage_(stageRaw, verdict) {
   if (!PENDING) return stageRaw;
   var v = String(verdict||'').toUpperCase();
   if (v === 'SHORTLISTED')  return 'Shortlisted';
-  if (v === 'NEEDS_REVIEW') return 'Review';
+  if (v === 'NEEDS_REVIEW') return 'Under Review';
   if (v === 'NEEDS_CALL')   return 'Needs Call';
-  if (v === 'SELECTED')     return 'Selected';
+  if (v === 'READY')        return 'Ready';
+  if (v === 'SELECTED')     return 'Client Selected';
   if (v === 'REJECTED')     return 'Rejected';
   return 'New';
 }
@@ -1689,21 +1699,49 @@ function invalidateListCaches_() {
 function updateStage_(body) {
   invalidateListCaches_();
   var rowIndex  = parseInt(body.rowIndex||'0');
-  var newStage  = String(body.newStage  ||'').trim();
-  var recruiter = String(body.recruiter ||'recruiter@system').trim();
-  if (!rowIndex) return { ok:false, error:'rowIndex required' };
-  if (!newStage) return { ok:false, error:'newStage required' };
+  var newStage  = String(body.newStage || body.stage || '').trim();
+  var kaiNo     = String(body.kaiNo    ||'').trim();
+  var recruiter = String(body.recruiter||'recruiter@system').trim();
+  if (!newStage) return { ok:false, error:'stage required' };
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet) return { ok:false, error:'Candidates sheet not found' };
-  var prev = String(sheet.getRange(rowIndex, 1).getValue()||'').trim();
-  sheet.getRange(rowIndex, 1).setValue(newStage);
+  // Find row by kaiNo if rowIndex not provided
+  if (!rowIndex && kaiNo) {
+    var kaiData = sheet.getRange(2, COL.kaiNo, Math.max(1, sheet.getLastRow()-1), 1).getValues();
+    for (var ki = 0; ki < kaiData.length; ki++) {
+      if (String(kaiData[ki][0]||'').trim() === kaiNo) { rowIndex = ki + 2; break; }
+    }
+  }
+  if (!rowIndex) return { ok:false, error:'Candidate not found — provide rowIndex or kaiNo' };
+  var prev = String(sheet.getRange(rowIndex, COL.stage).getValue()||'').trim();
+  sheet.getRange(rowIndex, COL.stage).setValue(newStage);
   logActivity_(ss, {
     kaiNo:    String(sheet.getRange(rowIndex, 25).getValue()||''),
     rowIndex: rowIndex, action:'STAGE_CHANGE',
     detail:   prev + ' → ' + newStage, actor:recruiter
   });
   return { ok:true, rowIndex:rowIndex, prevStage:prev, newStage:newStage };
+}
+
+function archiveCandidate_(body) {
+  invalidateListCaches_();
+  var kaiNo    = String(body.kaiNo    ||'').trim();
+  var rowIndex = parseInt(body.rowIndex||'0');
+  var recruiter= String(body.recruiter||'recruiter@system').trim();
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet) return { ok:false, error:'Candidates sheet not found' };
+  if (!rowIndex && kaiNo) {
+    var kd = sheet.getRange(2, COL.kaiNo, Math.max(1, sheet.getLastRow()-1), 1).getValues();
+    for (var i = 0; i < kd.length; i++) {
+      if (String(kd[i][0]||'').trim() === kaiNo) { rowIndex = i + 2; break; }
+    }
+  }
+  if (!rowIndex) return { ok:false, error:'Candidate not found' };
+  sheet.getRange(rowIndex, COL.active).setValue('ARCHIVED');
+  logActivity_(ss, { kaiNo:kaiNo, rowIndex:rowIndex, action:'ARCHIVED', detail:'Candidate archived', actor:recruiter });
+  return { ok:true, archived:true, kaiNo:kaiNo };
 }
 
 function saveNote_(body) {
@@ -14322,9 +14360,8 @@ function getCandidatesList_(params) {
 
 
 // ── S46.2 DASHBOARD TILES ─────────────────────────────────────────────────────
-// Returns 4 counts for My Card in one API call.
-// Reads only cols 1–15 (stage, applicationDate, verdict) — fastest possible scan.
-// Cache TTL: 30s (counter freshness matters more than list freshness).
+// Returns full pipeline stage counts + 4 My-Card tiles in one API call.
+// Cache TTL: 30s.
 function getDashboardTiles_() {
   var cache  = CacheService.getScriptCache();
   var cKey   = 'kai:dashboardTiles';
@@ -14335,28 +14372,39 @@ function getDashboardTiles_() {
   var ss    = SpreadsheetApp.openById(SS_ID);
   var sheet = ss.getSheetByName('Candidates');
   if (!sheet || sheet.getLastRow() < 2)
-    return { ok:true, todayNew:0, pendingCallbacks:0, shortlisted:0, activeDeployments:0,
-             ts: new Date().toISOString() };
+    return { ok:true, total:0, todayNew:0, pendingCallbacks:0,
+             needsCall:0, ready:0, shortlisted:0, submitted:0,
+             selected:0, mobilization:0, deployed:0, rejected:0,
+             activeDeployments:0, ts: new Date().toISOString() };
 
   var today  = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
-  var data   = sheet.getRange(2, 1, sheet.getLastRow()-1, 15).getValues();
-  var todayNew = 0, shortlisted = 0, deployed = 0;
+  var data   = sheet.getRange(2, 1, sheet.getLastRow()-1, 24).getValues();
+  var total=0, todayNew=0, needsCall=0, ready=0, shortlisted=0;
+  var submitted=0, selected=0, mobilization=0, deployed=0, rejected=0;
 
   data.forEach(function(row) {
     var active = String(row[COL.active-1]||'').toUpperCase().trim();
     if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
     var name = String(row[COL.name-1]||'').trim();
     if (!name) return;
+    total++;
 
     var appDt   = row[COL.applicationDate-1];
     var appDate = appDt instanceof Date ? Utilities.formatDate(appDt,'Asia/Kolkata','yyyy-MM-dd') : '';
     var stageRaw= String(row[COL.stage-1]||'').trim();
     var verdict = String(row[COL.verdict-1]||'').trim().toUpperCase();
     var stage   = computeDisplayStage_(stageRaw, verdict);
+    var sl      = stage.toLowerCase();
 
     if (appDate === today) todayNew++;
-    if (stage === 'Shortlisted' || stage === 'Client Sent' || stage === 'Client Selected') shortlisted++;
-    if (stage === 'Deployed') deployed++;
+    if (sl === 'needs call')                                       needsCall++;
+    else if (sl === 'ready')                                       ready++;
+    else if (sl === 'shortlisted')                                 shortlisted++;
+    else if (sl === 'client sent' || sl === 'submitted')           submitted++;
+    else if (sl === 'client selected' || sl === 'selected')        selected++;
+    else if (sl === 'visa processing' || sl === 'mobilizing' || sl === 'mobilization' || sl === 'offer issued') mobilization++;
+    else if (sl === 'deployed')                                    deployed++;
+    else if (sl === 'rejected')                                    rejected++;
   });
 
   // Callbacks due today or overdue
@@ -14377,9 +14425,18 @@ function getDashboardTiles_() {
 
   var result = {
     ok: true,
+    total:            total,
     todayNew:         todayNew,
     pendingCallbacks: pending,
+    // Pipeline stage counts (used by candidate list stage bucket tiles)
+    needsCall:        needsCall,
+    ready:            ready,
     shortlisted:      shortlisted,
+    submitted:        submitted,
+    selected:         selected,
+    mobilization:     mobilization,
+    deployed:         deployed,
+    rejected:         rejected,
     activeDeployments:deployed,
     ts: new Date().toISOString()
   };
