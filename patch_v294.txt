@@ -1,0 +1,141 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — KARIGAR AI  |  patch_v294.gs
+ *  Purpose : Single-req hierarchy orchestrator for "New Client / Project"
+ *  Version : 2.9.4
+ *  Date    : 17-Jun-2026
+ *  Author  : KAI Engineering
+ *  Paste   : Add as a NEW .gs file in the Apps Script editor
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  PURPOSE
+ *  ─────────────────────────────────────────────────────────────────
+ *  Companion to bulkCreateRequirementsFromJDsV293 (S93.F07).
+ *  Used exclusively for the single-JD result card path where the
+ *  requirement has already been saved and the recruiter then creates
+ *  a new Client / Project / Campaign to link it to.
+ *
+ *  Flow:
+ *    Client (_Clients)
+ *      └─ Project (_Projects)
+ *           └─ Campaign (_Campaigns)
+ *                └─ link existing Requirement via mapReqToProject_()
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S94.F01  createClientHierarchyAndMapReq_()     — internal orchestrator
+ *  S94.F02  createClientHierarchyAndMapReqPublic() — dashboard entry point
+ *
+ *  DEPENDENCIES
+ *  ─────────────────────────────────────────────────────────────────
+ *  V292  : findOrCreateClient_(), findOrCreateProject_(),
+ *          findOrCreateCampaign_(), incrementCampaignReqCount_()
+ *  V284  : mapReqToProject_()
+ *
+ *  All functions are additive. No existing functions are modified.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S94 · SINGLE-REQ HIERARCHY ORCHESTRATOR
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S94.F01 — Create full Client → Project → Campaign hierarchy and
+ * link an already-saved requirement to the resulting project.
+ *
+ * If any entity already exists (same name, same client, ACTIVE status)
+ * it is reused — no duplicate rows are created.
+ *
+ * @param {string} reqId        Existing Req ID to link  (e.g. "REQ-20260617-0008")
+ * @param {string} clientName   Client name              (e.g. "Wjeen International")
+ * @param {string} projectName  Project name             (e.g. "Shutdown 2026")
+ * @param {string} country      Deploy country           (e.g. "Saudi Arabia")
+ *
+ * @returns {{
+ *   ok:             boolean,
+ *   clientId:       string,
+ *   projectId:      string,
+ *   campaignId:     string,
+ *   campaignName:   string,
+ *   campaignCreated:boolean,
+ *   msg:            string
+ * }}
+ */
+function createClientHierarchyAndMapReq_(reqId, clientName, projectName, country) {
+  var result = {
+    ok:              false,
+    clientId:        '',
+    projectId:       '',
+    campaignId:      '',
+    campaignName:    '',
+    campaignCreated: false,
+    msg:             ''
+  };
+
+  try {
+    var cName = String(clientName  || '').trim();
+    var pName = String(projectName || '').trim();
+    var ctry  = String(country     || '').trim();
+    var rId   = String(reqId       || '').trim();
+
+    if (!cName) { result.msg = 'Client name is required.';  return result; }
+    if (!pName) { result.msg = 'Project name is required.'; return result; }
+    if (!rId)   { result.msg = 'Req ID is required.';       return result; }
+
+    // 1. Client — findOrCreate in _Clients
+    var clientId = findOrCreateClient_(cName, ctry);
+
+    // 2. Project — findOrCreate in _Projects
+    var projectId = findOrCreateProject_(cName, pName, ctry);
+
+    // 3. Campaign — findOrCreate in _Campaigns
+    var camp = findOrCreateCampaign_(clientId, cName, projectId, pName, ctry);
+
+    // 4. Link requirement → project (writes [Project:PROJ-xxx] into Notes col)
+    var mapResult = mapReqToProject_(rId, projectId);
+    if (!mapResult.ok) {
+      // Hierarchy was created but link failed — report partial success
+      result.clientId       = clientId;
+      result.projectId      = projectId;
+      result.campaignId     = camp.campaignId;
+      result.campaignName   = camp.campaignName;
+      result.campaignCreated = camp.campaignCreated;
+      result.msg = 'Hierarchy created but failed to link req: ' + mapResult.msg;
+      return result;
+    }
+
+    // 5. Increment Req Count on the campaign row
+    try { incrementCampaignReqCount_(camp.campaignId, 1); } catch(e) {}
+
+    result.ok              = true;
+    result.clientId        = clientId;
+    result.projectId       = projectId;
+    result.campaignId      = camp.campaignId;
+    result.campaignName    = camp.campaignName;
+    result.campaignCreated = camp.campaignCreated;
+    result.msg = rId + ' linked to project ' + projectId +
+                 ' under ' + (camp.campaignCreated ? 'new' : 'existing') +
+                 ' campaign ' + camp.campaignId;
+    return result;
+
+  } catch(err) {
+    result.msg = 'createClientHierarchyAndMapReq_ error: ' + err.message;
+    Logger.log('S94.F01 fatal: ' + err.message);
+    return result;
+  }
+}
+
+/**
+ * S94.F02 — Public dashboard entry point.
+ * Called from the "＋ New Project" inline form after a single JD has
+ * already been extracted and saved (reqId exists).
+ *
+ * Dashboard call:
+ *   google.script.run
+ *     .withSuccessHandler(handler)
+ *     .createClientHierarchyAndMapReqPublic(reqId, clientName, projectName, country)
+ */
+function createClientHierarchyAndMapReqPublic(reqId, clientName, projectName, country) {
+  return createClientHierarchyAndMapReq_(reqId, clientName, projectName, country);
+}

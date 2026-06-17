@@ -3848,10 +3848,39 @@ function renderMultiJdConfirmation(res, containerId) {
       '</div></div>';
   });
 
+  var bid = esc(res.batchId || '');
   html += '</div>' +
+    // ── Project linking section ────────────────────────────────────
+    '<div style="margin-top:14px;padding:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px">' +
+      '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:600;color:var(--navy)">' +
+        '<input type="checkbox" id="multi-proj-toggle-' + bid + '" onchange="toggleMultiProjFields(\'' + bid + '\')">' +
+        ' Link all requirements to a Client / Project' +
+      '</label>' +
+      '<div id="multi-proj-fields-' + bid + '" style="display:none;margin-top:10px">' +
+        '<div style="display:grid;gap:8px">' +
+          '<div>' +
+            '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">CLIENT NAME <span style="color:var(--red)">*</span></label>' +
+            '<input id="multi-proj-client-' + bid + '" type="text" placeholder="e.g. Wjeen International" ' +
+            'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+          '</div>' +
+          '<div>' +
+            '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">PROJECT NAME <span style="color:var(--red)">*</span></label>' +
+            '<input id="multi-proj-name-' + bid + '" type="text" placeholder="e.g. Shutdown 2026" ' +
+            'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+          '</div>' +
+          '<div>' +
+            '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">COUNTRY</label>' +
+            '<select id="multi-proj-country-' + bid + '" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:#fff">' +
+            _npCountryOptions('GCC') +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    // ── Action buttons ─────────────────────────────────────────────
     '<div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
     '<button class="imp-btn imp-btn-primary" id="btn-confirm-multi-jd" ' +
-    'onclick="confirmSaveMultiJds(\'' + esc(res.batchId || '') + '\',\'' + esc(containerId) + '\',' + jds.length + ')">' +
+    'onclick="confirmSaveMultiJds(\'' + bid + '\',\'' + esc(containerId) + '\',' + jds.length + ')">' +
     '✓ Save Selected Requirements</button>' +
     '<button class="imp-btn imp-btn-ghost" onclick="document.getElementById(\'' + esc(containerId) + '\').innerHTML=\'\'" style="padding:8px 14px">✕ Cancel</button>' +
     '</div>' +
@@ -3872,6 +3901,24 @@ function confirmSaveMultiJds(batchId, containerId, total) {
     if (chk && chk.checked) selected.push(i);
   }
   if (selected.length === 0) { showToast('Select at least one position to save'); return; }
+
+  // Read project-linking fields if checkbox is ticked
+  var newCampaign = null;
+  var toggleEl = document.getElementById('multi-proj-toggle-' + batchId);
+  if (toggleEl && toggleEl.checked) {
+    var clientEl  = document.getElementById('multi-proj-client-'  + batchId);
+    var nameEl    = document.getElementById('multi-proj-name-'    + batchId);
+    var countryEl = document.getElementById('multi-proj-country-' + batchId);
+    var clientName  = clientEl  ? clientEl.value.trim()  : '';
+    var projectName = nameEl    ? nameEl.value.trim()    : '';
+    var country     = countryEl ? countryEl.value        : 'GCC';
+    if (!clientName || !projectName) {
+      showToast('Enter client name and project name to link requirements');
+      return;
+    }
+    newCampaign = { clientName: clientName, projectName: projectName, country: country };
+  }
+
   var btn = document.getElementById('btn-confirm-multi-jd');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
   var statusEl = document.getElementById('multi-save-status-' + containerId);
@@ -3884,9 +3931,14 @@ function confirmSaveMultiJds(batchId, containerId, total) {
         var reqs   = res.requirements || [];
         var saved  = reqs.length;
         var reqIds = reqs.map(function(r) { return r.reqId; });
-        if (statusEl) statusEl.innerHTML = '✅ Saved <strong>' + saved + '</strong> requirements · Req IDs: ' +
-          reqIds.map(function(id){ return '<code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(id) + '</code>'; }).join(' ');
-        showToast('✓ ' + saved + ' requirements saved');
+        if (statusEl) statusEl.innerHTML =
+          '✅ Saved <strong>' + saved + '</strong> requirements' +
+          (res.campaignId ? ' · Campaign: <code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(res.campaignId) + '</code>' : '') +
+          ' · Req IDs: ' +
+          reqIds.map(function(id) {
+            return '<code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(id) + '</code>';
+          }).join(' ');
+        showToast('✓ ' + saved + ' requirements saved' + (res.campaignId ? ' · ' + res.campaignId : ''));
         loadImportStats();
         onCreated(reqIds);
       } else {
@@ -3897,7 +3949,12 @@ function confirmSaveMultiJds(batchId, containerId, total) {
       if (btn) { btn.disabled = false; btn.textContent = '✓ Save Selected Requirements'; }
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">Error: ' + esc(e.message || e) + '</span>';
     })
-    .bulkCreateRequirementsFromJDsV293(batchId, selected, null, null);
+    .bulkCreateRequirementsFromJDsV293(batchId, selected, newCampaign, null);
+}
+
+function toggleMultiProjFields(batchId) {
+  var el = document.getElementById('multi-proj-fields-' + batchId);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
 }
 
 // ── PROJECT MANAGEMENT (client-side) ────────────────────────────────
@@ -3937,22 +3994,89 @@ function mapReqToProject(reqId) {
 }
 
 function createProjectAndMap(reqId, clientName, country) {
-  var name = prompt('Project name:', clientName ? clientName + ' Project' : 'New Project');
-  if (!name) return;
+  renderNewProjectForm(reqId, clientName, country);
+}
+
+function renderNewProjectForm(reqId, clientName, country) {
+  var formId = 'np-form-' + (reqId || '').replace(/[^a-z0-9]/gi, '');
+  var existing = document.getElementById(formId);
+  if (existing) {
+    existing.style.display = existing.style.display === 'none' ? '' : 'none';
+    return;
+  }
+  var anchor = document.getElementById('jdpm-status-' + reqId);
+  if (!anchor) return;
+  anchor.style.display = 'block';
+  var div = document.createElement('div');
+  div.id = formId;
+  div.style.cssText = 'margin-top:10px;padding:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px';
+  div.innerHTML =
+    '<div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:10px">＋ New Client / Project</div>' +
+    '<div style="display:grid;gap:8px">' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">CLIENT NAME <span style="color:var(--red)">*</span></label>' +
+        '<input id="np-client-' + esc(reqId) + '" type="text" value="' + esc(clientName || '') + '" placeholder="e.g. Wjeen International" ' +
+        'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+      '</div>' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">PROJECT NAME <span style="color:var(--red)">*</span></label>' +
+        '<input id="np-project-' + esc(reqId) + '" type="text" value="" placeholder="e.g. Shutdown 2026" ' +
+        'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+      '</div>' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">COUNTRY</label>' +
+        '<select id="np-country-' + esc(reqId) + '" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:#fff">' +
+        _npCountryOptions(country || 'GCC') +
+        '</select>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:12px">' +
+      '<button onclick="submitNewProjectForm(\'' + esc(reqId) + '\')" ' +
+      'style="padding:7px 14px;border-radius:6px;background:var(--navy);color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:600">✓ Create & Link</button>' +
+      '<button onclick="document.getElementById(\'' + formId + '\').style.display=\'none\'" ' +
+      'style="padding:7px 12px;border-radius:6px;border:1px solid var(--border2);background:#fff;cursor:pointer;font-size:12px">Cancel</button>' +
+    '</div>' +
+    '<div id="np-msg-' + esc(reqId) + '" style="font-size:11px;margin-top:8px;display:none"></div>';
+  anchor.parentNode.insertBefore(div, anchor.nextSibling);
+}
+
+function _npCountryOptions(selected) {
+  return ['Saudi Arabia','UAE','Qatar','Kuwait','Bahrain','Oman','GCC'].map(function(o) {
+    return '<option value="' + o + '"' + (o === selected ? ' selected' : '') + '>' + o + '</option>';
+  }).join('');
+}
+
+function submitNewProjectForm(reqId) {
+  var clientEl  = document.getElementById('np-client-'  + reqId);
+  var projectEl = document.getElementById('np-project-' + reqId);
+  var countryEl = document.getElementById('np-country-' + reqId);
+  var msgEl     = document.getElementById('np-msg-'     + reqId);
+
+  var clientName  = clientEl  ? clientEl.value.trim()  : '';
+  var projectName = projectEl ? projectEl.value.trim() : '';
+  var country     = countryEl ? countryEl.value        : 'GCC';
+
+  if (!clientName)  { showToast('Client name is required');  if (clientEl)  clientEl.focus();  return; }
+  if (!projectName) { showToast('Project name is required'); if (projectEl) projectEl.focus(); return; }
+
+  if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = 'var(--muted)'; msgEl.textContent = '⏳ Creating hierarchy…'; }
+
   google.script.run
     .withSuccessHandler(function(res) {
       if (res && res.ok) {
-        showToast('✓ Project created: ' + res.projectId);
-        loadProjectsIntoSelector(reqId);
-        // Auto-map
-        setTimeout(function() {
-          var sel = document.getElementById('jdpm-sel-' + reqId);
-          if (sel) { sel.value = res.projectId; mapReqToProject(reqId); }
-        }, 600);
-      } else { showToast('Create failed: ' + (res ? res.msg : 'Error')); }
+        if (msgEl) { msgEl.style.color = 'var(--green2)'; msgEl.textContent = '✓ ' + res.projectId + ' · Campaign: ' + res.campaignId; }
+        showToast('✓ Client → Project → Campaign created and linked');
+        onCreated([reqId]);
+      } else {
+        if (msgEl) { msgEl.style.color = 'var(--red)'; msgEl.textContent = '⚠ ' + (res ? res.msg : 'Failed'); }
+        showToast('Error: ' + (res ? res.msg : 'Failed'));
+      }
     })
-    .withFailureHandler(function(e) { showToast('Error: ' + (e.message || e)); })
-    .createProjectPublic(name, clientName || '', country || 'GCC');
+    .withFailureHandler(function(e) {
+      if (msgEl) { msgEl.style.color = 'var(--red)'; msgEl.textContent = 'Error: ' + (e.message || e); }
+      showToast('Error: ' + (e.message || e));
+    })
+    .createClientHierarchyAndMapReqPublic(reqId, clientName, projectName, country);
 }
 
 // ── RECRUITER ACTIONS ON MATCH ROWS ─────────────────────────────────
