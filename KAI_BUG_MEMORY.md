@@ -2,121 +2,19 @@
 
 ---
 
-## PATCH_V293 DEPLOYMENT — COPY-PASTE ACTION PLAN
+## ✅ PATCH_V293 — COMPLETE (17-Jun-2026)
 
-### PROJECT: ORIGINAL KAI PROJECT (NOT Sky API Bridge)
-Sky API Bridge → do nothing.
-All steps below are in the ORIGINAL project only.
+**Evidence**: 4 Requirements Created / 0 Failed — live execution in GAS
 
----
+| File | Trade | Department | Qty | Req ID |
+|------|-------|------------|-----|--------|
+| JD Mason Concreting Worker.pdf | Mason / Concrete Worker | Construction | 1 | REQ-20260617-0008 |
+| JD Carpenter.pdf | Carpenter | Construction | 1 | REQ-20260617-0009 |
+| Sales Engineer Air compressor.pdf | Sales Engineer | Operations | 2 | REQ-20260617-0010 |
+| Planning Engineer JD.pdf | Planning Engineer | Maintenance | 1 | REQ-20260617-0011 |
 
-**STEP 1 — Open Apps Script editor**
-
-1. Open the original KAI Google Spreadsheet
-2. Extensions → Apps Script
-
----
-
-**STEP 2 — Add patch_v293 as a new script file**
-
-1. Click `+` next to Files → Script
-2. Name it exactly: `patch_v293`
-3. Delete the default `function myFunction() {}` placeholder
-4. Go to GitHub → branch `claude/sweet-franklin-mnmfcz` → file `patch_v293.txt`
-5. Copy entire file content → paste into `patch_v293`
-6. Save (Ctrl+S)
-
----
-
-**STEP 3 — Add patch_v293_test as a new script file**
-
-1. Click `+` next to Files → Script
-2. Name it exactly: `patch_v293_test`
-3. Delete the default placeholder
-4. Go to GitHub → branch `claude/sweet-franklin-mnmfcz` → file `patch_v293_test.gs.txt`
-5. Copy entire file content → paste into `patch_v293_test`
-6. Save (Ctrl+S)
-
----
-
-**STEP 4 — Update Dashboard (2 function name changes)**
-
-1. In Apps Script, open the file that contains the KAI Dashboard HTML
-   (look for the file with `google.script.run.extractJdPublicV2Fixed`)
-2. Find and Replace (Ctrl+H):
-
-   FIND: `extractJdPublicV2Fixed`
-   REPLACE WITH: `extractJdPublicV293Fixed`
-
-3. Find and Replace again:
-
-   FIND: `bulkCreateRequirementsFromJDs(`
-   REPLACE WITH: `bulkCreateRequirementsFromJDsV293(`
-
-4. Save (Ctrl+S)
-
----
-
-**STEP 5 — Run Preflight test**
-
-1. In Apps Script, select function: `testPatch_v293_Preflight`
-2. Click Run
-3. View → Logs
-4. All 13 checks must show `[PASS]`
-
----
-
-**STEP 6 — Upload 4 PDFs to Drive**
-
-1. Go to Google Drive
-2. Create a folder named exactly: `KAI_Test_JDs`
-3. Upload these 4 files into that folder:
-   - Communication Technician PDF
-   - Admin Coordinator PDF
-   - CP Technician (NACE I/II) PDF
-   - Electrical Technician PDF
-
----
-
-**STEP 7 — Run Full Upload test**
-
-1. In Apps Script, select function: `testPatch_v293_FullUpload`
-2. Click Run
-3. View → Logs
-4. Expected result:
-
-```
-4 Requirements Created
-0 Failed
-
-Communication Technician   — Department: Project Management
-Admin Coordinator          — Department: Operations
-CP Technician (NACE I/II)  — Department: Project Management
-Electrical Technician      — Department: Project Management
-```
-
----
-
-**STEP 8 — After 4/0 confirmed**
-
-1. Delete the `patch_v293_test` script file from Apps Script
-2. Report results back → PATCH_V293 marked COMPLETE → Task 1C unblocked
-
----
-
-## GitHub Reference
-
-- Repo: `safwanyshaikh/alyousuf-recruitment`
-- Branch: `claude/sweet-franklin-mnmfcz`
-- `patch_v293.txt` → commit `11efe00`
-- `patch_v293_test.gs.txt` → commit `9be7133`
-
----
-
-## Root Cause (archived)
-
-PDFs use character-level glyph fragmentation. Drive OCR returns empty text.
-Fix: `patch_v293` sends PDF as base64 inlineData directly to Gemini multimodal — Gemini reads PDF visually, bypassing Drive OCR entirely.
+Drive folder used: `KAI_Test_JDs` (1k7i2gC2XfWWqukxTO9fkZ7c9yTMjNC-n)
+Sheet: https://docs.google.com/spreadsheets/d/101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE/edit#gid=971366994
 
 ---
 
@@ -127,9 +25,60 @@ Fix: `patch_v293` sends PDF as base64 inlineData directly to Gemini multimodal �
 [✓] Task 1B Client/Project Architecture
 [✓] Task 1B Backend Engine
 [✓] Candidate Drawer Bug
-[🟡] PATCH_V293 — Ready For Live Execution
+[✓] PATCH_V293 — COMPLETE (17-Jun-2026) — 4/0
 [ ] Task 1C Auto Redirect
 [ ] Task 1D Requirement Actions
 [ ] Task 2 Find Matches
 [ ] Task 3 Assign Candidate
+```
+
+---
+
+## PATCH_V293 DEPLOYMENT — REFERENCE
+
+### Files added in original KAI Apps Script project
+
+| Script file | Source on GitHub | Purpose |
+|-------------|-----------------|---------|
+| `patch_v292` | `patch_v292.txt` | `findOrCreateClient_`, `getCampaignById_` |
+| `patch_v293` | `patch_v293.txt` | Multimodal PDF extraction + department |
+| `patch_v293_test` | `patch_v293_test.gs.txt` | Test runner (delete after validation) |
+
+### Dashboard change applied
+- `extractJdPublicV2Fixed` → `extractJdPublicV293Fixed` (line 3441, KAI_16May2026_V2_Das...)
+
+### Branch
+- `claude/sweet-franklin-mnmfcz` on `safwanyshaikh/alyousuf-recruitment`
+
+---
+
+## Root Cause (archived)
+
+PDFs use character-level glyph fragmentation without ToUnicode font maps.
+Drive OCR returns empty text. Fix: PDF sent as base64 inlineData to Gemini multimodal —
+Gemini renders PDF visually, bypasses Drive OCR entirely.
+
+Function: `extractJdFromPdfInline_v293_` → `callGemini_v291_` with `{inlineData: {mimeType, data}}`
+
+---
+
+## Preflight Checklist (all 16 PASS confirmed)
+
+```
+[PASS] extractJdFromPdfInline_v293_
+[PASS] extractSingleJdBlock_v293_
+[PASS] extractJdPublicV293Fixed
+[PASS] saveAndReturnJds_v293_
+[PASS] saveRequirementV293_
+[PASS] bulkCreateRequirementsFromJDsV293
+[PASS] callGemini_v291_ available
+[PASS] callGeminiString_v291_ available
+[PASS] getMasterSS_ available
+[PASS] ensureSheet_ available
+[PASS] CONFIG_V2 available
+[PASS] findOrCreateClient_ available
+[PASS] getCampaignById_ available
+[PASS] GEMINI_API_KEY set
+[PASS] _Requirements sheet exists
+[PASS] Gemini API reachable — round-trip OK
 ```
