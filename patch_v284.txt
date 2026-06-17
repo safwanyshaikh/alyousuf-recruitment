@@ -819,8 +819,8 @@ function mapReqToProject_(reqId, projectId) {
     var data = rSheet.getRange(2, 1, rSheet.getLastRow() - 1, CONFIG_V2.reqHeaders.length).getValues();
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() === String(reqId).trim()) {
-        // Store project ID in the Notes column (last column) as a prefix
-        var notesCol = CONFIG_V2.reqHeaders.length; // 1-indexed
+        // Store project ID in the Notes column — col 18 in v293 schema
+        var notesCol = 18; // Notes is col 18 in REQ_HEADERS_V293_ (fixed from CONFIG_V2.reqHeaders.length)
         var existingNotes = String(rSheet.getRange(i + 2, notesCol).getValue() || '');
         var newNotes = '[Project:' + projectId + '] ' +
                        existingNotes.replace(/\[Project:[^\]]*\]\s*/g, '').trim();

@@ -799,6 +799,9 @@
     .fb-row:hover{border-color:var(--blue);box-shadow:0 0 0 2px rgba(59,130,246,.12)}
     .fb-row.urgent{border-left:3px solid var(--red)}
     .fb-row.normal{border-left:3px solid var(--green)}
+    .fb-row.new-req{border-color:var(--gold);background:rgba(245,158,11,.10);animation:pulse-new 2s ease-out}
+    @keyframes pulse-new{0%{box-shadow:0 0 0 0 rgba(245,158,11,.7)}70%{box-shadow:0 0 0 8px rgba(245,158,11,0)}100%{box-shadow:0 0 0 0 rgba(245,158,11,0)}}
+    .req-card.new-req{border-color:var(--gold);background:rgba(245,158,11,.08);animation:pulse-new 2s ease-out}
     .fb-row-top{display:flex;align-items:center;justify-content:space-between;
       margin-bottom:3px}
     .fb-req-id{font-size:9.5px;font-weight:700;color:var(--navy);font-family:monospace}
@@ -1557,7 +1560,8 @@ Local Transfer accepted"></textarea>
 var ALL_RECORDS    = [];
 var FILTERED       = [];
 var ALL_DATA       = null;
-var OPEN_REQS      = [];
+var OPEN_REQS               = [];
+var PENDING_HIGHLIGHT_REQS  = [];
 var PAGE           = 1;
 var PAGE_SIZE      = 50;
 var SORT_COL       = 'freshness';   // DEFAULT: newest profiles first (strict freshness order)
@@ -1638,7 +1642,8 @@ function onData(d) {
   computeDeployReadyMetrics();
   populateFilterDropdowns(d);
   renderRequirementsStrip(OPEN_REQS);
-  renderFlightBoard(OPEN_REQS);   // ← sidebar flight board
+  renderFlightBoard(OPEN_REQS);
+  highlightNewRequirements();
   PAGE = 1;
   applyFilters();
   var now = new Date();
@@ -2741,7 +2746,7 @@ function renderRequirementsStrip(reqs) {
   }
   document.getElementById('reqs-count').textContent = '(' + reqs.length + ' open)';
   strip.innerHTML = reqs.map(function(r) {
-    return '<div class="req-card" onclick="filterByReq(\''+esc(r.reqId)+'\')">' +
+    return '<div class="req-card" data-req="'+esc(r.reqId)+'" onclick="filterByReq(\''+esc(r.reqId)+'\')">' +
       '<div class="rc-id">'+esc(r.reqId)+'</div>' +
       '<div class="rc-trade">'+esc(r.trade||'—')+'</div>' +
       '<div class="rc-meta">'+esc(r.clientName||'Unknown')+' · '+esc(r.deployCountry||'GCC')+
@@ -3020,7 +3025,7 @@ function renderFlightBoard(reqs) {
     var matchCnt = parseInt(r.shortlistCount||0);
     var qty      = parseInt(r.quantity||1);
     var gap      = Math.max(0, qty - matchCnt);
-    return '<div class="'+rowCls+'" onclick="filterByReqFlight(\''+esc(r.reqId)+'\')" title="Click to find matching candidates">' +
+    return '<div class="'+rowCls+'" data-req="'+esc(r.reqId)+'" onclick="filterByReqFlight(\''+esc(r.reqId)+'\')" title="Click to find matching candidates">' +
       '<div class="fb-row-top">' +
         '<span class="fb-req-id">'+esc(r.reqId)+'</span>' +
         '<span class="fb-status '+stCls+'">'+stLbl+'</span>' +
@@ -3051,6 +3056,58 @@ function filterByReqFlight(reqId) {
       el.classList.add('selected');
     });
   }, 400);
+}
+
+// ── POST-CREATION AUTO REDIRECT ─────────────────────────────────────────
+/**
+ * Call after any requirement is created (single JD mapping or multi-JD save).
+ * Closes the import center, refreshes data, then highlights the new rows.
+ */
+function onCreated(reqIds) {
+  if (!reqIds || !reqIds.length) return;
+  PENDING_HIGHLIGHT_REQS = reqIds.slice();
+  closeImportCenter();
+  // Open the requirements panel so highlights are visible
+  var panel = document.getElementById('reqs-panel');
+  if (panel && !panel.classList.contains('visible')) panel.classList.add('visible');
+  refreshData();
+}
+
+/**
+ * Called by onData() after renderFlightBoard / renderRequirementsStrip.
+ * Adds .new-req class and scrolls the flight board to the first new item.
+ */
+function highlightNewRequirements() {
+  if (!PENDING_HIGHLIGHT_REQS || !PENDING_HIGHLIGHT_REQS.length) return;
+  var ids = PENDING_HIGHLIGHT_REQS;
+  PENDING_HIGHLIGHT_REQS = [];
+
+  var firstBoard = null, firstCard = null;
+  ids.forEach(function(reqId) {
+    document.querySelectorAll('[data-req="' + reqId + '"]').forEach(function(el) {
+      el.classList.add('new-req');
+      if (el.classList.contains('fb-row') && !firstBoard) firstBoard = el;
+      if (el.classList.contains('req-card') && !firstCard)  firstCard  = el;
+    });
+  });
+
+  // Scroll flight board to first new requirement
+  if (firstBoard) {
+    firstBoard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  // Scroll req strip to first new card
+  if (firstCard) {
+    firstCard.scrollIntoView({ behavior: 'smooth', inline: 'nearest' });
+  }
+
+  // Remove highlight after 5s so it doesn't persist
+  setTimeout(function() {
+    ids.forEach(function(reqId) {
+      document.querySelectorAll('[data-req="' + reqId + '"]').forEach(function(el) {
+        el.classList.remove('new-req');
+      });
+    });
+  }, 5000);
 }
 
 // ── RECRUITER SPRINT ENGINE ────────────────────────────────────────────
@@ -3469,7 +3526,7 @@ function extractJdFromPaste() {
       document.getElementById('jd-paste-processing').style.display = 'none';
       showToast('Error: ' + (err.message || err));
     })
-    .extractJdFromPastePublicV2Fixed(text, title);
+    .extractJdFromPastePublicV293Fixed(text, title);
 }
 
 function clearJdPaste() {
@@ -3824,11 +3881,14 @@ function confirmSaveMultiJds(batchId, containerId, total) {
     .withSuccessHandler(function(res) {
       if (btn) { btn.disabled = false; btn.textContent = '✓ Save Selected Requirements'; }
       if (res && res.ok) {
-        if (statusEl) statusEl.innerHTML = '✅ Saved <strong>' + res.saved + '</strong> requirements · Req IDs: ' +
-          (res.reqIds || []).map(function(id){ return '<code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(id) + '</code>'; }).join(' ');
-        showToast('✓ ' + res.saved + ' requirements saved');
+        var reqs   = res.requirements || [];
+        var saved  = reqs.length;
+        var reqIds = reqs.map(function(r) { return r.reqId; });
+        if (statusEl) statusEl.innerHTML = '✅ Saved <strong>' + saved + '</strong> requirements · Req IDs: ' +
+          reqIds.map(function(id){ return '<code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(id) + '</code>'; }).join(' ');
+        showToast('✓ ' + saved + ' requirements saved');
         loadImportStats();
-        setTimeout(function() { refreshData(); }, 1500);
+        onCreated(reqIds);
       } else {
         if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">⚠️ ' + esc(res ? res.msg : 'Save failed') + '</span>';
       }
@@ -3837,7 +3897,7 @@ function confirmSaveMultiJds(batchId, containerId, total) {
       if (btn) { btn.disabled = false; btn.textContent = '✓ Save Selected Requirements'; }
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">Error: ' + esc(e.message || e) + '</span>';
     })
-    .saveMultiJdBatch(batchId, selected);
+    .bulkCreateRequirementsFromJDsV293(batchId, selected, null, null);
 }
 
 // ── PROJECT MANAGEMENT (client-side) ────────────────────────────────
@@ -3867,7 +3927,10 @@ function mapReqToProject(reqId) {
   google.script.run
     .withSuccessHandler(function(res) {
       if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = res && res.ok ? '✅ Mapped to project' : '⚠️ ' + (res ? res.msg : 'Failed'); }
-      if (res && res.ok) showToast('✓ Requirement mapped to project');
+      if (res && res.ok) {
+        showToast('✓ Requirement mapped to project');
+        onCreated([reqId]);
+      }
     })
     .withFailureHandler(function(e) { showToast('Map error: ' + (e.message || e)); })
     .mapReqToProjectPublic(reqId, projectId);
