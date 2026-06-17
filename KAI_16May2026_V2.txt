@@ -1312,23 +1312,52 @@ function bulkShortlistForReq(rowIndices, reqId) {
   return {ok:true, updated:updated};
 }
 
-// S38.F04 — Get open requirements for dashboard panel
+// S38.F04 — Get open requirements for dashboard panel (schema-aware)
 function getOpenRequirements() {
   try {
     var sheet = getMasterSS_().getSheetByName(CONFIG_V2.requirementsSheet);
-    if (!sheet||sheet.getLastRow()<2) return [];
-    var data  = sheet.getRange(2,1,sheet.getLastRow()-1,CONFIG_V2.reqHeaders.length).getValues();
-    var open  = [];
+    if (!sheet || sheet.getLastRow() < 2) return [];
+
+    var lastCol = sheet.getLastColumn();
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+                       .map(function(h) { return String(h).trim(); });
+
+    function col(name, fallback) {
+      var i = headers.indexOf(name);
+      return i >= 0 ? i : fallback;
+    }
+
+    var iReqId   = col('Req ID',             0);
+    var iDate    = col('Received Date',       1);
+    var iClient  = col('Client Name',         2);
+    var iCountry = col('Deploy Country',      3);
+    var iTrade   = col('Trade',               4);
+    var iQty     = col('Quantity',            5);
+    var iMinExp  = col('Min Experience (yr)', 6);
+    var iUrgency = col('Urgency',             13);
+    var iStatus  = col('Status',              14);
+    var iShortCt = col('Shortlist Count',     17);
+    var iSelCt   = col('Selected Count',      18);
+
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+    var open = [];
     data.forEach(function(r) {
-      var s = String(r[14]||'').toUpperCase();
-      if (s==='OPEN'||s==='SHORTLISTING') {
+      var s = String(r[iStatus] || '').toUpperCase();
+      if (s === 'OPEN' || s === 'SHORTLISTING') {
         open.push({
-          reqId:r[0], receivedDate:r[1] instanceof Date ?
-            Utilities.formatDate(r[1],'Asia/Kolkata','dd-MMM-yyyy') : String(r[1]||''),
-          clientName:r[2], deployCountry:r[3],
-          trade:r[4], quantity:r[5], minExperience:r[6],
-          urgency:r[13], status:r[14], sourcedBy:r[15],
-          shortlistCount:r[17], selectedCount:r[18]
+          reqId:          r[iReqId],
+          receivedDate:   r[iDate] instanceof Date
+                          ? Utilities.formatDate(r[iDate], 'Asia/Kolkata', 'dd-MMM-yyyy')
+                          : String(r[iDate] || ''),
+          clientName:     r[iClient],
+          deployCountry:  r[iCountry],
+          trade:          r[iTrade],
+          quantity:       r[iQty],
+          minExperience:  r[iMinExp],
+          urgency:        r[iUrgency],
+          status:         r[iStatus],
+          shortlistCount: r[iShortCt],
+          selectedCount:  r[iSelCt]
         });
       }
     });
