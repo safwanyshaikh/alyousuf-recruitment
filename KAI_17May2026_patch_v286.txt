@@ -880,6 +880,24 @@ function findCandidateByKaiNo_(kaiNo) {
 }
 
 /**
+ * S81.F05b — One-shot verifier for the Candidate Profile API chain.
+ * Run this from the editor after deploying. Read View -> Logs.
+ * PASS = "Lookup row" is a number AND "API ok: true | name: <real name>".
+ */
+function VERIFY_KAI_LOOKUP() {
+  var target = 'AYE-KAI-2026-009904';
+  var row = findCandidateByKaiNo_(target);
+  Logger.log('Lookup row: ' + row);
+  if (!row) { Logger.log('FAIL: null — patch not applied/deployed'); return; }
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  Logger.log('col25 KAI No: ' + sheet.getRange(row, CONFIG_V2.extCol.kaiNo).getValue());
+  Logger.log('col4  Name  : ' + sheet.getRange(row, CONFIG.inputColumns.name).getValue());
+  var api = getCandidateProfileApi_(target);
+  Logger.log('API ok: ' + api.ok + ' | name: ' + (api.header ? api.header.name : 'n/a'));
+  Logger.log('API assessment.generated: ' + (api.assessment ? api.assessment.generated : 'n/a'));
+}
+
+/**
  * S81.F06 — Helper: find candidate row by email.
  */
 function findCandidateByEmail_(email) {
