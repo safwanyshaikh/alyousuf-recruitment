@@ -1499,6 +1499,16 @@ var LOGIN_HEADERS_    = [
  */
 function doGet(e) {
   var params = e && e.parameter ? e.parameter : {};
+
+  // ── JSON DATA API branch (single source of truth for any UI, e.g. Lovable) ──
+  // Any request carrying ?action=... is treated as a data API call and returns
+  // JSON instead of HTML. This lets an external UI render candidate data without
+  // doing its own column mapping — killing the "empty profile" and
+  // "assessment contradiction" bugs at the source.
+  if (params.action) {
+    return handleApiRequest_(params);
+  }
+
   var token  = params.token || params.t || '';
 
   // ── Fast path: valid token → dashboard ──────────────────────────
@@ -1512,6 +1522,139 @@ function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('KAI_Login')
     .setTitle('KAI — Recruiter Login')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// S75B · JSON DATA API  (Candidate Drawer single source of truth)
+// ═══════════════════════════════════════════════════════════════════
+
+// Shared API key for trusted internal UIs (Lovable). A valid session
+// token also grants access. Internal tool — same trust level as the
+// existing client-side keys already in use.
+var KAI_API_KEY_ = 'KAI-INTERNAL-2026';
+
+/**
+ * S75B.F01 — Router for all ?action= JSON requests.
+ * Always returns ContentService JSON. Never throws to the client.
+ */
+function handleApiRequest_(params) {
+  function out(obj) {
+    return ContentService
+      .createTextOutput(JSON.stringify(obj))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  try {
+    // Auth: shared API key OR a valid session token.
+    var key   = params.key || '';
+    var token = params.token || params.t || '';
+    var authed = (key && key === KAI_API_KEY_) || (token && isValidToken_(token));
+    if (!authed) {
+      return out({ ok: false, error: 'UNAUTHORIZED', msg: 'Missing or invalid key/token.' });
+    }
+
+    var action = String(params.action || '').trim();
+    switch (action) {
+      case 'getCandidateProfile':
+        return out(getCandidateProfileApi_(params.kaiNo || params.kai || ''));
+      case 'ping':
+        return out({ ok: true, msg: 'KAI API alive', ts: new Date().toISOString() });
+      default:
+        return out({ ok: false, error: 'UNKNOWN_ACTION', msg: 'Unknown action: ' + action });
+    }
+  } catch (err) {
+    return out({ ok: false, error: 'SERVER_ERROR', msg: err.message });
+  }
+}
+
+/**
+ * S75B.F02 — Return a complete, named, drawer-ready candidate object.
+ *
+ * Reuses getCandidateIntelligence() (no duplicate read logic). Adds an
+ * EXPLICIT assessment.generated boolean so the UI has one source of
+ * truth and can never show "not generated" alongside generated output.
+ *
+ * @param {string} kaiNo  e.g. "AYE-KAI-2026-009904"
+ */
+function getCandidateProfileApi_(kaiNo) {
+  kaiNo = String(kaiNo || '').trim();
+  if (!kaiNo) return { ok: false, error: 'MISSING_KAINO', msg: 'kaiNo is required.' };
+
+  var rowIndex = findCandidateByKaiNo_(kaiNo);
+  if (!rowIndex) return { ok: false, error: 'NOT_FOUND', msg: 'No candidate with KAI No ' + kaiNo };
+
+  var intel = getCandidateIntelligence(rowIndex);
+  if (!intel || intel.error) {
+    return { ok: false, error: 'READ_ERROR', msg: intel ? intel.error : 'No data' };
+  }
+
+  // ── Single source of truth: is a KAI assessment actually generated? ──
+  var assessmentText = String(intel.kaiAssessment || '').trim();
+  var assessmentGenerated = assessmentText.length > 0;
+
+  return {
+    ok:       true,
+    kaiNo:    intel.kaiNo,
+    rowIndex: rowIndex,
+
+    // ── HEADER ──
+    header: {
+      name:    intel.name    || '',
+      kaiNo:   intel.kaiNo   || '',
+      stage:   intel.state   || '',
+      score:   intel.score   || 0,
+      verdict: intel.verdict || ''
+    },
+
+    // ── PROFILE: Personal / Professional / Education ──
+    profile: {
+      personal: {
+        nationality:     intel.nationality     || '',
+        mobile:          intel.mobile          || '',
+        email:           intel.email           || '',
+        currentLocation: intel.currentLocation || '',
+        passportExpiry:  intel.passportExpiry  || '',
+        ecrStatus:       intel.ecrStatus       || '',
+        medicalStatus:   intel.medicalStatus   || ''
+      },
+      professional: {
+        trade:           intel.trade           || '',
+        positionApplied: intel.positionApplied || '',
+        experience:      intel.experience      || 0,
+        empStatus:       intel.empStatus        || '',
+        noticeDays:      intel.noticeDays       || '',
+        gulfExperience:  intel.gulfExp          || ''
+      },
+      education: {
+        qualification:   intel.education     || '',
+        level:           intel.educationEnum || ''
+      }
+    },
+
+    // ── ASSESSMENT (single source of truth) ──
+    assessment: {
+      generated:      assessmentGenerated,
+      score:          intel.score   || 0,
+      verdict:        intel.verdict || '',
+      summary:        assessmentGenerated ? assessmentText : '',
+      scoreBreakdown: assessmentGenerated ? String(intel.scoreBreakdown || '') : '',
+      techReview:     intel.techReview || '',
+      reviewedBy:     intel.reviewedBy || '',
+      // Auto-computed role suggestions. Always available, but the UI must
+      // label these as "Suggested" when generated === false.
+      suggestedRoles: intel.top3Positions || []
+    },
+
+    // ── DOCUMENTS ──
+    documents: {
+      cvLink: intel.cvLink || ''
+    },
+
+    // ── HISTORY / TIMELINE ──
+    history: intel.timeline || [],
+
+    // ── MISSING INFO ──
+    missingFields: intel.missingFields || []
+  };
 }
 
 /**
