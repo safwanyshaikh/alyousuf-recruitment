@@ -864,9 +864,16 @@ function findCandidateByKaiNo_(kaiNo) {
     var ss    = getMasterSS_();
     var sheet = ss.getSheetByName(CONFIG.sheetName);
     if (!sheet || sheet.getLastRow() < 2) return null;
-    var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    // KAI No lives in the extended column block (col 25), NOT column 1 (Stage).
+    // Source the column from config so it can never drift again.
+    var kaiCol = (typeof CONFIG_V2 !== 'undefined' && CONFIG_V2.extCol && CONFIG_V2.extCol.kaiNo)
+               ? CONFIG_V2.extCol.kaiNo : 25;
+    var target = String(kaiNo || '').trim().toUpperCase();
+    if (!target) return null;
+    var n    = sheet.getLastRow() - 1;
+    var data = sheet.getRange(2, kaiCol, n, 1).getValues();
     for (var i = 0; i < data.length; i++) {
-      if (String(data[i][0]).trim().toUpperCase() === kaiNo.toUpperCase()) return i + 2;
+      if (String(data[i][0]).trim().toUpperCase() === target) return i + 2;
     }
   } catch(e) {}
   return null;
