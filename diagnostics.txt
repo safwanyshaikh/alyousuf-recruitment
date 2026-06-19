@@ -1,0 +1,56 @@
+/**
+ * KAI DIAGNOSTICS — paste this entire file as a new script in Apps Script
+ * File name in GAS: diagnostics
+ * Run functions one at a time from the function dropdown
+ */
+
+function DIAGNOSE_DUPLICATE_KAIS() {
+  var sheet=getMasterSS_().getSheetByName(CONFIG.sheetName);
+  var kaiCol=CONFIG_V2.extCol.kaiNo, nameCol=CONFIG.inputColumns.name;
+  var n=sheet.getLastRow()-1;
+  Logger.log('Total candidate rows: '+n);
+  var kaiVals=sheet.getRange(2,kaiCol,n,1).getValues();
+  var nameVals=sheet.getRange(2,nameCol,n,1).getValues();
+  var seen={},dups=[],empty=0;
+  for(var i=0;i<kaiVals.length;i++){
+    var k=String(kaiVals[i][0]||'').trim().toUpperCase();
+    if(!k){empty++;continue;}
+    if(seen[k]!==undefined){
+      dups.push({kaiNo:k,row1:seen[k].row,name1:seen[k].name,row2:i+2,name2:String(nameVals[i][0]||'').trim()});
+    } else { seen[k]={row:i+2,name:String(nameVals[i][0]||'').trim()}; }
+  }
+  Logger.log('Empty KAI rows  : '+empty);
+  Logger.log('Duplicates found: '+dups.length);
+  dups.forEach(function(d){
+    Logger.log('DUP: '+d.kaiNo+' | row '+d.row1+'='+d.name1+' | row '+d.row2+'='+d.name2);
+  });
+  if(!dups.length) Logger.log('RESULT: No duplicates. KAI No is unique.');
+  else Logger.log('RESULT: Duplicates exist');
+}
+
+function DIAGNOSE_CANDIDATE_IDENTITY() {
+  var kaiNo = 'AYE-KAI-2026-009904';
+  Logger.log('Requested kaiNo : ' + kaiNo);
+  var row = findCandidateByKaiNo_(kaiNo);
+  Logger.log('Resolved row    : ' + row);
+  if (!row) { Logger.log('RESULT: NOT FOUND'); return; }
+  var sheet=getMasterSS_().getSheetByName(CONFIG.sheetName);
+  Logger.log('col25 KAI No    : ' + sheet.getRange(row, CONFIG_V2.extCol.kaiNo).getValue());
+  Logger.log('col4  Name      : ' + sheet.getRange(row, CONFIG.inputColumns.name).getValue());
+  Logger.log('col17 Score     : ' + sheet.getRange(row, CONFIG.inputColumns.score).getValue());
+  Logger.log('col15 Verdict   : ' + sheet.getRange(row, CONFIG.inputColumns.verdict).getValue());
+  var ass=String(sheet.getRange(row,CONFIG.inputColumns.kaiAssessment).getValue()||'').trim();
+  Logger.log('col20 Assessment: '+(ass.length>0?'PRESENT ('+ass.length+' chars)':'EMPTY'));
+  var n=sheet.getLastRow()-1,allKai=sheet.getRange(2,CONFIG_V2.extCol.kaiNo,n,1).getValues();
+  var dupCount=0,dupRows=[];
+  for(var i=0;i<allKai.length;i++){
+    if(String(allKai[i][0]).trim().toUpperCase()===kaiNo.trim().toUpperCase()){dupCount++;dupRows.push(i+2);}
+  }
+  Logger.log('Duplicate count : '+dupCount+' (rows: '+dupRows.join(', ')+')');
+  Logger.log('Cache status    : '+(CacheService.getScriptCache().get('kai_dashboard_v2')?'PRESENT':'EMPTY'));
+  var api=getCandidateProfileApi_(kaiNo);
+  Logger.log('API ok          : '+api.ok);
+  Logger.log('API name        : '+(api.header?api.header.name:'n/a'));
+  Logger.log('API score       : '+(api.header?api.header.score:'n/a'));
+  Logger.log('API assess.gen  : '+(api.assessment?api.assessment.generated:'n/a'));
+}
