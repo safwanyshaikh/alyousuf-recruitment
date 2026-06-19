@@ -1,8 +1,8 @@
 # FOUNDATION — LOCKED SCHEMA & DATA DICTIONARY
 **Status:** FROZEN — Foundation backbone for the next 10 years
 **Repository:** safwanyshaikh/alyousuf-recruitment (ACTIVE — only place new work lands)
-**Legacy:** safwanyshaikh/kai (FROZEN — no new feature, screen, API, or intelligence)
-**Date Locked:** 2026-06-19
+**Legacy:** safwanyshaikh/kai (FROZEN — no new code, fixes, APIs, screens, or architecture changes)
+**Date Locked:** 2026-06-19 (amended with 3 final amendments)
 
 > This document is the single source of truth for the Foundation layer.
 > No code. No UI redesign. Schema + architecture + migration only.
@@ -16,10 +16,14 @@
 Client
   └── Project
         └── Campaign
-              └── Requirement
-                    └── Associate        ← execution layer (build later, reserve now)
+              └── Requirement        ← MUST belong to a Campaign. No standalone requirements.
+                    └── Associate    ← CORE Foundation entity (build now)
                           └── Candidate
 ```
+
+**AMENDMENT 1 — Requirement must belong to a Campaign. No bypass.**
+Requirement creation flow is fixed: `Client → Project → Campaign → Requirement`.
+A Requirement cannot exist without a Campaign ID. This prevents orphan requirements.
 
 **Execution chain (reserved — DO NOT build now, but architecture must not block it):**
 
@@ -27,7 +31,7 @@ Client
 Requirement → Match → Submission → Selection → Mobilization
 ```
 
-GCC recruitment reality: a Requirement is worked by an **Associate** (sourcing partner / network),
+GCC recruitment reality: a Requirement is worked by an **Associate** (agency / sub-agent / freelancer),
 who supplies **Candidates**. It is never Requirement → Candidate directly.
 
 ---
@@ -126,7 +130,7 @@ AI extraction lands in a separate `Requirement Intelligence` table (Section 5).
 | # | Field | Type | Source | Notes |
 |---|-------|------|--------|-------|
 | 1 | Req ID | String | System | `REQ-YYYYMMDD-NNNN` |
-| 2 | Campaign ID | String (FK) | System | **Dedicated column. NOT in Notes.** |
+| 2 | Campaign ID | String (FK) | System | **MANDATORY. Dedicated column. NOT in Notes. No requirement without a Campaign (Amendment 1).** |
 | 3 | Project ID | String (FK) | System | **Dedicated column. NOT in Notes.** |
 | 4 | Client ID | String (FK) | System | FK → Client |
 | 5 | Client Name | String | System | Denormalized |
@@ -166,25 +170,44 @@ AI extraction lands in a separate `Requirement Intelligence` table (Section 5).
 
 ---
 
-## 5. REQUIREMENT INTELLIGENCE (SEPARATE TABLE) — RESERVED
+## 5. KAI INTELLIGENCE (SEPARATE SYSTEM LAYER) — RESERVED
 
+**AMENDMENT 3 — Renamed `Requirement Intelligence` → `KAI Intelligence`.**
+This is not a requirement-only feature. It is the system intelligence layer for the whole platform.
 Built later. Architecture reserved now. Keeps Requirement master operational.
 AI **never** writes to the Requirement master except `Trade` (with `Trade Source = AI`).
 
-**Future intelligence is NOT "JD parsing." JD parsing is ~5% of it.**
-Requirement Intelligence is computed from:
+**This is NOT "JD parsing." JD parsing is ~5% of it.** KAI Intelligence is computed from many signals.
+
+**INPUTS:**
 
 ```
 JD
-+ Historical Submissions
-+ Successful Mobilizations
-+ Client History
-+ Project History
-+ Country Rules
-+ Trade Taxonomy
-        ↓
-Requirement Intelligence
+Client History
+Project History
+Submission History
+Selection History
+Mobilization History
+Country Rules
+Trade Taxonomy
+Salary Benchmarks
+Failure Reasons
+Associate Performance
+Recruiter Performance
 ```
+
+**OUTPUTS:**
+
+```
+Requirement Score
+Candidate Match Score
+Submission Recommendation
+Risk Flags
+Salary Guidance
+Mobilization Prediction
+```
+
+**Requirement-level extraction fields (the JD-parsing slice, keyed by Req ID):**
 
 | # | Field | Type | Notes |
 |---|-------|------|-------|
@@ -199,38 +222,42 @@ Requirement Intelligence
 | 9 | Responsibilities | Text | AI-extracted duties |
 | 10 | Special Requirements | Text | Rotation, accommodation, transport notes |
 | 11 | Industry Classification | String | AI-classified industry |
-| 12 | Historical Fill Rate | Number | From past submissions for similar reqs |
-| 13 | Successful Mobilization Signal | Text | What worked before for this client/trade/country |
-| 14 | Client History Signal | Text | Client preferences from past reqs |
-| 15 | Country Rule Flags | Text | ECR/ECNR, visa rules, medical standard for country |
-| 16 | AI Confidence Score | Number | 0-100 |
-| 17 | AI Extraction Date | Date | |
-| 18 | AI Model Version | String | Traceability |
+| 12 | Requirement Score | Number | KAI-computed (fillability / quality) |
+| 13 | Historical Fill Rate | Number | From past submissions for similar reqs |
+| 14 | Salary Guidance | String | From salary benchmarks |
+| 15 | Mobilization Prediction | Text | Likelihood / timeline based on history |
+| 16 | Risk Flags | Text | Country, visa, associate, client risk signals |
+| 17 | Submission Recommendation | Text | KAI guidance on who/what to submit |
+| 18 | AI Confidence Score | Number | 0-100 |
+| 19 | AI Extraction Date | Date | |
+| 20 | AI Model Version | String | Traceability |
 
 **Confidence gate:** If AI Confidence Score < 70 → flag Requirement for manual review before activation.
 
 ---
 
-## 6. ASSOCIATE — RESERVED (build after Foundation freeze)
+## 6. ASSOCIATE — CORE FOUNDATION ENTITY (BUILD NOW)
 
-The missing entity. Sits between Campaign/Requirement and Candidate.
-Architecture reserved now so the execution chain is not blocked later.
+**AMENDMENT 2 — Associate is NOT future. It is a core Foundation entity. Build the schema now.**
+Sits between Requirement and Candidate. This is GCC recruitment reality:
+`Requirement → Associate → Candidate`.
 
-| # | Field | Type | Notes |
-|---|-------|------|-------|
-| 1 | Associate ID | String | `ASC-YYYYMMDD-NNNN` |
-| 2 | Associate Name | String | Sourcing partner / network |
-| 3 | Associate Type | Enum | Network / Sub-Agent / Direct / Referral |
-| 4 | Country | String | |
-| 5 | Contact Person | String | |
-| 6 | Contact Mobile | String | |
-| 7 | Contact Email | String | |
-| 8 | Status | Enum | ACTIVE / INACTIVE / BLACKLISTED |
-| 9 | Trades Covered | Text | Which trades this associate supplies |
-| 10 | Candidates Supplied | Number | Running count |
-| 11 | Successful Mobilizations | Number | Performance metric |
-| 12 | Created Date | Date | |
-| 13 | Notes | Text | |
+| # | Field | Type | Source | Notes |
+|---|-------|------|--------|-------|
+| 1 | Associate ID | String | System | `ASC-YYYYMMDD-NNNN` |
+| 2 | Associate Name | String | Recruiter | |
+| 3 | Type | Enum | Recruiter | Agency / Freelancer / Sub-Agent |
+| 4 | Country | String | Recruiter | |
+| 5 | City | String | Recruiter | |
+| 6 | Mobile | String | Recruiter | |
+| 7 | Email | String | Recruiter | |
+| 8 | Status | Enum | Recruiter | ACTIVE / INACTIVE / BLACKLISTED |
+| 9 | Created Date | Date | System | |
+| 10 | Owner | String | Recruiter | Recruiter who owns the relationship |
+| 11 | Rating | Number | Recruiter | Performance rating |
+| 12 | Total Submissions | Number | System | Running count |
+| 13 | Total Selections | Number | System | Running count |
+| 14 | Total Mobilizations | Number | System | Running count |
 
 **Link:** Candidate gains an `Associate ID` (FK) so every candidate traces to its source.
 
@@ -259,7 +286,7 @@ Display layer only. No tab computes data. Every tab reads a named backend endpoi
 |-----|---------|-------------|------------|
 | Overview | Header, status, counts, owner, deadline, GCC terms (food/accom/transport/rotation) | Requirement master | Yes |
 | JD | Original JD render + file link + source metadata | JD File Link, JD Source | Yes |
-| AI Analysis | AI-extracted fields, confidence, AI Trade vs current Trade | Requirement Intelligence table | Yes |
+| AI Analysis | AI-extracted fields, confidence, AI Trade vs current Trade | KAI Intelligence layer | Yes |
 | Matching | Ranked candidate matches + score breakdown | Match (reserved) → matching engine | Yes |
 | Submissions | Candidates submitted, feedback, outcome | Submission (reserved) | Yes |
 | Mobilization | Candidates in offer/visa/medical/deploy for this req | Mobilization (reserved) + Candidate state machine | Yes |
@@ -273,8 +300,8 @@ Display layer only. No tab computes data. Every tab reads a named backend endpoi
 REQUIREMENT MASTER  →  100% operational. Recruiter-owned.
                        AI touches ONE field: Trade (with Trade Source = AI).
 
-REQUIREMENT INTELLIGENCE  →  100% AI-owned. Separate table.
-                             Recruiter reads only.
+KAI INTELLIGENCE  →  100% AI-owned. Separate system layer.
+                     Recruiter reads only.
 ```
 
 **Rules:**
@@ -291,10 +318,11 @@ REQUIREMENT INTELLIGENCE  →  100% AI-owned. Separate table.
 |---|------|-----|----------|
 | 1 | Project/Campaign ID stored in Requirement Notes column (`[Project:PROJ-xxx]`) | Move to dedicated FK columns (Req fields 2, 3) | CRITICAL |
 | 2 | Project stores Client Name string, not Client ID | Add Client ID FK (Project field 4) | HIGH |
-| 3 | AI output mixed into Requirement master | Separate Requirement Intelligence table (Section 5) | HIGH |
+| 3 | AI output mixed into Requirement master | Separate KAI Intelligence layer (Section 5) | HIGH |
 | 4 | Country stored as free text everywhere | Standardize to ISO-3166 country codes | MEDIUM |
 | 5 | Req Count / Filled Count as counter columns | Document as computed-in-SaaS; flush on every write to avoid drift | MEDIUM |
-| 6 | No Associate entity = source untraceable | Reserve Associate now (Section 6) | HIGH (later) |
+| 6 | Standalone requirements = orphan risk | Campaign ID MANDATORY on every Requirement (Amendment 1) | HIGH |
+| 7 | Associate built late = source untraceable | Build _Associates as core Foundation schema NOW (Section 6) | HIGH |
 
 ---
 
@@ -305,7 +333,9 @@ ACTIVE   : safwanyshaikh/alyousuf-recruitment   ← everything new lands here
 LEGACY   : safwanyshaikh/kai                     ← FROZEN
 ```
 
-**Hard rule for `kai`:** No new feature. No new screen. No new API. No new intelligence.
+**Hard rule for `kai` (PERMANENT, effective immediately):**
+No new code. No fixes. No APIs. No screens. No architecture changes.
+Everything goes into `safwanyshaikh/alyousuf-recruitment` only.
 
 **Retire from active repo (after V2 confirmed stable):**
 - `KAI_15May2026_V1_Dashboard.txt` — V1 dashboard, superseded by V2
@@ -326,43 +356,72 @@ LEGACY   : safwanyshaikh/kai                     ← FROZEN
 
 ---
 
-## 12. BUILD ORDER — START TOMORROW
+## 12. FINAL FROZEN OPERATING MODEL
+
+```
+FOUNDATION
+├─ Clients
+├─ Projects
+├─ Campaigns
+├─ Requirements
+└─ Associates
+
+EXECUTION
+├─ Candidates
+├─ Matching
+├─ Submissions
+├─ Selections
+└─ Mobilization
+
+INTELLIGENCE
+└─ KAI Intelligence
+```
+
+---
+
+## 13. BUILD ORDER — START TOMORROW
 
 **Foundation first. Not Candidates. Not KAI Flow. Not Matching. Not AI.**
 
 ```
-1. Lock Client schema           (Section 1)
-2. Lock Project schema          (Section 2)
-3. Lock Campaign schema         (Section 3)
-4. Lock Requirement schema      (Section 4)
-5. Add missing GCC fields       (interview, food, accom, transport,
-                                 duty hours, contract, rotation, medical,
-                                 passport validity — already in Section 4)
-6. Requirement Detail architecture (Section 8)
-7. Foundation data dictionary   (this document)
-8. Migration document           (Section 10)
-9. FREEZE Foundation
+STEP 1   Create _Clients schema        (Section 1)
+STEP 2   Create _Projects schema       (Section 2)
+STEP 3   Create _Campaigns schema      (Section 3)
+STEP 4   Create _Requirements schema   (Section 4 — Campaign ID MANDATORY)
+STEP 5   Create _Associates schema     (Section 6 — core, build now)
+STEP 6   Create Foundation APIs
+STEP 7   Create Foundation Detail Pages (Section 8)
+STEP 8   FREEZE Foundation
+STEP 9   Move to Candidates
 ```
+
+After freeze, Foundation is the permanent base layer for SaaS migration,
+multi-tenant deployment, and future KAI Intelligence versions — with no
+further structural rewrite required.
 
 **Only after Foundation freeze:**
 
 ```
 → Candidates
-→ KAI Flow
-→ Submission / Mobilization / Intelligence 14+
+→ Matching
+→ Submissions / Selections / Mobilization
+→ KAI Intelligence
 ```
 
 ---
 
-## 13. WHAT IS RESERVED BUT NOT BUILT
+## 14. WHAT IS RESERVED BUT NOT BUILT
 
-Do not build these now. Architecture is reserved so no rewrite is needed later:
+Architecture reserved so no rewrite is needed later:
 
-- Requirement Intelligence table (Section 5)
-- Associate entity (Section 6)
-- Match / Submission / Selection / Mobilization (Section 7)
+- KAI Intelligence layer (Section 5) — reserved
+- Match / Submission / Selection / Mobilization (Section 7) — reserved
+
+**NOT reserved — build now as core Foundation:**
+
+- Associate entity (Section 6) — CORE, built in Step 5
 
 ---
 
 **END OF LOCKED FOUNDATION SPEC.**
-Freeze this. Build Section 12, Step 1 tomorrow.
+Three amendments applied. Foundation frozen. Build Section 13, Step 1 tomorrow.
