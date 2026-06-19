@@ -1591,6 +1591,24 @@ function getCandidateProfileApi_(kaiNo) {
   var assessmentText = String(intel.kaiAssessment || '').trim();
   var assessmentGenerated = assessmentText.length > 0;
 
+  // ── FIX: passportExpiry — format Date object to yyyy-MM-dd string ──
+  var passportExpiryFmt = '';
+  if (intel.passportExpiry) {
+    try {
+      var pDate = (intel.passportExpiry instanceof Date)
+        ? intel.passportExpiry
+        : new Date(intel.passportExpiry);
+      passportExpiryFmt = isNaN(pDate.getTime())
+        ? String(intel.passportExpiry).trim()
+        : Utilities.formatDate(pDate, 'Asia/Kolkata', 'yyyy-MM-dd');
+    } catch (e) {
+      passportExpiryFmt = String(intel.passportExpiry || '').trim();
+    }
+  }
+
+  // ── FIX: noticeDays — preserve 0 (zero-day notice is valid, must not coerce to '') ──
+  var noticeDaysVal = (typeof intel.noticeDays === 'number') ? intel.noticeDays : '';
+
   return {
     ok:       true,
     kaiNo:    intel.kaiNo,
@@ -1611,8 +1629,11 @@ function getCandidateProfileApi_(kaiNo) {
         nationality:     intel.nationality     || '',
         mobile:          intel.mobile          || '',
         email:           intel.email           || '',
+        dob:             intel.dob             || '',
+        age:             typeof intel.age === 'number' ? intel.age : (intel.age || ''),
         currentLocation: intel.currentLocation || '',
-        passportExpiry:  intel.passportExpiry  || '',
+        mobilityStatus:  intel.mobility        || '',
+        passportExpiry:  passportExpiryFmt,
         ecrStatus:       intel.ecrStatus       || '',
         medicalStatus:   intel.medicalStatus   || ''
       },
@@ -1621,7 +1642,7 @@ function getCandidateProfileApi_(kaiNo) {
         positionApplied: intel.positionApplied || '',
         experience:      intel.experience      || 0,
         empStatus:       intel.empStatus        || '',
-        noticeDays:      intel.noticeDays       || '',
+        noticeDays:      noticeDaysVal,
         gulfExperience:  intel.gulfExp          || ''
       },
       education: {
@@ -1639,14 +1660,19 @@ function getCandidateProfileApi_(kaiNo) {
       scoreBreakdown: assessmentGenerated ? String(intel.scoreBreakdown || '') : '',
       techReview:     intel.techReview || '',
       reviewedBy:     intel.reviewedBy || '',
-      // Auto-computed role suggestions. Always available, but the UI must
-      // label these as "Suggested" when generated === false.
       suggestedRoles: intel.top3Positions || []
     },
 
     // ── DOCUMENTS ──
     documents: {
-      cvLink: intel.cvLink || ''
+      cvLink: intel.cvLink || '',
+      notes:  intel.notes  || ''
+    },
+
+    // ── RECRUITER ──
+    recruiter: {
+      owner:  intel.recruiterOwner  || '',
+      remark: intel.recruiterRemark || ''
     },
 
     // ── HISTORY / TIMELINE ──
