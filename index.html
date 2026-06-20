@@ -90,12 +90,7 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
 .btn-a{padding:9px;border:none;border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s;}
 .btn-shortlist{background:#1B2A4A;color:white;}
 .btn-park{background:#FFF0F0;color:#CC0000;border:1.5px solid #FFAAAA;}
-.btn-tobu{background:#F0E8FF;color:#7C2C7C;border:1.5px solid #DDB8DD;}
 .btn-dl{background:#E8F8F0;color:#006640;border:1.5px solid #AADDCC;}
-.tobu-msg{margin-top:8px;padding:8px 11px;border-radius:7px;font-size:12px;display:none;}
-.tobu-msg.ok{background:#E8F8F0;color:#006640;display:block;}
-.tobu-msg.err{background:#FFF0F0;color:#CC0000;display:block;}
-.tobu-msg.wait{background:#F0F4FF;color:#2C4A7C;display:block;}
 /* Tabs */
 .tabs{display:flex;gap:5px;margin-bottom:14px;flex-wrap:wrap;}
 .tab{padding:6px 14px;border:1.5px solid #ddd;border-radius:14px;background:white;font-size:11px;cursor:pointer;font-weight:500;transition:all 0.2s;}
@@ -135,14 +130,9 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
 .hi-name{font-size:13px;font-weight:600;color:#1B2A4A;}
 .hi-detail{font-size:11px;color:#888;margin-top:1px;}
 .hi-badge{padding:3px 9px;border-radius:9px;font-size:11px;font-weight:600;}
-.tobu-dot{font-size:10px;color:#7C2C7C;font-weight:600;margin-left:4px;}
 .hint{font-size:10px;color:#888;font-style:italic;margin-top:3px;}
 /* API strip */
 .api-strip{background:#FFF8E8;border:1.5px solid #FFD080;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#885500;}
-.tobu-strip{background:#F0E8FF;border:1.5px solid #DDB8DD;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#7C2C7C;display:none;}
-.tobu-strip.show{display:block;}
-.tobu-ind{display:inline-block;width:7px;height:7px;border-radius:50%;background:#CC0000;margin-right:4px;vertical-align:middle;}
-.tobu-ind.on{background:#00A86B;}
 /* Response tracker */
 .resp-row{display:flex;gap:6px;margin-top:10px;}
 .resp-btn{padding:6px 12px;border:1.5px solid #ddd;border-radius:14px;background:white;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s;}
@@ -161,37 +151,20 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
   </div>
   <div class="header-right">
     <div id="currentTime"></div>
-    <div><span class="tobu-ind" id="tobuInd"></span><span id="tobuTxt">Tobu: Not connected</span> &nbsp;|&nbsp; K14 Intelligence</div>
+    <div>K14 Intelligence — Foundation → K14 → Execution → UI</div>
   </div>
 </div>
 
 <div class="container">
 
-  <div class="stats-row">
+  <div class="stats-row" style="grid-template-columns:repeat(4,1fr);">
     <div class="stat-card"><div class="number" id="st-total">0</div><div class="label">CVs Screened</div></div>
     <div class="stat-card"><div class="number" id="st-auto" style="color:#006640">0</div><div class="label">Auto Shortlisted (80+)</div></div>
     <div class="stat-card"><div class="number" id="st-review" style="color:#1B2A9A">0</div><div class="label">For Review (60–79)</div></div>
     <div class="stat-card"><div class="number" id="st-reject" style="color:#CC0000">0</div><div class="label">Rejected (&lt;60)</div></div>
-    <div class="stat-card"><div class="number" id="st-tobu" style="color:#7C2C7C">0</div><div class="label">In Tobu CRM</div></div>
   </div>
 
   <div class="api-strip" id="apiStrip"><strong>K14 Intelligence:</strong> Screening runs server-side via K14 (Foundation → K14 → Execution → UI). No API key needed in the browser.</div>
-  <div class="tobu-strip" id="tobuStrip"><strong>✓ Tobu CRM Connected</strong> — Auto-shortlisted candidates push to "New CV Received" automatically.</div>
-
-  <!-- Tobu CRM key (external integration only — not intelligence) -->
-  <div class="card" style="margin-bottom:18px;">
-    <h2>🔑 Configuration</h2>
-    <div class="form-row">
-      <div class="form-group"><label>Tobu CRM API Key <span style="font-weight:400;color:#888;">(optional — external CRM push)</span></label><input type="password" id="crmKey" placeholder="Your Tobu App ID"/></div>
-      <div class="form-group"></div>
-    </div>
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick="saveKeys()" style="width:auto;padding:8px 22px;">Save</button>
-      <span id="keyMsg" style="font-size:12px;color:#006640;"></span>
-      <button onclick="testTobu()" style="background:#7C2C7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;">Test Tobu</button>
-      <span id="tobuTestMsg" style="font-size:11px;"></span>
-    </div>
-  </div>
 
   <div class="layout">
 
@@ -221,7 +194,7 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
       </div>
 
       <div id="tab-bulk" style="display:none;">
-        <div style="background:#E8F8F0;border-radius:6px;padding:9px 12px;font-size:11px;color:#006640;margin-bottom:9px;line-height:1.6;"><strong>Bulk:</strong> Separate CVs with --- OR upload multiple files. Max 20. Shortlisted auto-push to Tobu.</div>
+        <div style="background:#E8F8F0;border-radius:6px;padding:9px 12px;font-size:11px;color:#006640;margin-bottom:9px;line-height:1.6;"><strong>Bulk:</strong> Separate CVs with --- OR upload multiple files. Max 20.</div>
         <div class="tabs" style="margin-bottom:9px;">
           <button class="tab active" id="bt-paste" onclick="swBulk('paste')">Paste Multiple</button>
           <button class="tab" id="bt-files" onclick="swBulk('files')">Upload Files</button>
@@ -556,13 +529,11 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
           <div id="respMsg" style="font-size:11px;color:#888;margin-top:5px;"></div>
         </div>
 
-        <div class="action-row">
+        <div class="action-row" style="grid-template-columns:1fr 1fr 1fr;">
           <button class="btn-a btn-shortlist" onclick="moveShortlist()">✓ Shortlist</button>
           <button class="btn-a btn-park" onclick="parkCand()">⏸ Park</button>
-          <button class="btn-a btn-tobu" onclick="pushOne()">📤 Push to Tobu</button>
           <button class="btn-a btn-dl" onclick="dlResult()">⬇ Save</button>
         </div>
-        <div class="tobu-msg" id="tobuMsg"></div>
       </div>
 
       <!-- Bulk Results -->
@@ -575,17 +546,14 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
         <div id="bulkSummary" style="display:none;">
           <div class="bulk-summary">
             <div style="font-size:13px;font-weight:600;color:#1B2A4A;">Complete — Ranked by Score</div>
-            <div class="bs-grid">
+            <div class="bs-grid" style="grid-template-columns:repeat(4,1fr);">
               <div class="bs-item"><div class="bs-num" id="bs-total" style="color:#1B2A4A;">0</div><div class="bs-label">Screened</div></div>
               <div class="bs-item"><div class="bs-num" id="bs-auto" style="color:#006640;">0</div><div class="bs-label">Auto (80+)</div></div>
               <div class="bs-item"><div class="bs-num" id="bs-rev" style="color:#1B2A9A;">0</div><div class="bs-label">Review (60–79)</div></div>
               <div class="bs-item"><div class="bs-num" id="bs-rej" style="color:#CC0000;">0</div><div class="bs-label">Rejected</div></div>
-              <div class="bs-item"><div class="bs-num" id="bs-tobu" style="color:#7C2C7C;">0</div><div class="bs-label">In Tobu</div></div>
             </div>
           </div>
-          <button onclick="exportCSV()" style="background:#2C4A7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">⬇ Export CSV</button>
-          <button onclick="pushAll()" style="background:#7C2C7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;">📤 Push All to Tobu</button>
-          <div id="bulkTobuMsg" style="margin-top:6px;font-size:11px;color:#7C2C7C;"></div>
+          <button onclick="exportCSV()" style="background:#2C4A7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;">⬇ Export CSV</button>
         </div>
         <div id="bulkList"></div>
       </div>
@@ -606,7 +574,6 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <h2 style="margin:0;border:none;padding:0;">📁 Today's Session</h2>
           <div style="display:flex;gap:5px;">
-            <button onclick="pushAllHistory()" style="font-size:11px;color:#7C2C7C;background:none;border:1px solid #DDB8DD;border-radius:5px;padding:3px 9px;cursor:pointer;">📤 Push All to Tobu</button>
             <button onclick="clearHistory()" style="font-size:11px;color:#CC0000;background:none;border:1px solid #FFAAAA;border-radius:5px;padding:3px 9px;cursor:pointer;">Clear</button>
           </div>
         </div>
@@ -637,48 +604,21 @@ const TRADE_TYPES={
 const PREMIUM_ORGS=['aramco','adnoc','pdo','qatarenergy','kpc','knpc','gasco','adco','total','shell','bp','exxon','bechtel','petrofac','wood group','mcdermott','technip','saipem','samsung engineering','hyundai engineering'];
 
 // Browser holds NO intelligence credential. Screening runs in K14 (server-side).
-let crmKey=localStorage.getItem('ay_crm')||'';
 let session=JSON.parse(localStorage.getItem('ay_sess')||'[]');
-let stats=JSON.parse(localStorage.getItem('ay_stat')||'{"total":0,"auto":0,"review":0,"reject":0,"tobu":0}');
+let stats=JSON.parse(localStorage.getItem('ay_stat')||'{"total":0,"auto":0,"review":0,"reject":0}');
 let curr=null;
 let bFiles=[];
 let bResults=[];
-const TOBU='https://api.recruitcrm.io/v1';
 
 window.onload=function(){
   tick();setInterval(tick,1000);
   updStats();renderHist();
-  if(crmKey){document.getElementById('crmKey').value=crmKey;updTobu(true);}
   document.getElementById('bulkText').addEventListener('input',updCvCount);
 };
 
 function tick(){
   const n=new Date();
   document.getElementById('currentTime').textContent=n.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'})+'  '+n.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-}
-
-function updTobu(on){
-  document.getElementById('tobuInd').className='tobu-ind'+(on?' on':'');
-  document.getElementById('tobuTxt').textContent=on?'Tobu: Connected ✓':'Tobu: Not connected';
-  document.getElementById('tobuStrip').classList.toggle('show',on);
-}
-
-function saveKeys(){
-  crmKey=document.getElementById('crmKey').value.trim();
-  localStorage.setItem('ay_crm',crmKey);
-  document.getElementById('keyMsg').textContent='✓ Saved';
-  if(crmKey)updTobu(true);
-}
-
-async function testTobu(){
-  if(!crmKey){alert('Enter Tobu key first');return;}
-  const m=document.getElementById('tobuTestMsg');
-  m.textContent='Testing...';m.style.color='#2C4A7C';
-  try{
-    const r=await fetch(TOBU+'/candidates?per_page=1',{headers:{'Authorization':'Bearer '+crmKey,'Accept':'application/json'}});
-    if(r.ok){m.textContent='✓ Connected!';m.style.color='#006640';updTobu(true);}
-    else{m.textContent='✗ Error '+r.status;m.style.color='#CC0000';}
-  }catch(e){m.textContent='✗ '+e.message;m.style.color='#CC0000';}
 }
 
 function updateTradeType(){
@@ -752,7 +692,6 @@ function clearAll(){
   document.getElementById('resultPanel').classList.remove('show');
   document.getElementById('emptyState').style.display='block';
   document.getElementById('loadCard').style.display='none';
-  document.getElementById('tobuMsg').className='tobu-msg';
   curr=null;
 }
 
@@ -768,7 +707,6 @@ function updStats(){
   document.getElementById('st-auto').textContent=stats.auto||0;
   document.getElementById('st-review').textContent=stats.review||0;
   document.getElementById('st-reject').textContent=stats.reject||0;
-  document.getElementById('st-tobu').textContent=stats.tobu||0;
 }
 
 function getFilters(){
@@ -820,14 +758,9 @@ async function analyseCV(){
   document.getElementById('resultPanel').classList.remove('show');
   document.getElementById('emptyState').style.display='none';
   document.getElementById('analyseBtn').disabled=true;
-  document.getElementById('tobuMsg').className='tobu-msg';
   try{
     const result=await k14ScreenCv(cv,f);
     curr=result;showResult(result);saveHist(result);
-    if(crmKey&&(result.decision==='AUTO SHORTLIST'||result.decision==='REVIEW')){
-      const tr=await pushTobu(result);
-      if(tr.success){document.getElementById('tobuMsg').className='tobu-msg ok';document.getElementById('tobuMsg').textContent='✓ Auto-pushed to Tobu "New CV Received"';result.tobuSynced=true;renderHist();}
-    }
   }catch(e){document.getElementById('loadCard').style.display='none';document.getElementById('emptyState').style.display='block';alert('Error: '+e.message);}
   document.getElementById('analyseBtn').disabled=false;
 }
@@ -864,8 +797,7 @@ async function runBulk(){
       const tc=score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000';
       const cls=r.decision==='AUTO SHORTLIST'?'top':r.decision==='REVIEW'?'review':r.decision==='REJECT'?'reject':'park';
       const bc=r.decision==='AUTO SHORTLIST'?'badge-top':r.decision==='REVIEW'?'badge-review':'badge-reject';
-      document.getElementById('bi'+i).outerHTML=`<div class="bri ${cls}" id="bi${i}" onclick="viewBulk(${bResults.length-1})"><div class="bri-left"><div class="bri-rank">${i+1}</div><div class="bri-score" style="background:${bg};color:${tc}">${score}</div><div><div class="bri-name">${r.name||cvList[i].name}</div><div class="bri-detail">${r.trade_identified||'—'} ${r.trade_type_identified?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}${r.tobuSynced?' · 📤':''}</div></div></div><div><span class="hi-badge ${bc}">${r.decision}</span></div></div>`;
-      if(crmKey&&(r.decision==='AUTO SHORTLIST'||r.decision==='REVIEW')){const tr=await pushTobu(r);if(tr.success)r.tobuSynced=true;}
+      document.getElementById('bi'+i).outerHTML=`<div class="bri ${cls}" id="bi${i}" onclick="viewBulk(${bResults.length-1})"><div class="bri-left"><div class="bri-rank">${i+1}</div><div class="bri-score" style="background:${bg};color:${tc}">${score}</div><div><div class="bri-name">${r.name||cvList[i].name}</div><div class="bri-detail">${r.trade_identified||'—'} ${r.trade_type_identified?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}</div></div></div><div><span class="hi-badge ${bc}">${r.decision}</span></div></div>`;
     }catch(e){bResults.push({name:cvList[i].name,total_score:0,decision:'ERROR',error:e.message});}
     if(i<cvList.length-1)await new Promise(res=>setTimeout(res,1200));
   }
@@ -878,18 +810,16 @@ async function runBulk(){
     const cls=r.decision==='AUTO SHORTLIST'?'top':r.decision==='REVIEW'?'review':r.decision==='REJECT'?'reject':'park';
     const bc=r.decision==='AUTO SHORTLIST'?'badge-top':r.decision==='REVIEW'?'badge-review':'badge-reject';
     const idx=bResults.indexOf(r);
-    return `<div class="bri ${cls}" onclick="viewBulk(${idx})"><div class="bri-left"><div class="bri-rank" style="background:${score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000'}">${i+1}</div><div class="bri-score" style="background:${bg};color:${tc}">${score}</div><div><div class="bri-name">${r.name||r.fileName||'Unknown'}</div><div class="bri-detail">${r.trade_identified||'—'} ${r.trade_type_identified?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}${r.tobuSynced?' · 📤':''}</div></div></div><div><span class="hi-badge ${bc}">${r.decision||'—'}</span></div></div>`;
+    return `<div class="bri ${cls}" onclick="viewBulk(${idx})"><div class="bri-left"><div class="bri-rank" style="background:${score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000'}">${i+1}</div><div class="bri-score" style="background:${bg};color:${tc}">${score}</div><div><div class="bri-name">${r.name||r.fileName||'Unknown'}</div><div class="bri-detail">${r.trade_identified||'—'} ${r.trade_type_identified?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}</div></div></div><div><span class="hi-badge ${bc}">${r.decision||'—'}</span></div></div>`;
   }).join('');
 
   const auto=bResults.filter(r=>r.decision==='AUTO SHORTLIST').length;
   const rev=bResults.filter(r=>r.decision==='REVIEW').length;
   const rej=bResults.filter(r=>r.decision==='REJECT'||r.decision==='PARK'||r.decision==='ERROR').length;
-  const tobuCount=bResults.filter(r=>r.tobuSynced).length;
   document.getElementById('bs-total').textContent=bResults.length;
   document.getElementById('bs-auto').textContent=auto;
   document.getElementById('bs-rev').textContent=rev;
   document.getElementById('bs-rej').textContent=rej;
-  document.getElementById('bs-tobu').textContent=tobuCount;
   document.getElementById('bulkSummary').style.display='block';
   document.getElementById('bulkProg').style.display='none';
   document.getElementById('bulkFill').style.width='100%';
@@ -960,7 +890,6 @@ function showResult(r){
   }else document.getElementById('dupSection').style.display='none';
 
   document.getElementById('respMsg').textContent='';
-  document.getElementById('tobuMsg').className='tobu-msg';
 }
 
 function setBar(id,val,max){
@@ -979,79 +908,11 @@ function setResponse(status){
   renderHist();
 }
 
-async function pushTobu(r){
-  if(!crmKey)return{success:false,error:'No Tobu key'};
-  const parts=(r.name||'Unknown').split(' ');
-  const notes=[
-    '=== AL YOUSUF SCREENING ENGINE v3 ===',
-    'Score: '+(r.total_score||0)+'/100',
-    'Decision: '+(r.decision||'—'),
-    'Trade: '+(r.trade_identified||'—'),
-    'Trade Type: '+(r.trade_type_identified||'—'),
-    'Current Position: '+(r.current_position||'—'),
-    'Role Experience: '+(r.years_experience_in_role||0)+' years',
-    'Total Experience: '+(r.years_experience_total||0)+' years',
-    'Gulf: '+(r.gulf_experience?'Yes — '+(r.gulf_countries||[]).join(', '):'No'),
-    'Industry: '+(r.industry||'—'),
-    'Location: '+(r.current_location||'—'),
-    'Availability: '+(r.availability||'—'),
-    'Expected Salary: '+(r.expected_salary||'—'),
-    'Qualification: '+(r.qualification||'—'),
-    'Certifications: '+(r.certifications||[]).join(', '),
-    'Premium Approvals: '+(r.premium_approvals||[]).join(', '),
-    'Skills Matched: '+(r.skills_matched||[]).join(', '),
-    'Assessment: '+(r.summary||'—'),
-    'Screened: '+new Date().toLocaleDateString('en-IN')
-  ].filter(x=>!x.endsWith(': ')).join('\n');
-  const payload={
-    first_name:parts[0]||'Unknown',last_name:parts.slice(1).join(' ')||'Candidate',
-    email:r.email||'',contact_number:r.phone||'',current_location:r.current_location||'',
-    total_experience:r.years_experience_total||0,
-    current_designation:(r.trade_identified||'')+(r.trade_type_identified&&r.trade_type_identified!=='any'?' ('+r.trade_type_identified+')':''),
-    note:notes,
-    tag_list:[r.decision||'Screened',r.trade_identified||'',r.nationality||'',r.gulf_experience?'Gulf-Exp':'No-Gulf','Score-'+(r.total_score||0)].filter(Boolean)
-  };
-  try{
-    const res=await fetch(TOBU+'/candidates',{method:'POST',headers:{'Authorization':'Bearer '+crmKey,'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
-    if(res.ok){stats.tobu=(stats.tobu||0)+1;localStorage.setItem('ay_stat',JSON.stringify(stats));updStats();return{success:true};}
-    const e=await res.json();return{success:false,error:e.message||'Error '+res.status};
-  }catch(e){return{success:false,error:e.message};}
-}
-
-async function pushOne(){
-  if(!curr)return;
-  if(!crmKey){alert('Enter Tobu key first');return;}
-  const m=document.getElementById('tobuMsg');
-  m.className='tobu-msg wait';m.textContent='Pushing to Tobu...';
-  const r=await pushTobu(curr);
-  if(r.success){m.className='tobu-msg ok';m.textContent='✓ Pushed to Tobu "New CV Received"';curr.tobuSynced=true;renderHist();}
-  else{m.className='tobu-msg err';m.textContent='✗ Failed: '+r.error;}
-}
-
-async function pushAll(){
-  if(!crmKey){alert('Enter Tobu key first');return;}
-  if(!bResults.length)return;
-  const m=document.getElementById('bulkTobuMsg');m.textContent='Pushing...';
-  let pushed=0;
-  for(const r of bResults){if(!r.tobuSynced){const res=await pushTobu(r);if(res.success){r.tobuSynced=true;pushed++;}}await new Promise(res=>setTimeout(res,500));}
-  m.textContent='✓ '+pushed+' pushed to Tobu!';
-}
-
-async function pushAllHistory(){
-  if(!crmKey){alert('Enter Tobu key first');return;}
-  if(!session.length){alert('No candidates in history');return;}
-  if(!confirm('Push all '+session.length+' to Tobu?'))return;
-  let pushed=0;
-  for(const r of session){if(!r.tobuSynced){const res=await pushTobu(r);if(res.success){r.tobuSynced=true;pushed++;}}await new Promise(res=>setTimeout(res,600));}
-  localStorage.setItem('ay_sess',JSON.stringify(session));renderHist();
-  alert('✓ '+pushed+' pushed to Tobu!');
-}
-
 function exportCSV(){
   if(!bResults.length)return;
-  const h=['Rank','Name','Score','Decision','Trade','Trade Type','Current Position','Nationality','Age','Role Exp','Total Exp','Gulf','Passport','Qualification','Industry','Location','Availability','Salary Expect','Skills Matched','Premium Approvals','Certifications','Phone','Email','Tobu','Summary'];
+  const h=['Rank','Name','Score','Decision','Trade','Trade Type','Current Position','Nationality','Age','Role Exp','Total Exp','Gulf','Passport','Qualification','Industry','Location','Availability','Salary Expect','Skills Matched','Premium Approvals','Certifications','Phone','Email','Summary'];
   const s=[...bResults].sort((a,b)=>(b.total_score||0)-(a.total_score||0));
-  const rows=s.map((r,i)=>[i+1,r.name||'',r.total_score||0,r.decision||'',r.trade_identified||'',r.trade_type_identified||'',r.current_position||'',r.nationality||'',r.age||'',r.years_experience_in_role||0,r.years_experience_total||0,r.gulf_experience?'Yes':'No',r.passport_status||'',r.qualification||'',r.industry||'',r.current_location||'',r.availability||'',r.expected_salary||'',(r.skills_matched||[]).join('; '),(r.premium_approvals||[]).join('; '),(r.certifications||[]).join('; '),r.phone||'',r.email||'',r.tobuSynced?'Yes':'No',(r.summary||'').replace(/,/g,' ')]);
+  const rows=s.map((r,i)=>[i+1,r.name||'',r.total_score||0,r.decision||'',r.trade_identified||'',r.trade_type_identified||'',r.current_position||'',r.nationality||'',r.age||'',r.years_experience_in_role||0,r.years_experience_total||0,r.gulf_experience?'Yes':'No',r.passport_status||'',r.qualification||'',r.industry||'',r.current_location||'',r.availability||'',r.expected_salary||'',(r.skills_matched||[]).join('; '),(r.premium_approvals||[]).join('; '),(r.certifications||[]).join('; '),r.phone||'',r.email||'',(r.summary||'').replace(/,/g,' ')]);
   const csv=[h,...rows].map(r=>r.join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
@@ -1059,7 +920,7 @@ function exportCSV(){
 }
 
 function saveHist(r){
-  if(!stats.total)stats={total:0,auto:0,review:0,reject:0,tobu:0};
+  if(!stats.total)stats={total:0,auto:0,review:0,reject:0};
   stats.total++;
   if(r.decision==='AUTO SHORTLIST')stats.auto++;
   else if(r.decision==='REVIEW')stats.review++;
@@ -1080,7 +941,7 @@ function renderHist(){
     const tc=score>=80?'#006640':score>=60?'#1B2A9A':'#CC0000';
     const bc=r.decision==='AUTO SHORTLIST'?'badge-top':r.decision==='REVIEW'?'badge-review':'badge-reject';
     const resp=r.response_status?` · ${r.response_status==='confirmed'?'✓ Confirmed':r.response_status==='not_interested'?'✗ Not interested':'⏳ No response'}`:'';
-    return `<div class="hi" onclick="viewHist(${i})"><div class="hi-left"><div class="hi-score" style="background:${bg};color:${tc}">${score}</div><div><div class="hi-name">${r.name||'Unknown'}${r.tobuSynced?'<span class="tobu-dot">📤</span>':''}</div><div class="hi-detail">${r.trade_identified||'—'} ${r.trade_type_identified&&r.trade_type_identified!=='any'?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}${resp}${r.timestamp?' · '+r.timestamp:''}</div></div></div><span class="hi-badge ${bc}">${r.decision||'—'}</span></div>`;
+    return `<div class="hi" onclick="viewHist(${i})"><div class="hi-left"><div class="hi-score" style="background:${bg};color:${tc}">${score}</div><div><div class="hi-name">${r.name||'Unknown'}</div><div class="hi-detail">${r.trade_identified||'—'} ${r.trade_type_identified&&r.trade_type_identified!=='any'?'('+r.trade_type_identified+')':''} · ${r.nationality||'—'} · Role: ${r.years_experience_in_role||0}yr${r.gulf_experience?' · Gulf ✓':''}${resp}${r.timestamp?' · '+r.timestamp:''}</div></div></div><span class="hi-badge ${bc}">${r.decision||'—'}</span></div>`;
   }).join('');
 }
 
@@ -1088,7 +949,7 @@ function viewHist(i){curr=session[i];showResult(session[i]);window.scrollTo({top
 
 function clearHistory(){
   if(!confirm('Clear all?'))return;
-  session=[];stats={total:0,auto:0,review:0,reject:0,tobu:0};
+  session=[];stats={total:0,auto:0,review:0,reject:0};
   localStorage.setItem('ay_sess',JSON.stringify(session));localStorage.setItem('ay_stat',JSON.stringify(stats));
   updStats();renderHist();
 }
