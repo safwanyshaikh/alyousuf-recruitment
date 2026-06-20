@@ -966,6 +966,90 @@ function getRequirementByIdPublic(reqId) {
   } catch(e) { return { ok: false, msg: e.message }; }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// K9 · INTAKE + REASON — CV SCREENING ENGINE
+// Migrated from index.html (browser-side) into the single K14 owner.
+// Raw CV text + screening criteria -> structured assessment + decision.
+// All AI runs through the Infrastructure Gemini gateway (k14Gemini_ seam);
+// the browser no longer calls any AI provider directly.
+// This is K14's CV-INTAKE screening operation. It is distinct from the
+// K5 match engine (which scores Foundation candidates against a stored
+// requirement). Both are owned solely by k14_core.gs — there is no
+// competing scorer in any other file.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * K9.F01 — Build the 18-filter screening prompt. (migrated from index.html buildPrompt)
+ * filters: { trade, ttype, currpos, roleexp, totalexp, passport, gulf, agemin,
+ *            agemax, qual, nat, gender, industry, avail, location, salary, skills, jd }
+ */
+function buildScreeningPrompt285_(cvText, f) {
+  f = f || {};
+  return 'You are the final screening engine for Al Yousuf Enterprises LLP, Indian overseas manpower agency (Gulf/GCC).\n\n' +
+  'Apply ALL 18 filters. Return ONLY raw JSON. No markdown. No explanation.\n\n' +
+  '=== PRIMARY FILTERS (HARD REJECT — any failure = reject/park) ===\n\n' +
+  '1. TRADE: ' + (f.trade === 'any' ? 'Any trade acceptable' : f.trade) + '\n' +
+  '2. TRADE TYPE: ' + (f.ttype === 'any' || f.ttype === 'Any' ? 'Any specialization' : f.ttype + ' STRICT MATCH required') + '\n' +
+  '3. CURRENT POSITION vs TRADE: ' + (f.currpos ? 'Current position must align with trade: ' + f.currpos + '. Mismatch (e.g. Helper applying for Welder) = REJECT' : 'Not checked') + '\n' +
+  '4. EXPERIENCE IN APPLIED ROLE (minimum): ' + f.roleexp + ' years. Below minimum = REJECT\n' +
+  '5. TOTAL EXPERIENCE LOGIC: Total exp must be >= role-specific exp. If not = DATA INVALID = REJECT\n' +
+  '6. PASSPORT: ' + (f.passport === 'valid_6m' ? 'Must be VALID with min 6 months remaining' : f.passport === 'valid' ? 'Must be VALID' : f.passport === 'valid_or_applied' ? 'Valid or Applied OK' : 'Any status') + '. No passport = PARK\n' +
+  '7. GULF EXPERIENCE: ' + (f.gulf === 'mandatory' ? 'MANDATORY — No Gulf exp = REJECT' : f.gulf === 'preferred' ? 'Preferred — adds to score' : 'Not required') + '\n' +
+  '8. AGE: Must be ' + f.agemin + '-' + f.agemax + ' years. Outside = REJECT\n' +
+  '9. QUALIFICATION: ' + (f.qual === 'iti_min' ? 'ITI minimum mandatory — below ITI = REJECT' : f.qual === 'diploma_min' ? 'Diploma minimum mandatory — ITI or below = REJECT' : f.qual === 'degree_min' ? 'Degree minimum mandatory' : 'Scoring only — no hard rejection for qualification') + '\n\n' +
+  '=== SECONDARY FILTERS (SCORING) ===\n\n' +
+  '10. LOCATION: Candidate location vs preferred region: ' + (f.location || 'Not specified') + '. Same region = HIGH(5pts), different = MEDIUM(3pts), unknown = LOW(1pt)\n' +
+  '11. NATIONALITY: ' + f.nat + '\n' +
+  '12. INDUSTRY: ' + f.industry + '. Same = HIGH(5pts), related = MEDIUM(3pts), irrelevant = LOW(1pt)\n' +
+  '13. SALARY: Client budget ' + (f.salary === 'any' ? 'not specified' : f.salary) + '. Within = HIGH(10pts), slightly above = MEDIUM(5pts), too high = LOW(0pts)\n' +
+  '14. AVAILABILITY: ' + f.avail + '. Immediate = 5pts, 15days = 3pts, 1month = 1pt\n\n' +
+  '=== SMART MATCHING ===\n\n' +
+  '15. KEY SKILLS: ' + (f.skills || 'Not specified') + '. Match % against these keywords. High match = 10-15pts\n' +
+  '16. CERTIFICATIONS: Check for Aramco/ADNOC/PDO/QatarEnergy approvals = BOOST +5pts each\n' +
+  '17. DUPLICATE: Note if phone or email might match existing (flag only)\n\n' +
+  '=== SCORING WEIGHTS ===\n' +
+  'Trade + Trade Type: 25pts\nRole Experience: 20pts\nPassport + Gulf: 15pts\nSkills Match: 15pts\n' +
+  'Salary Fit: 10pts\nAvailability: 5pts\nLocation: 5pts\nIndustry: 5pts\nTOTAL: 100pts\n\n' +
+  '=== DECISION ===\n' +
+  'Any primary filter failure -> REJECT or PARK\n' +
+  '80-100 + all primary pass -> AUTO SHORTLIST\n' +
+  '60-79 + all primary pass -> REVIEW\n' +
+  '<60 -> REJECT\n\n' +
+  'CV TEXT:\n' + String(cvText || '').substring(0, 4000) + '\n\n' +
+  (f.jd ? 'CLIENT JD:\n' + f.jd : '') + '\n\n' +
+  'Return ONLY this JSON:\n' +
+  '{"name":"","age":0,"nationality":"","gender":"male","has_passport":true,"passport_status":"valid","passport_months_remaining":0,"current_position":"","trade_identified":"","trade_type_identified":"","position_trade_aligned":true,"industry":"","years_experience_total":0,"years_experience_in_role":0,"experience_logic_valid":true,"gulf_experience":false,"gulf_countries":[],"other_overseas":false,"qualification":"","qualification_level":"iti","certifications":[],"premium_approvals":[],"phone":"","email":"","current_location":"","availability":"","expected_salary":"","skills_matched":[],"skills_match_pct":0,"trade_score":0,"role_exp_score":0,"pg_score":0,"skills_score":0,"salary_score":0,"avail_score":0,"location_score":0,"industry_score":0,"total_score":0,"decision":"REVIEW","filter_passes":true,"filter_failures":[],"warnings":[],"possible_duplicate":false,"duplicate_note":"","summary":"","strengths":[],"concerns":[]}';
+}
+
+/**
+ * K9.F02 — Public CV screening endpoint. UI calls this via google.script.run.
+ * Replaces the browser buildPrompt + direct Anthropic callAPI path.
+ * Returns the same JSON shape the UI already renders.
+ */
+function screenCvPublic(cvText, filters) {
+  try {
+    if (!cvText || String(cvText).trim().length < 50)
+      return { ok: false, msg: 'No CV text provided (min 50 chars).' };
+    var prompt = buildScreeningPrompt285_(cvText, filters || {});
+    var raw = k14Gemini_([{ text: prompt }], null);   // through Infrastructure gateway
+    if (!raw) return { ok: false, msg: 'No response from intelligence gateway.' };
+    var clean = String(raw).trim()
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .trim();
+    // Some gateways wrap the JSON inside a candidates envelope; extract the object.
+    var firstBrace = clean.indexOf('{');
+    var lastBrace = clean.lastIndexOf('}');
+    if (firstBrace > 0 || lastBrace > -1) clean = clean.substring(firstBrace, lastBrace + 1);
+    var result = JSON.parse(clean);
+    result.ok = true;
+    return result;
+  } catch (e) {
+    Logger.log('screenCvPublic error: ' + e.message);
+    return { ok: false, msg: 'Screening engine error: ' + e.message };
+  }
+}
+
 /**
  * K8.NS — The official K14 namespace surface for new consumers.
  * Presentation and Execution layers should depend on K14.* rather than
@@ -988,6 +1072,7 @@ var K14 = {
 
   // INTAKE
   extractJdFromPdf:function(base64, mime, filename)    { return extractJdFromPdfInline_v293_(base64, mime, filename); },
+  screenCv:        function(cvText, filters)           { return screenCvPublic(cvText, filters); },
 
   // FOUNDATION READ (read-only truth)
   openRequirements:function()                          { return getOpenRequirementsPublic(); },

@@ -161,7 +161,7 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
   </div>
   <div class="header-right">
     <div id="currentTime"></div>
-    <div><span class="tobu-ind" id="tobuInd"></span><span id="tobuTxt">Tobu: Not connected</span> &nbsp;|&nbsp; Claude AI</div>
+    <div><span class="tobu-ind" id="tobuInd"></span><span id="tobuTxt">Tobu: Not connected</span> &nbsp;|&nbsp; K14 Intelligence</div>
   </div>
 </div>
 
@@ -175,18 +175,18 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
     <div class="stat-card"><div class="number" id="st-tobu" style="color:#7C2C7C">0</div><div class="label">In Tobu CRM</div></div>
   </div>
 
-  <div class="api-strip" id="apiStrip"><strong>Setup:</strong> Enter Claude API key below to activate the screening engine.</div>
+  <div class="api-strip" id="apiStrip"><strong>K14 Intelligence:</strong> Screening runs server-side via K14 (Foundation → K14 → Execution → UI). No API key needed in the browser.</div>
   <div class="tobu-strip" id="tobuStrip"><strong>✓ Tobu CRM Connected</strong> — Auto-shortlisted candidates push to "New CV Received" automatically.</div>
 
-  <!-- API Keys -->
+  <!-- Tobu CRM key (external integration only — not intelligence) -->
   <div class="card" style="margin-bottom:18px;">
     <h2>🔑 Configuration</h2>
     <div class="form-row">
-      <div class="form-group"><label>Claude API Key</label><input type="password" id="apiKey" placeholder="sk-ant-api03-..."/></div>
-      <div class="form-group"><label>Tobu CRM API Key</label><input type="password" id="crmKey" placeholder="Your Tobu App ID"/></div>
+      <div class="form-group"><label>Tobu CRM API Key <span style="font-weight:400;color:#888;">(optional — external CRM push)</span></label><input type="password" id="crmKey" placeholder="Your Tobu App ID"/></div>
+      <div class="form-group"></div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick="saveKeys()" style="width:auto;padding:8px 22px;">Save &amp; Activate</button>
+      <button class="btn btn-primary" onclick="saveKeys()" style="width:auto;padding:8px 22px;">Save</button>
       <span id="keyMsg" style="font-size:12px;color:#006640;"></span>
       <button onclick="testTobu()" style="background:#7C2C7C;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;">Test Tobu</button>
       <span id="tobuTestMsg" style="font-size:11px;"></span>
@@ -636,7 +636,7 @@ const TRADE_TYPES={
 
 const PREMIUM_ORGS=['aramco','adnoc','pdo','qatarenergy','kpc','knpc','gasco','adco','total','shell','bp','exxon','bechtel','petrofac','wood group','mcdermott','technip','saipem','samsung engineering','hyundai engineering'];
 
-let apiKey=localStorage.getItem('ay_key')||'';
+// Browser holds NO intelligence credential. Screening runs in K14 (server-side).
 let crmKey=localStorage.getItem('ay_crm')||'';
 let session=JSON.parse(localStorage.getItem('ay_sess')||'[]');
 let stats=JSON.parse(localStorage.getItem('ay_stat')||'{"total":0,"auto":0,"review":0,"reject":0,"tobu":0}');
@@ -648,7 +648,6 @@ const TOBU='https://api.recruitcrm.io/v1';
 window.onload=function(){
   tick();setInterval(tick,1000);
   updStats();renderHist();
-  if(apiKey){document.getElementById('apiKey').value=apiKey;document.getElementById('apiStrip').style.display='none';document.getElementById('keyMsg').textContent='✓ Active';}
   if(crmKey){document.getElementById('crmKey').value=crmKey;updTobu(true);}
   document.getElementById('bulkText').addEventListener('input',updCvCount);
 };
@@ -665,13 +664,9 @@ function updTobu(on){
 }
 
 function saveKeys(){
-  apiKey=document.getElementById('apiKey').value.trim();
   crmKey=document.getElementById('crmKey').value.trim();
-  if(!apiKey){alert('Please enter your Claude API key');return;}
-  localStorage.setItem('ay_key',apiKey);
   localStorage.setItem('ay_crm',crmKey);
   document.getElementById('keyMsg').textContent='✓ Saved';
-  document.getElementById('apiStrip').style.display='none';
   if(crmKey)updTobu(true);
 }
 
@@ -799,79 +794,27 @@ function getFilters(){
   };
 }
 
-function buildPrompt(cv,f){
-  return `You are the final screening engine for Al Yousuf Enterprises LLP, Indian overseas manpower agency (Gulf/GCC).
-
-Apply ALL 18 filters. Return ONLY raw JSON. No markdown. No explanation.
-
-═══ PRIMARY FILTERS (HARD REJECT — any failure = reject/park) ═══
-
-1. TRADE: ${f.trade==='any'?'Any trade acceptable':f.trade}
-2. TRADE TYPE: ${f.ttype==='any'||f.ttype==='Any'?'Any specialization':f.ttype+' STRICT MATCH required'}
-3. CURRENT POSITION vs TRADE: ${f.currpos?'Current position must align with trade: '+f.currpos+'. Mismatch (e.g. Helper applying for Welder) = REJECT':'Not checked'}
-4. EXPERIENCE IN APPLIED ROLE (minimum): ${f.roleexp} years. Below minimum = REJECT
-5. TOTAL EXPERIENCE LOGIC: Total exp must be ≥ role-specific exp. If not = DATA INVALID = REJECT
-6. PASSPORT: ${f.passport==='valid_6m'?'Must be VALID with min 6 months remaining':f.passport==='valid'?'Must be VALID':f.passport==='valid_or_applied'?'Valid or Applied OK':'Any status'}. No passport = PARK
-7. GULF EXPERIENCE: ${f.gulf==='mandatory'?'MANDATORY — No Gulf exp = REJECT':f.gulf==='preferred'?'Preferred — adds to score':'Not required'}
-8. AGE: Must be ${f.agemin}–${f.agemax} years. Outside = REJECT
-9. QUALIFICATION: ${f.qual==='iti_min'?'ITI minimum mandatory — below ITI = REJECT':f.qual==='diploma_min'?'Diploma minimum mandatory — ITI or below = REJECT':f.qual==='degree_min'?'Degree minimum mandatory':'Scoring only — no hard rejection for qualification'}
-
-═══ SECONDARY FILTERS (SCORING) ═══
-
-10. LOCATION: Candidate location vs preferred region: ${f.location||'Not specified'}. Same region = HIGH(5pts), different = MEDIUM(3pts), unknown = LOW(1pt)
-11. NATIONALITY: ${f.nat}
-12. INDUSTRY: ${f.industry}. Same = HIGH(5pts), related = MEDIUM(3pts), irrelevant = LOW(1pt)
-13. SALARY: Client budget ${f.salary==='any'?'not specified':f.salary}. Within = HIGH(10pts), slightly above = MEDIUM(5pts), too high = LOW(0pts)
-14. AVAILABILITY: ${f.avail}. Immediate = 5pts, 15days = 3pts, 1month = 1pt
-
-═══ SMART MATCHING ═══
-
-15. KEY SKILLS: ${f.skills||'Not specified'}. Match % against these keywords. High match = 10-15pts
-16. CERTIFICATIONS: Check for Aramco/ADNOC/PDO/QatarEnergy approvals = BOOST +5pts each
-17. DUPLICATE: Note if phone or email might match existing (flag only)
-
-═══ SCORING WEIGHTS ═══
-Trade + Trade Type: 25pts
-Role Experience: 20pts
-Passport + Gulf: 15pts
-Skills Match: 15pts
-Salary Fit: 10pts
-Availability: 5pts
-Location: 5pts
-Industry: 5pts
-TOTAL: 100pts
-
-═══ DECISION ═══
-Any primary filter failure → REJECT or PARK
-80–100 + all primary pass → AUTO SHORTLIST
-60–79 + all primary pass → REVIEW
-<60 → REJECT
-
-CV TEXT:
-${cv.substring(0,4000)}
-
-${f.jd?'CLIENT JD:\n'+f.jd:''}
-
-Return ONLY this JSON:
-{"name":"","age":0,"nationality":"","gender":"male","has_passport":true,"passport_status":"valid","passport_months_remaining":0,"current_position":"","trade_identified":"","trade_type_identified":"","position_trade_aligned":true,"industry":"","years_experience_total":0,"years_experience_in_role":0,"experience_logic_valid":true,"gulf_experience":false,"gulf_countries":[],"other_overseas":false,"qualification":"","qualification_level":"iti","certifications":[],"premium_approvals":[],"phone":"","email":"","current_location":"","availability":"","expected_salary":"","skills_matched":[],"skills_match_pct":0,"trade_score":0,"role_exp_score":0,"pg_score":0,"skills_score":0,"salary_score":0,"avail_score":0,"location_score":0,"industry_score":0,"total_score":0,"decision":"REVIEW","filter_passes":true,"filter_failures":[],"warnings":[],"possible_duplicate":false,"duplicate_note":"","summary":"","strengths":[],"concerns":[]}`;
-}
-
-async function callAPI(prompt){
-  const r=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]})
+// ─────────────────────────────────────────────────────────────────
+// INTELLIGENCE BRIDGE — UI is a CONSUMER ONLY.
+// All screening intelligence lives in K14 (k14_core.gs screenCvPublic).
+// The browser builds NO prompt, calls NO AI provider, computes NO score.
+// It sends raw CV text + filters to K14 and renders the response.
+// ─────────────────────────────────────────────────────────────────
+function k14ScreenCv(cv,f){
+  return new Promise((resolve,reject)=>{
+    google.script.run
+      .withSuccessHandler(function(res){
+        if(res&&res.ok===false){reject(new Error(res.msg||'Screening failed'));return;}
+        resolve(res);
+      })
+      .withFailureHandler(function(err){reject(err);})
+      .screenCvPublic(cv,f);
   });
-  if(!r.ok){const e=await r.json();throw new Error(e.error?.message||'API error '+r.status);}
-  const d=await r.json();
-  let raw=d.content[0].text.trim().replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-  return JSON.parse(raw);
 }
 
 async function analyseCV(){
   const cv=document.getElementById('cvText').value.trim();
   if(!cv){alert('Please paste a CV first');return;}
-  if(!apiKey){alert('Please enter your Claude API key');return;}
   const f=getFilters();
   document.getElementById('loadCard').style.display='block';
   document.getElementById('resultPanel').classList.remove('show');
@@ -879,7 +822,7 @@ async function analyseCV(){
   document.getElementById('analyseBtn').disabled=true;
   document.getElementById('tobuMsg').className='tobu-msg';
   try{
-    const result=await callAPI(buildPrompt(cv,f));
+    const result=await k14ScreenCv(cv,f);
     curr=result;showResult(result);saveHist(result);
     if(crmKey&&(result.decision==='AUTO SHORTLIST'||result.decision==='REVIEW')){
       const tr=await pushTobu(result);
@@ -890,7 +833,6 @@ async function analyseCV(){
 }
 
 async function runBulk(){
-  if(!apiKey){alert('Please enter your Claude API key');return;}
   const f=getFilters();
   let cvList=[];
   const pasteOn=document.getElementById('bulk-paste').style.display!=='none';
@@ -915,7 +857,7 @@ async function runBulk(){
     document.getElementById('bulkProgTxt').textContent=`Screening ${i+1} of ${cvList.length}: ${cvList[i].name}...`;
     document.getElementById('bulkFill').style.width=((i/cvList.length)*100)+'%';
     try{
-      const r=await callAPI(buildPrompt(cvList[i].text,f));
+      const r=await k14ScreenCv(cvList[i].text,f);
       r.fileName=cvList[i].name;bResults.push(r);saveHist(r);
       const score=r.total_score||0;
       const bg=score>=80?'#E8F8F0':score>=60?'#E8F0FF':'#FFF0F0';
