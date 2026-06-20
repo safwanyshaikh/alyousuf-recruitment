@@ -3,13 +3,13 @@
 **Repository:** safwanyshaikh/alyousuf-recruitment · **Branch:** claude/sweet-franklin-mnmfcz
 **Date:** 2026-06-20 · **Status:** LOCKED (CEO-approved)
 
-> These eleven rules bind every line of Foundation code in Phase 5. No commit may
+> These twelve rules bind every line of Foundation code in Phase 5. No commit may
 > violate them. They sit above the implementation plan: where the plan and a rule
 > disagree, the rule wins.
 
 ---
 
-## THE ELEVEN RULES
+## THE TWELVE RULES
 
 | # | Rule |
 |---|------|
@@ -24,6 +24,38 @@
 | 9 | **No AI-generated values written into Foundation** except governed fields already approved (today: `Trade` with `Trade Source = AI`). |
 | 10 | **Every commit must include rollback instructions.** No exceptions. |
 | 11 | **No existing column may change meaning.** If a meaning changes, create a new column. Never repurpose an old column. |
+| 12 | **Foreign keys are immutable after creation, and no child may be orphaned.** A child's parent FK is never reassigned; create a new record instead. Every child must resolve to a live parent. |
+
+---
+
+## RULE 12 — FK IMMUTABILITY + NO ORPHANS
+
+**Immutability.** Once a record is created with a parent FK, that FK is frozen for the
+life of the record. Reassigning ownership breaks historical auditability.
+
+```
+BAD   Project P attached to ClientID=C123  →  later reassigned to ClientID=C999
+GOOD  Project P keeps ClientID=C123 forever  →  create a NEW Project under C999
+```
+
+Applies to every FK in the chain: Project.ClientID · Campaign.ClientID ·
+Campaign.ProjectID · Requirement.CampaignID/ProjectID/ClientID · Candidate.SourceAssociate
+/SourceCampaign.
+
+**No orphans.** Every child must resolve to a live parent at write time. The hierarchy is
+permanent and enforced top-down:
+
+```
+Client
+ → Project      (Project MUST belong to a Client)
+   → Campaign   (Campaign MUST belong to a Project AND a Client)
+     → Requirement   (Requirement MUST belong to a Campaign — Campaign-Mandatory Rule)
+       → Associate
+         → Candidate
+```
+
+A child with a missing or unresolvable parent FK is **refused**, never silently created.
+Consistency is enforced: a Campaign's ClientID must equal its Project's ClientID.
 
 ---
 
