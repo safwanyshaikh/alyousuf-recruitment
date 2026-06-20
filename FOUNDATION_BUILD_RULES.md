@@ -3,13 +3,13 @@
 **Repository:** safwanyshaikh/alyousuf-recruitment · **Branch:** claude/sweet-franklin-mnmfcz
 **Date:** 2026-06-20 · **Status:** LOCKED (CEO-approved)
 
-> These twelve rules bind every line of Foundation code in Phase 5. No commit may
+> These thirteen rules bind every line of Foundation code in Phase 5. No commit may
 > violate them. They sit above the implementation plan: where the plan and a rule
 > disagree, the rule wins.
 
 ---
 
-## THE TWELVE RULES
+## THE THIRTEEN RULES
 
 | # | Rule |
 |---|------|
@@ -25,6 +25,44 @@
 | 10 | **Every commit must include rollback instructions.** No exceptions. |
 | 11 | **No existing column may change meaning.** If a meaning changes, create a new column. Never repurpose an old column. |
 | 12 | **Foreign keys are immutable after creation, and no child may be orphaned.** A child's parent FK is never reassigned; create a new record instead. Every child must resolve to a live parent. |
+| 13 | **Campaign is mandatory for every Requirement.** The only creation path is Client → Project → Campaign → Requirement. No direct Client→Requirement or Project→Requirement path exists. No migration may guess a parent: missing FK → lock for human resolution, never infer/auto-map/AI-map/nearest-match. |
+
+---
+
+## RULE 13 — CAMPAIGN-MANDATORY + NO-GUESS MIGRATION
+
+**Campaign-Mandatory.** A Requirement cannot exist without a Campaign. The creation path
+is fixed and has no bypass:
+
+```
+Client
+ → Project
+   → Campaign
+     → Requirement     (CampaignID is mandatory and non-null)
+```
+
+```
+FORBIDDEN   Client → Requirement        (no such path)
+FORBIDDEN   Project → Requirement       (no such path)
+REQUIRED    Client → Project → Campaign → Requirement
+```
+
+The Requirement write engine refuses any write whose `CampaignID` is null or unresolved.
+
+**No-Guess Migration (global, all entities).** When a parent FK is missing or ambiguous,
+the record is **locked for human resolution**. The system never:
+
+```
+✗ infers a parent
+✗ auto-maps by name
+✗ AI-maps
+✗ nearest-matches
+```
+
+Resolution states: `NEEDS_PROJECT_FK` · `NEEDS_CAMPAIGN_FK` · `CLIENT_UNRESOLVED`. A
+locked record is excluded from operations until a recruiter confirms the parent. Only a
+single, unambiguous, deterministic match may auto-resolve; anything else waits for a
+human. This supersedes any "create a default parent" step in the implementation plan.
 
 ---
 
