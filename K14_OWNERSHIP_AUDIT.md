@@ -557,6 +557,94 @@ Contains 5 embedded intelligence items: `freshnessRank_` (R04) · `clientFreshne
 
 ---
 
+## PART 7 — SUPPLEMENTAL FINDINGS (second scan — 17 additional functions)
+
+A second independent scan of the same 19 files plus patch_v286.txt and patch_v293.txt
+identified the following functions not captured in Parts 1–6. All are classified below.
+Revised total: **113 intelligence-producing functions / assets**.
+
+### 7A. Email Classification (missed in Part 1D)
+
+| # | Function | File | ~Line | Intelligence | K14 owner |
+|---|----------|------|-------|--------------|-----------|
+| EC01 | `classifyEmail_` | patch_v286.txt | S76.F01 | 8-type email classifier with confidence score: CV_APPLICATION / JD_REQUIREMENT / REPLY_TO_PENDING / INTERNAL / CLIENT_EMAIL / SUB_AGENCY / MARKETING_SPAM / SYSTEM_BOUNCE; 8 sequential rules (bounce → spam → domain → attachment → reply signals → JD count → CV count → default) | **K14.INTAKE** |
+| EC02 | `checkInternalGuard_` | patch_v286.txt | S78.F01 | Guards against own-domain / known spam / role-based addresses; blocks internal email processing | **Infrastructure.COMMS** |
+| EC03 | `isClientJd_` | patch_v286.txt | S78.F02 | Domain-based JD detection from known client addresses | **K14.INTAKE** |
+| EC04 | `wasAutoRepliedRecently287_` | patch_v287.gs.txt | S89.F02 | 7-day auto-reply cooldown guard — prevents candidate spam | **Infrastructure.COMMS** |
+
+### 7B. JD Extraction Variants (missed in Part 1D — T10/T11 were captured; these are additional)
+
+| # | Function | File | ~Line | Intelligence | K14 owner |
+|---|----------|------|-------|--------------|-----------|
+| JX01 | `callGeminiForReply_` | Code.gs.txt | S20.F03 | Gemini extraction of 9 fields from reply emails: DOB / passport number / passport expiry / location / employment status / notice period / ECR-ECNR / mobile / gulf experience | **K14.INTAKE** |
+| JX02 | `extractSingleJdBlock_` (v284) | patch_v284.txt | S73.F01 | Gemini + 4-step regex fallback JD extractor; 16+ fields including trade, department, quantity, experience range, salary, location, client, urgency | **K14.INTAKE** — supersedes T10 |
+| JX03 | `extractSingleJdBlock_v291_` | patch_v291.txt | S43.F01 | Fixed v284 JD extractor (corrects H1 bug — string vs array); calls `callGeminiString_v291_` | **K14.INTAKE** — supersedes JX02 |
+| JX04 | `extractSingleJdBlock_v293_` | patch_v293.txt | S93.F02 | v293 text fallback JD extractor; adds Department field; additional trade/role/designation patterns | **K14.INTAKE** — latest text fallback |
+| JX05 | `extractJdFromPdfInline_v293_` | patch_v293.txt | S93.F01 | **PRIMARY v293 extractor** — sends PDF as multimodal inlineData to Gemini; resolves glyph-fragmented PDF problem; supports JSON array (multi-JD) or single object response | **K14.INTAKE** — canonical PDF JD extractor |
+| JX06 | `processJdTextJob_` | patch_v280.txt | S43.F01 | Orchestrates: JD text received → `extractSingleJdBlock_` → `matchCandidatesToRequirement_`; entire JD intake pipeline trigger | **K14.INTAKE** (orchestrator) |
+
+**JD extraction canonical chain (v293):**
+```
+PDF arrives → extractJdFromPdfInline_v293_ (multimodal Gemini)
+Text/fallback → extractSingleJdBlock_v293_ (text Gemini + regex)
+Reply email → callGeminiForReply_ (reply field extraction)
+All supersede: extractJdWithGemini_ (T10) + extractJdEnhanced_ (T11) → ARCHIVE
+```
+
+### 7C. Additional Intelligence Functions
+
+| # | Function | File | ~Line | Intelligence | K14 owner |
+|---|----------|------|-------|--------------|-----------|
+| AX01 | `computeAge_` | Code.gs.txt | S10.F06 | Computes candidate age from DOB; age gate enforced downstream (21–50 rule) | **K14.CLASSIFY** (candidate classification input) |
+| AX02 | `detectDuplicate_` | patch_v286.txt | S79.F01 | 3-field dedup: email exact / mobile last-9 / passport number exact; more complete than D01 `isDuplicate_` | **Infrastructure.INTEGRITY** |
+| AX03 | `getCandidateProfileApi_` | patch_v284.txt | S75B.F02 | Returns complete drawer-ready candidate intelligence object for panel display; includes all fields + computed scores + top3 + freshness + deployReady + matchedReqs | **K14.REASON** (intelligence assembly, same role as JD01 `getCandidateIntelligence`) |
+| AX04 | `fixTop3PositionsV288` | patch_v288.txt | S95.F01 | One-shot batch job to recompute Top3 positions for all existing candidates using V288 logic | **K14.REASON** (batch runner; same role as JD11 `batchComputeTop3Positions`) |
+| AX05 | `refreshTop3ForRow` | patch_v288.txt | S95.F02 | Single-row Top3 recomputation trigger | **K14.REASON** (single-row batch trigger) |
+
+### 7D. Infrastructure / Archive
+
+| # | Function | File | K14 owner |
+|---|----------|------|-----------|
+| IX01 | `getEffectiveGeminiModel_` | patch_v291.txt | **Infrastructure.GEMINI** — model selector returning `KAI_GEMINI_MODEL_OVERRIDE` or `gemini-2.0-flash`; utility, not intelligence |
+| IX02 | `topNObject_` | 28th April 1356 hrs.txt | **Archive** — legacy dashboard top-N frequency utility; V2 dashboard does not use it |
+| IX03 | `getDashboardData` (V1) | Code.gs.txt | **Archive** — V1 era dashboard feed (Tier A/B/C vocabulary); V2 `getDashboardDataV2` (JD02) is canonical |
+
+### 7E. TRADE_GROUPS_V285_ Constant
+
+The v285 taxonomy constant is not a function but is the **core intelligence definition** used by T01–T03.
+
+| Asset | File | Definition |
+|-------|------|-----------|
+| `TRADE_GROUPS_V285_` | patch_v285.txt | 20-group GCC trade taxonomy constant. Each group: `primary[]`, `similar[]`, `related[]`. Groups: Welder, Pipe Fitter, Electrician, Instrument Tech, Civil, Mechanical, HVAC, Scaffolder, Painter, Rigger/Crane, NDT Inspector, QA-QC, HSE, Mason/Carpenter, Plumber, Heavy Equipment, Admin, IT, Healthcare, Catering. | 
+| **Owner** | | **K14.CLASSIFY** — the canonical GCC trade vocabulary; absorbs `taxanomy996.txt` and `_Taxonomy` |
+
+### 7F. Revised Counts
+
+| K14 Module | Original count | Additions | Final count |
+|------------|--------------:|----------:|------------:|
+| K14.INTAKE | 12 | +8 (EC01, EC03, JX01–JX06) | **20** |
+| K14.CLASSIFY | 7 | +1 (AX01) | **8** |
+| K14.MEMORY | 7 | 0 | **7** |
+| K14.REASON | 36 | +3 (AX03, AX04, AX05) | **39** |
+| K14.OUTCOMES | 3 | 0 | **3** |
+| K14.LEARN | 2 | 0 | **2** |
+| Infrastructure | 9 | +4 (EC02, EC04, AX02, IX01) | **13** |
+| Execution | 6 | 0 | **6** |
+| Archive | 15 | +3 (IX02, IX03 + JD extraction superseded chain) | **18** |
+| Presentation | 2 | 0 | **2** |
+| **TOTAL** | **96** | **+17** | **113** |
+
+**Revised orphan check: ZERO orphan functions. All 113 classified.**
+
+**Revised duplicate/supersession chain for JD extraction:**
+extractJdWithGemini_ (T10) → ARCHIVE (superseded by JX02)
+extractJdEnhanced_ (T11) → ARCHIVE (superseded by JX04)
+extractSingleJdBlock_ v284 (JX02) → ARCHIVE (superseded by JX03)
+extractSingleJdBlock_v291_ (JX03) → ARCHIVE (superseded by JX04+JX05)
+**Canonical:** `extractJdFromPdfInline_v293_` (JX05) for PDF · `extractSingleJdBlock_v293_` (JX04) for text fallback
+
+---
+
 ## FREEZE DECLARATION
 
 ```
