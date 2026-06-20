@@ -71,10 +71,10 @@ var K14_CORE = {
  * It calls through whatever Infrastructure gateway is present.
  *
  * Resolution order:
- *   1. kaiGeminiGenerate_  — canonical Infrastructure gateway (target)
- *   2. callGemini_v291_    — transitional gateway (still physically in
- *                            patch_v291 until Infrastructure extraction
- *                            relocates it; see migration report)
+ *   1. kaiGeminiGenerate_  — canonical Infrastructure gateway (infrastructure_gemini.gs)
+ *   2. callGemini_v291_    — backward-compat alias (infrastructure_gemini.gs GW.F04)
+ * Patch era closed: patch_v291 no longer owns the gateway. All runtime paths
+ * resolve through infrastructure_gemini.gs. No runtime path enters patch_v291.
  */
 function k14Gemini_(parts, schema) {
   if (typeof kaiGeminiGenerate_ === 'function') return kaiGeminiGenerate_(parts, schema);
