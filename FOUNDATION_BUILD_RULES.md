@@ -3,13 +3,13 @@
 **Repository:** safwanyshaikh/alyousuf-recruitment · **Branch:** claude/sweet-franklin-mnmfcz
 **Date:** 2026-06-20 · **Status:** LOCKED (CEO-approved)
 
-> These ten rules bind every line of Foundation code in Phase 5. No commit may
+> These eleven rules bind every line of Foundation code in Phase 5. No commit may
 > violate them. They sit above the implementation plan: where the plan and a rule
 > disagree, the rule wins.
 
 ---
 
-## THE TEN RULES
+## THE ELEVEN RULES
 
 | # | Rule |
 |---|------|
@@ -23,6 +23,41 @@
 | 8 | **No Execution fields inside Foundation.** Match/Submission/Selection/Mobilization state stays out. |
 | 9 | **No AI-generated values written into Foundation** except governed fields already approved (today: `Trade` with `Trade Source = AI`). |
 | 10 | **Every commit must include rollback instructions.** No exceptions. |
+| 11 | **No existing column may change meaning.** If a meaning changes, create a new column. Never repurpose an old column. |
+
+---
+
+## RULE 11 — MEANING IS IMMUTABLE
+
+An existing column's **meaning** is frozen, not just its header (Rule 2). If governance
+needs a different meaning, a new column is created beside the legacy one.
+
+```
+BAD   Status (old meaning)  →  reuse for new governed meaning
+GOOD  Status (legacy, untouched)  +  FoundationStatus (new governance)
+```
+
+This applies to value vocabularies too: legacy free-text values stay in the legacy
+column; the governed vocabulary lives in the new column, derived from the legacy value
+at migration time.
+
+**Universal pattern for every future entity:**
+```
+OLD COLUMN  → stays (header AND meaning untouched)
+NEW COLUMN  → added
+MIGRATION   → copy / derive the new value from the old
+```
+
+Examples (Project/Campaign):
+```
+Client            stays   →   ClientID (new FK) + ClientName (new DEN) added
+TotalPositions    stays   →   MobilizationTarget added (if distinct meaning)
+TotalHeads        stays   →   TargetHeadcount added (if distinct meaning)
+Status            stays   →   FoundationStatus added (governed vocabulary)
+```
+
+This protects existing formulas, scripts, dashboards, imports, reports, and recruiter
+workflows while letting Foundation evolve.
 
 ---
 
@@ -37,7 +72,9 @@ forbids renaming.** These are corrected to additive operations:
 | Project | `TotalPositions` → `Mobilization Target` | Keep `TotalPositions`; **add** `Mobilization Target` if a distinct meaning is needed, else reuse `TotalPositions` in place |
 | Campaign | `TotalHeads` → `Target Headcount` | Keep `TotalHeads`; **add** `Target Headcount` only if semantically distinct, else reuse in place |
 
-**Client (Step 1) has no renames** and is unaffected by this correction.
+**Client (Step 1) has no renames.** Under Rule 11 the legacy `Status` column is left
+untouched and a new governed `FoundationStatus` column is added beside it (rather than
+normalizing `Status` in place).
 
 ---
 
