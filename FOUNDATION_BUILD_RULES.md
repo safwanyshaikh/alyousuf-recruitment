@@ -3,13 +3,13 @@
 **Repository:** safwanyshaikh/alyousuf-recruitment · **Branch:** claude/sweet-franklin-mnmfcz
 **Date:** 2026-06-20 · **Status:** LOCKED (CEO-approved)
 
-> These thirteen rules bind every line of Foundation code in Phase 5. No commit may
+> These fourteen rules bind every line of Foundation code in Phase 5. No commit may
 > violate them. They sit above the implementation plan: where the plan and a rule
 > disagree, the rule wins.
 
 ---
 
-## THE THIRTEEN RULES
+## THE FOURTEEN RULES
 
 | # | Rule |
 |---|------|
@@ -26,6 +26,27 @@
 | 11 | **No existing column may change meaning.** If a meaning changes, create a new column. Never repurpose an old column. |
 | 12 | **Foreign keys are immutable after creation, and no child may be orphaned.** A child's parent FK is never reassigned; create a new record instead. Every child must resolve to a live parent. |
 | 13 | **Campaign is mandatory for every Requirement.** The only creation path is Client → Project → Campaign → Requirement. No direct Client→Requirement or Project→Requirement path exists. No migration may guess a parent: missing FK → lock for human resolution, never infer/auto-map/AI-map/nearest-match. |
+| 14 | **Foundation stores identity, not performance.** Who an entity *is* lives in Foundation; how well it *performs* lives in K14 (Outcomes + Memory). No reliability, fill-rate, or success-count field ever enters a Foundation tab. |
+
+---
+
+## RULE 14 — IDENTITY vs PERFORMANCE
+
+Foundation answers **who** an entity is. K14 answers **how well** it performs. The two
+never share a column.
+
+```
+FOUNDATION (identity)        K14 (performance — Outcomes + Memory)
+  who the Associate is         how well the Associate performs
+  name, license, type,         reliability, fill rate, submission
+  coverage, contact,           success, selection success,
+  specialization, status       mobilization success, rating
+```
+
+Applies to every entity, most visibly the Associate: Foundation links to the Associate;
+K14 judges the Associate. Performance metrics are derived by `K14.OUTCOMES` → `K14.MEMORY`
+from execution history (evidenced today by `_AssociateReliability`, `_Commitments`) — they
+are never written back into the Foundation master.
 
 ---
 
