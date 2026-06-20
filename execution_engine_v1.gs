@@ -13,10 +13,8 @@
  *
  * LOCK 2 (read-only, never written by this engine):
  *   _T13_* benchmark · _AssociateReliability/_Commitments seed · _Taxonomy
- *   This engine WRITES the operational mirror it owns; it does NOT mutate the
- *   protected seed data. Reliability updates are appended to _AssociateReliability
- *   as new evidence rows, never overwriting prior rows (append-only, Rule on
- *   Lock 2 = "only read" the seed → we append outcome evidence, never edit).
+ *   This engine NEVER writes to any LOCK 2 tab. Outcomes are written to
+ *   _ExecutionOutcomes only. K14.OUTCOMES reads _ExecutionOutcomes independently.
  *
  * Shared infra reused (Phase 0 KEEP-AS-IS): getMasterSS_, ensureSheet_, appendLog_.
  * ═══════════════════════════════════════════════════════════════════════════
@@ -27,24 +25,24 @@
 // ───────────────────────────────────────────────────────────────────────────
 var EXEC_CONFIG = {
   tabs: {
-    projectCandidates:   '_ProjectCandidates',
-    submissionBatches:   '_SubmissionBatches',
-    batchItems:          '_SubmissionBatchItems',
-    packages:            '_SubmissionPackages',
-    pipeline:            '_Pipeline',
-    clientResponseLog:   '_ClientResponseLog',
-    candidateSubHistory: '_CandidateSubmissionHistory',
-    outcomeLog:          '_DeploymentOutcomes',
-    reliability:         '_AssociateReliability',   // append-only evidence (Lock 2)
-    requirements:        '_Requirements',           // Foundation truth (read)
-    candidates:          'Candidates'                // Foundation truth (read)
+    projectCandidates:    '_ProjectCandidates',
+    submissionBatches:    '_SubmissionBatches',
+    batchItems:           '_SubmissionBatchItems',
+    packages:             '_SubmissionPackages',
+    selectionPipeline:    '_SelectionPipeline',
+    mobilizationPipeline: '_MobilizationPipeline',
+    clientResponseLog:    '_ClientResponseLog',
+    candidateSubHistory:  '_CandidateSubmissionHistory',
+    executionOutcomes:    '_ExecutionOutcomes',
+    requirements:         '_Requirements',           // Foundation truth (read)
+    candidates:           'Candidates'               // Foundation truth (read)
   },
 
   // EXECUTION_CONSTITUTION §3 state model
-  matchStates:       ['MATCHED','SHORTLISTED','ADVANCED-TO-SUBMISSION','MATCH-REJECTED'],
-  submissionStates:  ['DRAFT','SUBMITTED','AWAITING-CLIENT','CLIENT-RESPONDED','SUBMISSION-WITHDRAWN'],
-  pipelineStates:    ['SUBMITTED','SHORTLISTED','INTERVIEW','SELECTED','OFFERED','OFFER-ACCEPTED','MOBILIZATION','DEPLOYED','DECLINED','ABORTED'],
-  mobilizationGates: ['OFFER-ACCEPTED','DOCUMENTATION','VISA','MEDICAL','TRAVEL','DEPLOYED','MOBILIZATION-ABORTED'],
+  matchStates:        ['MATCHED','SHORTLISTED','ADVANCED-TO-SUBMISSION','MATCH-REJECTED'],
+  submissionStates:   ['DRAFT','SUBMITTED','AWAITING-CLIENT','CLIENT-RESPONDED','SUBMISSION-WITHDRAWN'],
+  selectionStates:    ['SUBMITTED','SHORTLISTED','INTERVIEW','OFFER','SELECTED','DECLINED'],
+  mobilizationGates:  ['OFFER-ACCEPTED','DOCUMENTATION','VISA','MEDICAL','TRAVEL','DEPLOYED','MOBILIZATION-ABORTED'],
 
   actors: ['Recruiter','Associate','Client','System']
 };
@@ -87,26 +85,27 @@ function exHeaders_() {
     packages: [
       'PackageID','BatchID','ReqID','ClientID','CandidateCount','PackagePayload','GeneratedBy','GeneratedAt'
     ],
-    pipeline: [
-      'PipelineID','PCID','BatchID','ReqID','CampaignID','ProjectID','ClientID','KAI No','CandidateName',
-      'SourceAssociate','PipelineState','PrevState','InterviewOutcome','OfferOutcome','SelectionOutcome',
-      'MobilizationGate','TransitionBy','TransitionAt','CreatedAt'
+    selectionPipeline: [
+      'SelectionPipeID','PCID','BatchID','ReqID','CampaignID','ProjectID','ClientID','KAI No','CandidateName',
+      'SourceAssociate','SelectionState','PrevState','InterviewOutcome','OfferOutcome',
+      'TransitionBy','TransitionAt','CreatedAt'
+    ],
+    mobilizationPipeline: [
+      'MobPipeID','SelectionPipeID','PCID','ReqID','CampaignID','ProjectID','ClientID','KAI No','CandidateName',
+      'SourceAssociate','MobilizationGate','PrevGate','AbortReason',
+      'TransitionBy','TransitionAt','CreatedAt'
     ],
     clientResponseLog: [
-      'ResponseID','PipelineID','ReqID','ClientID','KAI No','ResponseType','ResponseDetail',
+      'ResponseID','SelectionPipeID','ReqID','ClientID','KAI No','ResponseType','ResponseDetail',
       'RespondedBy','RespondedAt'
     ],
     candidateSubHistory: [
-      'HistoryID','KAI No','CandidateName','ReqID','ClientID','BatchID','PipelineID','Event','EventDetail',
+      'HistoryID','KAI No','CandidateName','ReqID','ClientID','BatchID','SelectionPipeID','Event','EventDetail',
       'ActorRole','ActorBy','EventAt'
     ],
-    outcomeLog: [
-      'OutcomeID','PipelineID','PCID','ReqID','ClientID','KAI No','SourceAssociate','OutcomeType',
-      'OutcomeDetail','AbortReason','CapturedBy','CapturedAt','FedToK14Memory'
-    ],
-    reliability: [
-      // append-only outcome evidence (Lock 2: seed is read-only; we add evidence rows)
-      'EvidenceID','SourceAssociate','KAI No','ReqID','OutcomeType','MobilizationResult','RecordedBy','RecordedAt'
+    executionOutcomes: [
+      'OutcomeID','EntityType','EntityID','RequirementID','CandidateKaiNo',
+      'OutcomeType','OutcomeAt','EvidenceRef','RecordedBy','RecordedAt'
     ]
   };
 }
@@ -431,13 +430,13 @@ function submitBatch(batchId, actor) {
   var pipelines = [];
   items.forEach(function (it) {
     var pc = exReadRow_('projectCandidates', exFindRow_('projectCandidates', 'PCID', it.PCID));
-    var pipelineId = exId_('PIPE');
-    exAppend_('pipeline', {
-      'PipelineID': pipelineId, 'PCID': it.PCID, 'BatchID': batchId, 'ReqID': batch.ReqID,
+    var pipelineId = exId_('SPIPE');
+    exAppend_('selectionPipeline', {
+      'SelectionPipeID': pipelineId, 'PCID': it.PCID, 'BatchID': batchId, 'ReqID': batch.ReqID,
       'CampaignID': batch.CampaignID, 'ProjectID': batch.ProjectID, 'ClientID': batch.ClientID,
       'KAI No': it['KAI No'], 'CandidateName': it.CandidateName, 'SourceAssociate': pc.SourceAssociate || '',
-      'PipelineState': 'SUBMITTED', 'PrevState': '',
-      'InterviewOutcome': '', 'OfferOutcome': '', 'SelectionOutcome': '', 'MobilizationGate': '',
+      'SelectionState': 'SUBMITTED', 'PrevState': '',
+      'InterviewOutcome': '', 'OfferOutcome': '',
       'TransitionBy': a.by, 'TransitionAt': now, 'CreatedAt': now
     });
     exUpdateRow_('batchItems', exFindRow_('batchItems', 'ItemID', it.ItemID),
@@ -475,60 +474,57 @@ function exBatchItems_(batchId) {
 //            → OFFER-ACCEPTED → MOBILIZATION → DEPLOYED
 // ───────────────────────────────────────────────────────────────────────────
 
-/** EX.S05.F01 — legal forward transitions (governance §3; forward-only by default). */
-function exPipelineTransitions_() {
+/**
+ * EX.S05.F01 — legal forward transitions for _SelectionPipeline (governance §3).
+ * Constitution: SUBMITTED -> SHORTLISTED -> INTERVIEW -> OFFER -> SELECTED | DECLINED
+ * SELECTED is terminal here; it triggers mobilization pipeline creation.
+ */
+function exSelectionTransitions_() {
   return {
-    'SUBMITTED':      ['SHORTLISTED','DECLINED'],
-    'SHORTLISTED':    ['INTERVIEW','DECLINED'],
-    'INTERVIEW':      ['SELECTED','DECLINED'],
-    'SELECTED':       ['OFFERED','DECLINED'],
-    'OFFERED':        ['OFFER-ACCEPTED','DECLINED'],
-    'OFFER-ACCEPTED': ['MOBILIZATION','ABORTED'],
-    'MOBILIZATION':   ['DEPLOYED','ABORTED'],
-    'DEPLOYED':       [],  // terminal
-    'DECLINED':       [],  // terminal
-    'ABORTED':        []   // terminal
+    'SUBMITTED':   ['SHORTLISTED', 'DECLINED'],
+    'SHORTLISTED': ['INTERVIEW',   'DECLINED'],
+    'INTERVIEW':   ['OFFER',       'DECLINED'],
+    'OFFER':       ['SELECTED',    'DECLINED'],
+    'SELECTED':    [],   // terminal — mobilization record created automatically
+    'DECLINED':    []    // terminal
   };
 }
 
 /**
- * EX.S05.F02 — advance a pipeline to a new state with evidence gating + audit.
- * @param evidence {object} optional: {interviewOutcome, offerOutcome, selectionOutcome,
- *                                     mobilizationGate, detail}
+ * EX.S05.F02 — advance a selection pipeline to a new state with evidence gating + audit.
+ * Constitution §3: SUBMITTED -> SHORTLISTED -> INTERVIEW -> OFFER -> SELECTED | DECLINED
+ * When SELECTED is reached, a MobilizationPipeline record is created automatically.
+ * @param evidence {object} optional: {interviewOutcome, offerOutcome, detail}
  */
 function advancePipeline(pipelineId, toState, evidence, actor) {
   var a = exActor_(actor);
   evidence = evidence || {};
-  var rowNum = exFindRow_('pipeline', 'PipelineID', pipelineId);
-  if (!rowNum) throw new Error('EXEC: PipelineID not found: ' + pipelineId);
-  var cur = exReadRow_('pipeline', rowNum);
-  var from = cur.PipelineState;
+  var rowNum = exFindRow_('selectionPipeline', 'SelectionPipeID', pipelineId);
+  if (!rowNum) throw new Error('EXEC: SelectionPipeID not found: ' + pipelineId);
+  var cur = exReadRow_('selectionPipeline', rowNum);
+  var from = cur.SelectionState;
 
-  var allowed = exPipelineTransitions_()[from];
-  if (!allowed) throw new Error('EXEC: unknown current state ' + from);
+  var allowed = exSelectionTransitions_()[from];
+  if (!allowed) throw new Error('EXEC: unknown selection state ' + from);
   if (allowed.indexOf(toState) === -1)
-    throw new Error('EXEC: illegal transition ' + from + ' → ' + toState + ' (governance §3 forward-only)');
+    throw new Error('EXEC: illegal transition ' + from + ' -> ' + toState + ' (governance §3 forward-only)');
 
   // evidence gates (Mandatory Rule 7)
-  if (toState === 'SELECTED'    && !evidence.interviewOutcome)
-    throw new Error('EXEC: SELECTED requires interviewOutcome evidence (Rule 7)');
-  if (toState === 'OFFER-ACCEPTED' && !evidence.offerOutcome)
-    throw new Error('EXEC: OFFER-ACCEPTED requires offerOutcome evidence (Rule 7)');
+  if (toState === 'OFFER' && !evidence.interviewOutcome)
+    throw new Error('EXEC: OFFER requires interviewOutcome evidence (Rule 7)');
+  if (toState === 'SELECTED' && !evidence.offerOutcome)
+    throw new Error('EXEC: SELECTED requires offerOutcome evidence (Rule 7)');
 
   var now = exNow_();
-  var patch = { 'PipelineState': toState, 'PrevState': from, 'TransitionBy': a.by, 'TransitionAt': now };
-  if (toState === 'INTERVIEW'  && evidence.interviewOutcome) patch['InterviewOutcome'] = evidence.interviewOutcome;
-  if (toState === 'SELECTED') { patch['InterviewOutcome'] = evidence.interviewOutcome; patch['SelectionOutcome'] = 'SELECTED'; }
-  if (toState === 'DECLINED')  patch['SelectionOutcome'] = 'DECLINED';
-  if (toState === 'OFFERED')   patch['OfferOutcome'] = evidence.offerOutcome || 'OFFER-MADE';
-  if (toState === 'OFFER-ACCEPTED') patch['OfferOutcome'] = 'ACCEPTED';
-  if (toState === 'MOBILIZATION') patch['MobilizationGate'] = evidence.mobilizationGate || 'DOCUMENTATION';
-  exUpdateRow_('pipeline', rowNum, patch);
+  var patch = { 'SelectionState': toState, 'PrevState': from, 'TransitionBy': a.by, 'TransitionAt': now };
+  if (toState === 'OFFER')     patch['InterviewOutcome'] = evidence.interviewOutcome || 'PASSED';
+  if (toState === 'SELECTED')  patch['OfferOutcome'] = evidence.offerOutcome || 'ACCEPTED';
+  exUpdateRow_('selectionPipeline', rowNum, patch);
 
-  // client-owned responses logged as evidence (Selection Constitution §6)
-  if (['SHORTLISTED','INTERVIEW','SELECTED','DECLINED','OFFERED'].indexOf(toState) !== -1) {
+  // log client-facing state changes as evidence
+  if (['SHORTLISTED','INTERVIEW','OFFER','SELECTED','DECLINED'].indexOf(toState) !== -1) {
     exAppend_('clientResponseLog', {
-      'ResponseID': exId_('RESP'), 'PipelineID': pipelineId, 'ReqID': cur.ReqID, 'ClientID': cur.ClientID,
+      'ResponseID': exId_('RESP'), 'SelectionPipeID': pipelineId, 'ReqID': cur.ReqID, 'ClientID': cur.ClientID,
       'KAI No': cur['KAI No'], 'ResponseType': toState,
       'ResponseDetail': evidence.detail || evidence.interviewOutcome || evidence.offerOutcome || '',
       'RespondedBy': a.by, 'RespondedAt': now
@@ -536,83 +532,114 @@ function advancePipeline(pipelineId, toState, evidence, actor) {
   }
 
   exHistory_(cur['KAI No'], cur.CandidateName, cur.ReqID, cur.ClientID, cur.BatchID, pipelineId,
-    toState, 'Pipeline ' + from + ' → ' + toState, a);
-  exLog_('advancePipeline', a.by, { PipelineID: pipelineId, from: from, to: toState });
-  return { ok: true, PipelineID: pipelineId, from: from, to: toState };
+    toState, 'Selection ' + from + ' -> ' + toState, a);
+  exLog_('advancePipeline', a.by, { SelectionPipeID: pipelineId, from: from, to: toState });
+
+  // SELECTED is terminal for selection — auto-create mobilization record at OFFER-ACCEPTED
+  var mobPipeId = null;
+  if (toState === 'SELECTED') {
+    mobPipeId = exId_('MPIPE');
+    exAppend_('mobilizationPipeline', {
+      'MobPipeID': mobPipeId, 'SelectionPipeID': pipelineId, 'PCID': cur.PCID,
+      'ReqID': cur.ReqID, 'CampaignID': cur.CampaignID, 'ProjectID': cur.ProjectID, 'ClientID': cur.ClientID,
+      'KAI No': cur['KAI No'], 'CandidateName': cur.CandidateName, 'SourceAssociate': cur.SourceAssociate || '',
+      'MobilizationGate': 'OFFER-ACCEPTED', 'PrevGate': '', 'AbortReason': '',
+      'TransitionBy': a.by, 'TransitionAt': now, 'CreatedAt': now
+    });
+    exHistory_(cur['KAI No'], cur.CandidateName, cur.ReqID, cur.ClientID, cur.BatchID, pipelineId,
+      'MOB:OFFER-ACCEPTED', 'Mobilization record opened', a);
+    exLog_('advancePipeline.openMobilization', a.by, { MobPipeID: mobPipeId });
+  }
+
+  return { ok: true, SelectionPipeID: pipelineId, from: from, to: toState, MobPipeID: mobPipeId };
 }
 
-/** EX.S05.F03 — mobilization gate progression (DOCUMENTATION→VISA→MEDICAL→TRAVEL→DEPLOYED). */
-function advanceMobilizationGate(pipelineId, toGate, evidence, actor) {
+/**
+ * EX.S05.F03 — mobilization gate progression.
+ * Constitution: OFFER-ACCEPTED -> DOCUMENTATION -> VISA -> MEDICAL -> TRAVEL -> DEPLOYED
+ * Terminal failure: MOBILIZATION-ABORTED (can be called at any gate).
+ */
+function advanceMobilizationGate(mobPipeId, toGate, evidence, actor) {
   var a = exActor_(actor);
   evidence = evidence || {};
-  var rowNum = exFindRow_('pipeline', 'PipelineID', pipelineId);
-  if (!rowNum) throw new Error('EXEC: PipelineID not found: ' + pipelineId);
-  var cur = exReadRow_('pipeline', rowNum);
-  if (cur.PipelineState !== 'MOBILIZATION' && cur.PipelineState !== 'OFFER-ACCEPTED')
-    throw new Error('EXEC: mobilization gates require pipeline in MOBILIZATION (current: ' + cur.PipelineState + ')');
+  var rowNum = exFindRow_('mobilizationPipeline', 'MobPipeID', mobPipeId);
+  if (!rowNum) throw new Error('EXEC: MobPipeID not found: ' + mobPipeId);
+  var cur = exReadRow_('mobilizationPipeline', rowNum);
 
-  var order = ['DOCUMENTATION','VISA','MEDICAL','TRAVEL','DEPLOYED'];
-  var fromGate = cur.MobilizationGate || '';
-  var fromIdx = order.indexOf(fromGate), toIdx = order.indexOf(toGate);
-  if (toIdx === -1) throw new Error('EXEC: unknown mobilization gate ' + toGate);
-  if (toIdx !== fromIdx + 1 && !(fromIdx === -1 && toIdx === 0))
-    throw new Error('EXEC: gates are sequential — cannot jump ' + (fromGate||'(none)') + ' → ' + toGate + ' (Rule 7)');
+  var order = ['OFFER-ACCEPTED','DOCUMENTATION','VISA','MEDICAL','TRAVEL','DEPLOYED'];
+  var fromGate = cur.MobilizationGate || 'OFFER-ACCEPTED';
+  var fromIdx = order.indexOf(fromGate);
+  var toIdx   = order.indexOf(toGate);
+
+  if (toGate === 'MOBILIZATION-ABORTED') {
+    // abort is always legal from any active gate
+    if (fromGate === 'DEPLOYED' || fromGate === 'MOBILIZATION-ABORTED')
+      throw new Error('EXEC: cannot abort from terminal gate ' + fromGate);
+  } else {
+    if (toIdx === -1) throw new Error('EXEC: unknown mobilization gate ' + toGate);
+    if (toIdx !== fromIdx + 1)
+      throw new Error('EXEC: gates are sequential — cannot jump ' + fromGate + ' -> ' + toGate + ' (Rule 7)');
+  }
 
   var now = exNow_();
-  var patch = { 'MobilizationGate': toGate, 'TransitionBy': a.by, 'TransitionAt': now };
-  if (toGate === 'DEPLOYED') { patch['PipelineState'] = 'DEPLOYED'; patch['PrevState'] = 'MOBILIZATION'; }
-  exUpdateRow_('pipeline', rowNum, patch);
-  exHistory_(cur['KAI No'], cur.CandidateName, cur.ReqID, cur.ClientID, cur.BatchID, pipelineId,
-    'MOB:' + toGate, 'Mobilization gate → ' + toGate, a);
-  exLog_('advanceMobilizationGate', a.by, { PipelineID: pipelineId, gate: toGate });
+  var patch = {
+    'MobilizationGate': toGate, 'PrevGate': fromGate,
+    'TransitionBy': a.by, 'TransitionAt': now
+  };
+  if (toGate === 'MOBILIZATION-ABORTED') patch['AbortReason'] = evidence.abortReason || evidence.detail || '';
+  exUpdateRow_('mobilizationPipeline', rowNum, patch);
+  exHistory_(cur['KAI No'], cur.CandidateName, cur.ReqID, cur.ClientID, '', mobPipeId,
+    'MOB:' + toGate, 'Mobilization gate -> ' + toGate, a);
+  exLog_('advanceMobilizationGate', a.by, { MobPipeID: mobPipeId, gate: toGate });
 
-  if (toGate === 'DEPLOYED') captureOutcome(pipelineId, 'DEPLOYED', { detail: evidence.detail || 'Deployed' }, actor);
-  return { ok: true, PipelineID: pipelineId, gate: toGate, deployed: toGate === 'DEPLOYED' };
+  var terminal = (toGate === 'DEPLOYED' || toGate === 'MOBILIZATION-ABORTED');
+  if (terminal) {
+    captureOutcome(mobPipeId, toGate, { detail: evidence.detail || toGate, abortReason: evidence.abortReason || '' }, actor);
+  }
+  return { ok: true, MobPipeID: mobPipeId, gate: toGate, terminal: terminal };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
 // EX.S06 · STEP 5 — OUTCOME CAPTURE
-//   Deployment Result → Associate Reliability (append evidence)
-//                     → Candidate History → K14 Memory feed
+//   Terminal gate reached → raw fact row to _ExecutionOutcomes
+//                         → audit entry to _CandidateSubmissionHistory
+//   K14.OUTCOMES reads _ExecutionOutcomes and derives intelligence independently.
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * EX.S06.F01 — capture a terminal outcome and feed it back to K14 (Mandatory Rule 8).
+ * EX.S06.F01 — capture a terminal outcome as a raw fact row in _ExecutionOutcomes.
+ * Execution records facts only. K14.OUTCOMES reads _ExecutionOutcomes and derives
+ * intelligence (reliability, classification, signals) independently.
  * outcomeType: DEPLOYED | DECLINED | MOBILIZATION-ABORTED
  */
-function captureOutcome(pipelineId, outcomeType, evidence, actor) {
+function captureOutcome(mobPipeId, outcomeType, evidence, actor) {
   var a = exActor_(actor);
   evidence = evidence || {};
-  var rowNum = exFindRow_('pipeline', 'PipelineID', pipelineId);
-  if (!rowNum) throw new Error('EXEC: PipelineID not found: ' + pipelineId);
-  var cur = exReadRow_('pipeline', rowNum);
+  var rowNum = exFindRow_('mobilizationPipeline', 'MobPipeID', mobPipeId);
+  if (!rowNum) throw new Error('EXEC: MobPipeID not found: ' + mobPipeId);
+  var cur = exReadRow_('mobilizationPipeline', rowNum);
   var now = exNow_();
 
   var outcomeId = exId_('OUT');
-  exAppend_('outcomeLog', {
-    'OutcomeID': outcomeId, 'PipelineID': pipelineId, 'PCID': cur.PCID, 'ReqID': cur.ReqID,
-    'ClientID': cur.ClientID, 'KAI No': cur['KAI No'], 'SourceAssociate': cur.SourceAssociate || '',
-    'OutcomeType': outcomeType, 'OutcomeDetail': evidence.detail || '',
-    'AbortReason': evidence.abortReason || '', 'CapturedBy': a.by, 'CapturedAt': now,
-    'FedToK14Memory': 'YES'
+  exAppend_('executionOutcomes', {
+    'OutcomeID':      outcomeId,
+    'EntityType':     'MOBILIZATION',
+    'EntityID':       mobPipeId,
+    'RequirementID':  cur.ReqID,
+    'CandidateKaiNo': cur['KAI No'],
+    'OutcomeType':    outcomeType,
+    'OutcomeAt':      now,
+    'EvidenceRef':    evidence.abortReason || evidence.detail || '',
+    'RecordedBy':     a.by,
+    'RecordedAt':     now
   });
 
-  // append-only associate reliability EVIDENCE (Lock 2: seed read-only; we add new rows)
-  if (cur.SourceAssociate) {
-    exAppend_('reliability', {
-      'EvidenceID': exId_('REL'), 'SourceAssociate': cur.SourceAssociate, 'KAI No': cur['KAI No'],
-      'ReqID': cur.ReqID, 'OutcomeType': outcomeType,
-      'MobilizationResult': (outcomeType === 'DEPLOYED' ? 'SUCCESS' : 'FAILURE'),
-      'RecordedBy': a.by, 'RecordedAt': now
-    });
-  }
-
-  // candidate submission history (append-only audit)
-  exHistory_(cur['KAI No'], cur.CandidateName, cur.ReqID, cur.ClientID, cur.BatchID, pipelineId,
+  // append-only audit trail (K14.OUTCOMES reads _ExecutionOutcomes; audit trail for humans)
+  exHistory_(cur['KAI No'], cur.CandidateName, cur.ReqID, cur.ClientID, '', mobPipeId,
     'OUTCOME:' + outcomeType, evidence.detail || '', a);
 
-  exLog_('captureOutcome', a.by, { PipelineID: pipelineId, outcome: outcomeType, OutcomeID: outcomeId });
-  return { ok: true, OutcomeID: outcomeId, outcome: outcomeType, fedToK14: true };
+  exLog_('captureOutcome', a.by, { MobPipeID: mobPipeId, outcome: outcomeType, OutcomeID: outcomeId });
+  return { ok: true, OutcomeID: outcomeId, outcome: outcomeType };
 }
 
 /** EX.S06.F02 — append-only candidate submission-history event (audit trail §8). */
@@ -656,22 +683,25 @@ function runExecutionUAT(reqId, kaiNo) {
     var pkg = check('Submission Package generated', function () { return generateSubmissionPackage(batch.BatchID, actor); });
     var sub = check('Submission recorded', function () { return submitBatch(batch.BatchID, actor); });
 
-    var pipelineId = sub.pipelines[0];
-    check('Pipeline created', function () { if (!pipelineId) throw new Error('no pipeline'); return pipelineId; });
-    check('Shortlist status updated', function () { return advancePipeline(pipelineId, 'SHORTLISTED', { detail: 'client shortlisted' }, actor); });
-    check('Interview status updated', function () { return advancePipeline(pipelineId, 'INTERVIEW', { interviewOutcome: 'PASSED' }, actor); });
-    check('Selection recorded', function () { return advancePipeline(pipelineId, 'SELECTED', { interviewOutcome: 'PASSED' }, actor); });
-    check('Offer made', function () { return advancePipeline(pipelineId, 'OFFERED', { offerOutcome: 'OFFER-MADE' }, actor); });
-    check('Offer accepted recorded', function () { return advancePipeline(pipelineId, 'OFFER-ACCEPTED', { offerOutcome: 'ACCEPTED' }, actor); });
-    check('Mobilization started', function () { return advancePipeline(pipelineId, 'MOBILIZATION', { mobilizationGate: 'DOCUMENTATION' }, actor); });
-    check('Mobilization VISA gate', function () { return advanceMobilizationGate(pipelineId, 'VISA', {}, actor); });
-    check('Mobilization MEDICAL gate', function () { return advanceMobilizationGate(pipelineId, 'MEDICAL', {}, actor); });
-    check('Mobilization TRAVEL gate', function () { return advanceMobilizationGate(pipelineId, 'TRAVEL', {}, actor); });
-    check('Mobilization recorded (DEPLOYED)', function () { return advanceMobilizationGate(pipelineId, 'DEPLOYED', { detail: 'On-site' }, actor); });
-    check('Associate reliability updated', function () {
-      var s = exSheet_('reliability');
-      if (s.sheet.getLastRow() < 2) throw new Error('no reliability evidence row');
-      return 'reliability evidence appended';
+    var selPipeId = sub.pipelines[0];
+    check('SelectionPipeline created', function () { if (!selPipeId) throw new Error('no selectionPipeline'); return selPipeId; });
+    check('Shortlist status updated', function () { return advancePipeline(selPipeId, 'SHORTLISTED', { detail: 'client shortlisted' }, actor); });
+    check('Interview status updated', function () { return advancePipeline(selPipeId, 'INTERVIEW', { interviewOutcome: 'PASSED' }, actor); });
+    check('Offer made', function () { return advancePipeline(selPipeId, 'OFFER', { interviewOutcome: 'PASSED' }, actor); });
+    var selResult = check('Candidate selected (offer accepted)', function () {
+      return advancePipeline(selPipeId, 'SELECTED', { offerOutcome: 'ACCEPTED' }, actor);
+    });
+    var mobPipeId = selResult && selResult.MobPipeID;
+    check('MobilizationPipeline opened at OFFER-ACCEPTED', function () { if (!mobPipeId) throw new Error('no mobPipeId'); return mobPipeId; });
+    check('Mobilization DOCUMENTATION gate', function () { return advanceMobilizationGate(mobPipeId, 'DOCUMENTATION', {}, actor); });
+    check('Mobilization VISA gate', function () { return advanceMobilizationGate(mobPipeId, 'VISA', {}, actor); });
+    check('Mobilization MEDICAL gate', function () { return advanceMobilizationGate(mobPipeId, 'MEDICAL', {}, actor); });
+    check('Mobilization TRAVEL gate', function () { return advanceMobilizationGate(mobPipeId, 'TRAVEL', {}, actor); });
+    check('Mobilization recorded (DEPLOYED)', function () { return advanceMobilizationGate(mobPipeId, 'DEPLOYED', { detail: 'On-site' }, actor); });
+    check('ExecutionOutcomes row written (no reliability write)', function () {
+      var s = exSheet_('executionOutcomes');
+      if (s.sheet.getLastRow() < 2) throw new Error('no executionOutcomes row');
+      return 'execution outcome recorded — K14.OUTCOMES reads independently';
     });
   } catch (e) { /* checklist captures the failure */ }
 
