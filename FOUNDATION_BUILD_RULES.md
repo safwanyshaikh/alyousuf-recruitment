@@ -3,13 +3,13 @@
 **Repository:** safwanyshaikh/alyousuf-recruitment · **Branch:** claude/sweet-franklin-mnmfcz
 **Date:** 2026-06-20 · **Status:** LOCKED (CEO-approved)
 
-> These fourteen rules bind every line of Foundation code in Phase 5. No commit may
+> These fifteen rules bind every line of Foundation code in Phase 5. No commit may
 > violate them. They sit above the implementation plan: where the plan and a rule
 > disagree, the rule wins.
 
 ---
 
-## THE FOURTEEN RULES
+## THE FIFTEEN RULES
 
 | # | Rule |
 |---|------|
@@ -27,6 +27,34 @@
 | 12 | **Foreign keys are immutable after creation, and no child may be orphaned.** A child's parent FK is never reassigned; create a new record instead. Every child must resolve to a live parent. |
 | 13 | **Campaign is mandatory for every Requirement.** The only creation path is Client → Project → Campaign → Requirement. No direct Client→Requirement or Project→Requirement path exists. No migration may guess a parent: missing FK → lock for human resolution, never infer/auto-map/AI-map/nearest-match. |
 | 14 | **Foundation stores identity, not performance.** Who an entity *is* lives in Foundation; how well it *performs* lives in K14 (Outcomes + Memory). No reliability, fill-rate, or success-count field ever enters a Foundation tab. |
+| 15 | **UI owns presentation only — never data.** A screen may display data from many layers but owns none of it. Foundation owns truth, K14 owns intelligence, Execution owns actions, UI owns layout. No business logic, scoring, matching, or decision rule lives in a UI page. |
+
+---
+
+## RULE 15 — UI OWNERSHIP
+
+A screen may **display** data from multiple layers. A screen may **never own** data or
+logic.
+
+```
+Foundation   owns TRUTH
+K14          owns INTELLIGENCE
+Execution    owns ACTIONS
+UI           owns PRESENTATION only
+```
+
+Example (Candidate page):
+```
+Candidate Name   → Foundation
+Submitted        → Execution
+Readiness        → K14
+Candidate Screen → owns NONE of them (presentation only)
+```
+
+This guarantees any UI — Lovable, SaaS, React, Flutter, mobile, dashboard, API — can be
+connected or swapped without changing architecture, because KAI already owns truth,
+actions, and intelligence separately. No developer may put scoring, matching, validation,
+or decision logic inside a UI page; that logic belongs to Foundation, K14, or Execution.
 
 ---
 
