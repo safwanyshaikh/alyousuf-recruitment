@@ -713,3 +713,307 @@ function fcandLog_(event, actor, payload) {
                    detail: JSON.stringify(payload || {}) });
   } catch (e) {}
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// FCAND.S10 · GAP-1 — SCREENING RESULT → FOUNDATION ADAPTER
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * FCAND.S10.F01 — Pure mapping adapter: screenCvPublic result -> createCandidate fields.
+ *
+ * Ownership contract (enforced by architecture, not by code guards):
+ *   MAY:  map screening fields, normalize governed vocabulary, call createCandidate()
+ *   MAY NOT: calculate scores, tiers, readiness, confidence, recommendations,
+ *             classifications or duplicates; call Execution; write directly to sheets.
+ *
+ * Duplicate detection: owned by createCandidate() -> fcandFindDuplicate_().
+ * Identity write:      owned by createCandidate() -> sheet.appendRow().
+ * Intelligence:        produced upstream by screenCvPublic() — already complete on entry.
+ *
+ * @param {object} sr    - result object returned by screenCvPublic() (ok:true required)
+ * @param {object} actor - { by, role } for audit trail
+ * @returns {object}
+ *   success:   { ok:true,  'KAI No':'KAI-XXXX', Name:'...', row:N }
+ *   duplicate: { ok:false, duplicate:true, existingKaiNo:'KAI-XXXX', reason:'...' }
+ *   bad input: { ok:false, msg:'...' }
+ *   throws on createCandidate hard-validation failures (Name/Nationality/Rule7/Rule14)
+ */
+function fcandCreateFromScreening_(sr, actor) {
+  if (!sr || sr.ok === false)
+    return { ok: false, msg: 'Screening result absent or failed — no Foundation write.' };
+
+  // Passport vocabulary mapping: K14 free-form lowercase -> Foundation governed vocab
+  var passportVocabMap = {
+    'valid':          'VALID',
+    'expiring':       'EXPIRING-SOON',
+    'expiring-soon':  'EXPIRING-SOON',
+    'expiring_soon':  'EXPIRING-SOON',
+    'expired':        'EXPIRED'
+  };
+  var rawPs = String(sr.passport_status || '').toLowerCase().trim();
+  var passportStatus = (!sr.has_passport || rawPs === '' || rawPs === 'missing' || rawPs === 'none')
+    ? 'MISSING'
+    : (passportVocabMap[rawPs] || 'MISSING');
+
+  // Certificates: merge certifications[] + premium_approvals[] arrays into one string
+  var certsArr = [];
+  if (Array.isArray(sr.certifications))    certsArr = certsArr.concat(sr.certifications);
+  if (Array.isArray(sr.premium_approvals)) certsArr = certsArr.concat(sr.premium_approvals);
+  var certificatesStr = certsArr.filter(Boolean).join(', ');
+
+  // Gender: normalize K14 lowercase to Foundation title-case
+  var genderVocabMap = { 'male': 'Male', 'female': 'Female', 'm': 'Male', 'f': 'Female' };
+  var genderNorm = genderVocabMap[String(sr.gender || '').toLowerCase().trim()]
+                  || String(sr.gender || '');
+
+  // Identity fields only — no score components, no tier, no K14 reasoning
+  var fields = {
+    'Name':            String(sr.name              || '').trim(),
+    'Age':             sr.age ? String(sr.age)     : '',
+    'Nationality':     String(sr.nationality       || '').trim(),
+    'Gender':          genderNorm,
+    'Mobile':          String(sr.phone             || '').trim(),
+    'Email':           String(sr.email             || '').trim(),
+    'Trade':           String(sr.trade_identified  || '').trim(),
+    'CurrentEmployer': String(sr.current_position  || '').trim(),
+    'TotalExperience': sr.years_experience_total ? String(sr.years_experience_total) : '',
+    'Education':       String(sr.qualification     || '').trim(),
+    'Certificates':    certificatesStr,
+    'CurrentCity':     String(sr.current_location  || '').trim(),
+    'NoticeRaw':       String(sr.availability      || '').trim(),
+    'PassportStatus':  passportStatus,
+    'FoundationState': 'PARSED'
+    // createCandidate() auto-overrides FoundationState to UNKNOWN_TRADE when Trade is blank
+  };
+
+  return createCandidate(fields, actor);
+}
+
+/**
+ * FCAND.S10.F02 — Public endpoint for google.script.run.
+ * UI calls screenCvPublic() first, then calls this with the result.
+ * Wraps fcandCreateFromScreening_ with session actor and error envelope.
+ *
+ * @param {object} screeningResult - raw return value of screenCvPublic()
+ * @returns createCandidate return value or { ok:false, msg:'...' }
+ */
+function createCandidateFromScreeningPublic(screeningResult) {
+  try {
+    var actor = {
+      by:   (Session.getActiveUser() ? Session.getActiveUser().getEmail() : 'ui-intake'),
+      role: 'Recruiter'
+    };
+    return fcandCreateFromScreening_(screeningResult, actor);
+  } catch (e) {
+    fcandLog_('createCandidateFromScreeningPublic', 'ui-intake', { error: e.message });
+    return { ok: false, msg: 'GAP-1 intake error: ' + e.message };
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// FCAND.S10.T · GAP-1 RUNTIME TESTS
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * FCAND.S10.T01 — Execute the 6 required GAP-1 tests.
+ * Run from Apps Script editor to verify the full intake chain.
+ * Returns the report object the user defined as the delivery contract.
+ */
+function fcandTestGap1_() {
+  var results = [];
+  var s = fcandSheet_();
+  var before = s.sheet.getLastRow() - 1;
+  var actor = { by: 'gap1-test@kai.os', role: 'Recruiter' };
+  var ts = Date.now();
+  var newKaiNo = null;
+  var phone1 = '+97150' + ts.toString().slice(-7);  // shared between test 1 + test 2
+
+  function test(name, fn) {
+    try {
+      var r = fn();
+      results.push({ test: name, pass: r.pass, detail: r.detail });
+    } catch (e) {
+      results.push({ test: name, pass: false, detail: 'threw unexpectedly: ' + e.message });
+    }
+  }
+
+  // TEST 1 — New candidate: full identity fields, verify row written + PARSED state + certs merged
+  test('Test 1: New candidate', function () {
+    var r = fcandCreateFromScreening_({
+      ok: true,
+      name: 'GAP1 Test ' + ts,
+      age: 32, nationality: 'Pakistan', gender: 'male',
+      has_passport: true, passport_status: 'valid', passport_months_remaining: 18,
+      current_position: 'Welder', trade_identified: 'Welder',
+      years_experience_total: 8, qualification: 'ITI Welder',
+      certifications: ['CSWIP 3.1'], premium_approvals: ['Aramco Approved'],
+      phone: phone1, email: '',
+      current_location: 'Lahore', availability: 'Immediate',
+      // K14 intelligence fields present in result but must NOT be persisted:
+      total_score: 82, decision: 'AUTO SHORTLIST', summary: 'Strong welder',
+      filter_passes: true, filter_failures: [], skills_matched: ['MIG','TIG']
+    }, actor);
+
+    if (!r.ok || !r['KAI No']) return { pass: false, detail: 'createCandidate failed: ' + JSON.stringify(r) };
+    newKaiNo = r['KAI No'];
+
+    var w = findCandidateByKaiNo(newKaiNo);
+    if (!w) return { pass: false, detail: 'Row not found after write' };
+    if (w.Trade          !== 'Welder')   return { pass: false, detail: 'Trade not mapped: ' + w.Trade };
+    if (w.Nationality    !== 'Pakistan') return { pass: false, detail: 'Nationality not mapped: ' + w.Nationality };
+    if (w.FoundationState !== 'PARSED')  return { pass: false, detail: 'State expected PARSED got ' + w.FoundationState };
+    if ((w.Certificates || '').indexOf('CSWIP 3.1')      === -1) return { pass: false, detail: 'certifications not merged' };
+    if ((w.Certificates || '').indexOf('Aramco Approved') === -1) return { pass: false, detail: 'premium_approvals not merged' };
+    if (w.PassportStatus !== 'VALID')    return { pass: false, detail: 'PassportStatus not mapped: ' + w.PassportStatus };
+    if (w.Gender         !== 'Male')     return { pass: false, detail: 'Gender not normalized: ' + w.Gender };
+
+    return { pass: true, detail: 'KAI No=' + newKaiNo + ' | State=PARSED | Certs merged | Gender=Male | PassportStatus=VALID' };
+  });
+
+  // TEST 2 — Duplicate: same phone as Test 1 — must return duplicate payload, no write
+  test('Test 2: Duplicate candidate', function () {
+    var r = fcandCreateFromScreening_({
+      ok: true,
+      name: 'GAP1 Dup ' + ts,
+      nationality: 'India', phone: phone1,  // same phone as Test 1
+      has_passport: true, passport_status: 'valid',
+      trade_identified: 'Electrician'
+    }, actor);
+
+    if (r.ok !== false || !r.duplicate)
+      return { pass: false, detail: 'expected duplicate:true — got: ' + JSON.stringify(r) };
+    if (newKaiNo && r.existingKaiNo !== newKaiNo)
+      return { pass: false, detail: 'wrong existingKaiNo: expected ' + newKaiNo + ' got ' + r.existingKaiNo };
+
+    return { pass: true, detail: 'duplicate:true | existingKaiNo=' + r.existingKaiNo + ' | NO write' };
+  });
+
+  // TEST 3 — Missing trade: must write row with FoundationState=UNKNOWN_TRADE
+  test('Test 3: Missing trade', function () {
+    var phone3 = '+97151' + ts.toString().slice(-7);
+    var r = fcandCreateFromScreening_({
+      ok: true,
+      name: 'GAP1 NoTrade ' + ts,
+      nationality: 'Bangladesh', phone: phone3,
+      has_passport: true, passport_status: 'valid',
+      trade_identified: ''  // blank
+    }, actor);
+
+    if (!r.ok) return { pass: false, detail: 'expected ok:true — got: ' + JSON.stringify(r) };
+    var w = findCandidateByKaiNo(r['KAI No']);
+    if (!w) return { pass: false, detail: 'Row not found' };
+    if (w.FoundationState !== 'UNKNOWN_TRADE')
+      return { pass: false, detail: 'Expected UNKNOWN_TRADE got ' + w.FoundationState };
+
+    return { pass: true, detail: 'KAI No=' + r['KAI No'] + ' | State=UNKNOWN_TRADE (auto-assigned)' };
+  });
+
+  // TEST 4 — Missing nationality: createCandidate must throw (not return ok:false)
+  test('Test 4: Missing nationality', function () {
+    var threw = false;
+    var errMsg = '';
+    try {
+      fcandCreateFromScreening_({
+        ok: true,
+        name: 'GAP1 NoNat ' + ts,
+        nationality: '',  // blank
+        phone: '+97152' + ts.toString().slice(-7),
+        has_passport: true, passport_status: 'valid',
+        trade_identified: 'Plumber'
+      }, actor);
+    } catch (e) {
+      threw = true;
+      errMsg = e.message;
+    }
+    if (!threw)               return { pass: false, detail: 'expected throw — got no error' };
+    if (errMsg.indexOf('Nationality') === -1)
+      return { pass: false, detail: 'wrong error thrown: ' + errMsg };
+
+    return { pass: true, detail: 'correctly threw: ' + errMsg };
+  });
+
+  // TEST 5 — Rule 7: K14 intelligence fields in screening result must NOT appear in Candidates tab
+  test('Test 5: Rule 7 protection', function () {
+    var phone5 = '+97153' + ts.toString().slice(-7);
+    var r = fcandCreateFromScreening_({
+      ok: true,
+      name: 'GAP1 Rule7 ' + ts,
+      nationality: 'India', phone: phone5,
+      has_passport: true, passport_status: 'valid',
+      trade_identified: 'Mason',
+      // K14 intelligence output present in screenCvPublic result:
+      total_score: 90, decision: 'AUTO SHORTLIST', summary: 'Excellent',
+      strengths: ['10yr exp'], concerns: [], filter_failures: []
+    }, actor);
+
+    if (!r.ok) return { pass: false, detail: JSON.stringify(r) };
+    var w = findCandidateByKaiNo(r['KAI No']);
+    if (!w) return { pass: false, detail: 'Row not found' };
+
+    var leaked = FCAND_K14_COLS.filter(function (col) {
+      return w[col] !== undefined && String(w[col]).trim() !== '';
+    });
+    if (leaked.length > 0)
+      return { pass: false, detail: 'K14 cols leaked into Foundation: ' + leaked.join(', ') };
+
+    return { pass: true, detail: 'Zero K14 fields written (Score/Verdict/Assessment/Summary all absent)' };
+  });
+
+  // TEST 6 — Rule 14: performance metric columns must not appear in Candidates tab
+  test('Test 6: Rule 14 protection', function () {
+    var phone6 = '+97154' + ts.toString().slice(-7);
+    var r = fcandCreateFromScreening_({
+      ok: true,
+      name: 'GAP1 Rule14 ' + ts,
+      nationality: 'Nepal', phone: phone6,
+      has_passport: false, passport_status: '',
+      trade_identified: 'Helper'
+    }, actor);
+
+    if (!r.ok) return { pass: false, detail: JSON.stringify(r) };
+    var w = findCandidateByKaiNo(r['KAI No']);
+    if (!w) return { pass: false, detail: 'Row not found' };
+
+    var leaked = FCAND_PERF_COLS.filter(function (col) {
+      return w[col] !== undefined && String(w[col]).trim() !== '';
+    });
+    if (leaked.length > 0)
+      return { pass: false, detail: 'Rule 14 cols leaked: ' + leaked.join(', ') };
+
+    return { pass: true, detail: 'Zero Rule 14 performance fields written' };
+  });
+
+  // ── REPORT ────────────────────────────────────────────────────────────────
+  var after = fcandSheet_().sheet.getLastRow() - 1;
+  var passed = results.filter(function (r) { return r.pass; }).length;
+
+  Logger.log('');
+  Logger.log('GAP-1 TEST REPORT');
+  Logger.log('Files changed:     foundation_candidate_fk_v1.gs');
+  Logger.log('Functions added:   fcandCreateFromScreening_, createCandidateFromScreeningPublic, fcandTestGap1_');
+  Logger.log('Functions modified: (none)');
+  Logger.log('Runtime path before: screenCvPublic() → [result discarded] → no Foundation write');
+  Logger.log('Runtime path after:  screenCvPublic() → fcandCreateFromScreening_() → createCandidate() → fcandFindDuplicate_() → fcandNextKaiNo_() → Candidates tab');
+  Logger.log('');
+  results.forEach(function (r) { Logger.log((r.pass ? 'PASS' : 'FAIL') + ' | ' + r.test + ' | ' + r.detail); });
+  Logger.log('');
+  Logger.log('Candidates rows before: ' + before);
+  Logger.log('Candidates rows after:  ' + after);
+  Logger.log('KAI No generated: '       + (newKaiNo || 'none'));
+  Logger.log('GAP-1 Status: '           + (passed === results.length ? 'COMPLETE' : 'FAILED') + ' (' + passed + '/' + results.length + ')');
+
+  return {
+    filesChanged:      ['foundation_candidate_fk_v1.gs'],
+    functionsAdded:    ['fcandCreateFromScreening_', 'createCandidateFromScreeningPublic', 'fcandTestGap1_'],
+    functionsModified: [],
+    runtimePathBefore: 'screenCvPublic() → [result discarded] → no Foundation write',
+    runtimePathAfter:  'screenCvPublic() → fcandCreateFromScreening_() → createCandidate() → fcandFindDuplicate_() → fcandNextKaiNo_() → Candidates tab',
+    results:           results,
+    candidatesBefore:  before,
+    candidatesAfter:   after,
+    kaiNoGenerated:    newKaiNo || 'none',
+    gap1Status:        (passed === results.length) ? 'COMPLETE' : 'FAILED',
+    passed:            passed,
+    total:             results.length
+  };
+}
