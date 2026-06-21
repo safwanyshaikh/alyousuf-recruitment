@@ -28,11 +28,19 @@
  *      The finalizer also runs intakeStressTestCleanup_() to remove every
  *      synthetic STRESS_TEST_ row (the one REAL Gmail candidate is kept).
  *
- * SIDE EFFECT (transparent, by design)
- *   The tests mint real KAI numbers from the live counter against synthetic
- *   rows that are then deleted. This BURNS ~600 KAI numbers (100 sequential
- *   + 500 concurrent), leaving sequence GAPS. Gaps are expected and are NOT
- *   collisions — identity only requires uniqueness, not contiguity.
+ * TEST ISOLATION (Option A — zero production impact)
+ *   Test 1 and Test 2 run with { testMode:true }: every write goes to
+ *   dedicated _TEST_Candidates / _TEST_Meta / _TEST_ProcessingQueue sheets
+ *   and a SEPARATE TEST KAI counter (kai_no_counter_TEST, prefix TEST-KAI).
+ *     • ZERO production KAI numbers consumed.
+ *     • ZERO production candidate rows created.
+ *     • ZERO production queue records created.
+ *     • ZERO audit-history pollution.
+ *   Cleanup deletes the _TEST_* sheets outright (atomic per sheet) and resets
+ *   the TEST counter — production numbering is never reset or touched.
+ *
+ *   Test 3 is the ONLY production write: one real Gmail CV through the live
+ *   pipeline, producing exactly one real candidate (the intended proof).
  * ═══════════════════════════════════════════════════════════════════
  */
 

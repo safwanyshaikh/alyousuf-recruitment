@@ -42,6 +42,50 @@ var IA_STRESS_PREFIX  = 'STRESS_TEST_';
 var IA_STRESS_MOB_PFX = '+000000';    // synthetic prefix — no valid country code
 var IA_QUEUE_STEP     = 'INTAKE';     // step name in _ProcessingQueue
 
+// ── Mission Zero test isolation (Option A) ──────────────────────────
+// Synthetic tests write ONLY to these dedicated sheets and the TEST KAI
+// counter. Production Candidates / _Meta / _ProcessingQueue and the
+// production KAI counter are NEVER touched by synthetic tests.
+var IA_TEST_CAND_SHEET  = '_TEST_Candidates';
+var IA_TEST_META_SHEET  = '_TEST_Meta';
+var IA_TEST_QUEUE_SHEET = '_TEST_ProcessingQueue';
+
+// IA.S00.F01 — Resolve write target context.
+// testMode:true  → dedicated _TEST_* sheets + TEST KAI counter (zero prod impact)
+// testMode:false → production Candidates / _Meta / _ProcessingQueue (real intake)
+function iaResolveCtx_(opts) {
+  opts = opts || {};
+  if (opts.testMode === true) {
+    return {
+      testMode:       true,
+      candSheetName:  IA_TEST_CAND_SHEET,
+      metaSheetName:  IA_TEST_META_SHEET,
+      queueSheetName: IA_TEST_QUEUE_SHEET
+    };
+  }
+  return {
+    testMode:       false,
+    candSheetName:  CONFIG.sheetName,
+    metaSheetName:  CONFIG.metaSheetName,
+    queueSheetName: '_ProcessingQueue'
+  };
+}
+
+// IA.S00.F02 — Ensure a dedicated test sheet exists (created on first use).
+function iaEnsureTestSheet_(name, headers) {
+  var ss = getMasterSS_();
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (headers && headers.length) {
+      sh.appendRow(headers);
+      sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+      sh.setFrozenRows(1);
+    }
+  }
+  return sh;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // IA.S01 · ATOMIC INTAKE — ENTRY POINT
 // Called from processThread_ in place of writeToSheet_ block.
@@ -59,10 +103,14 @@ var IA_QUEUE_STEP     = 'INTAKE';     // step name in _ProcessingQueue
  * @param {string} candEmail   - normalised candidate email
  * @param {string} candMobile  - normalised candidate mobile
  * @param {object} parsed      - raw Gemini parse output (for consent + meta)
+ * @param {object} [opts]      - { testMode:true } redirects ALL writes to
+ *                               dedicated _TEST_* sheets + TEST KAI counter
+ *                               (zero production impact). Omit for real intake.
  * @returns {string}  'CREATED' | 'DUPLICATE' | 'LOCK_TIMEOUT' | 'ERROR'
  */
 function intakeCreateCandidate_(scored, threadId, msgId, cvLink, appDate,
-                                candEmail, candMobile, parsed) {
+                                candEmail, candMobile, parsed, opts) {
+  var ctx  = iaResolveCtx_(opts);
   var lock = LockService.getScriptLock();
 
   if (!lock.tryLock(IA_LOCK_WAIT_MS)) {
@@ -80,7 +128,7 @@ function intakeCreateCandidate_(scored, threadId, msgId, cvLink, appDate,
     // The pre-lock isDuplicate_ in processThread_ catches most duplicates.
     // This inner check catches the race window: two threads both passed
     // isDuplicate_ before either wrote to _Meta. Now only one can be first.
-    var dupResult = iaMetaDuplicateCheck_(candEmail, candMobile);
+    var dupResult = iaMetaDuplicateCheck_(candEmail, candMobile, ctx);
     if (dupResult.duplicate) {
       if (typeof appendLog_ === 'function')
         appendLog_({ status: 'IA_DUPLICATE_RACE',
@@ -95,29 +143,36 @@ function intakeCreateCandidate_(scored, threadId, msgId, cvLink, appDate,
     // We already hold the script lock for this whole critical section, so we
     // pass lockHeld:true to mint directly without re-acquiring / early-releasing
     // the same lock. The counter RMW is therefore atomic vs every other caller.
-    var kaiNo = generateKaiNo_({ lockHeld: true });
-    Logger.log('IA: KAI issued inside lock — ' + kaiNo);
+    var kaiNo = generateKaiNo_({ lockHeld: true, testMode: ctx.testMode });
+    Logger.log('IA: KAI issued inside lock — ' + kaiNo + (ctx.testMode ? ' [TEST]' : ''));
 
     // ── STEP 3: Candidate row write WITH KAI No at birth ──────────
     // iaWriteWithKai_ mirrors writeToSheet_ but sets col 25 (KAI No).
     // The candidate NEVER exists in Candidates without a KAI No.
-    iaWriteWithKai_(scored, kaiNo, threadId, cvLink, appDate);
+    iaWriteWithKai_(scored, kaiNo, threadId, cvLink, appDate, ctx);
 
     // ── STEP 4: Dedup index + consent (inside lock) ───────────────
-    // Writing _Meta BEFORE releasing the lock ensures the inner check
-    // in STEP 1 can see this record immediately when the next thread
-    // acquires the lock.
-    if (typeof writeToMeta_ === 'function')
-      writeToMeta_(candEmail, candMobile,
-                   (parsed && parsed.full_name) || '',
-                   (parsed && parsed.industry)  || '',
-                   threadId, msgId);
-    if (typeof appendConsent_ === 'function')
-      appendConsent_(parsed, appDate, threadId);
+    // Writing dedup index BEFORE releasing the lock ensures the inner
+    // check in STEP 1 can see this record immediately when the next
+    // thread acquires the lock. In test mode this targets _TEST_Meta;
+    // consent (production GDPR log) is SKIPPED for synthetic tests.
+    if (ctx.testMode) {
+      iaWriteTestMeta_(ctx, candEmail, candMobile,
+                       (parsed && parsed.full_name) || '',
+                       (parsed && parsed.industry)  || '', threadId, msgId);
+    } else {
+      if (typeof writeToMeta_ === 'function')
+        writeToMeta_(candEmail, candMobile,
+                     (parsed && parsed.full_name) || '',
+                     (parsed && parsed.industry)  || '',
+                     threadId, msgId);
+      if (typeof appendConsent_ === 'function')
+        appendConsent_(parsed, appDate, threadId);
+    }
 
     // ── STEP 5: Foundation Queue enqueue ─────────────────────────
     // Candidate is now visible to Foundation (_ProcessingQueue INTAKE).
-    iaEnqueueFoundation_(kaiNo, candEmail, scored.trade || '');
+    iaEnqueueFoundation_(kaiNo, candEmail, scored.trade || '', ctx);
 
     // ── STEP 6: Audit trail ───────────────────────────────────────
     if (typeof appendLog_ === 'function')
@@ -150,9 +205,15 @@ function intakeCreateCandidate_(scored, threadId, msgId, cvLink, appDate,
 // Mirrors writeToSheet_ (Code.gs S13.F01) but adds col 25.
 // ═══════════════════════════════════════════════════════════════════
 
-function iaWriteWithKai_(scored, kaiNo, threadId, cvLink, appDate) {
-  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
-  if (!sheet) throw new Error('IA: Candidates sheet not found.');
+function iaWriteWithKai_(scored, kaiNo, threadId, cvLink, appDate, ctx) {
+  ctx = ctx || iaResolveCtx_(null);
+  var sheet;
+  if (ctx.testMode) {
+    sheet = iaEnsureTestSheet_(ctx.candSheetName, CONFIG.headers);
+  } else {
+    sheet = getMasterSS_().getSheetByName(ctx.candSheetName);
+  }
+  if (!sheet) throw new Error('IA: candidate sheet not found — ' + ctx.candSheetName);
 
   var ic     = CONFIG.inputColumns;
   var kaiCol = CONFIG_V2.extCol.kaiNo;   // 25
@@ -200,8 +261,9 @@ function iaWriteWithKai_(scored, kaiNo, threadId, cvLink, appDate) {
 // concurrent thread that wrote before us will be visible here.
 // ═══════════════════════════════════════════════════════════════════
 
-function iaMetaDuplicateCheck_(email, mobile) {
-  var metaSheet = getMasterSS_().getSheetByName(CONFIG.metaSheetName);
+function iaMetaDuplicateCheck_(email, mobile, ctx) {
+  ctx = ctx || iaResolveCtx_(null);
+  var metaSheet = getMasterSS_().getSheetByName(ctx.metaSheetName);
   if (!metaSheet || metaSheet.getLastRow() < 2)
     return { duplicate: false, reason: null };
 
@@ -224,20 +286,37 @@ function iaMetaDuplicateCheck_(email, mobile) {
   return { duplicate: false, reason: null };
 }
 
+// IA.S03.F02 — Test-mode dedup index writer (_TEST_Meta). Mirrors writeToMeta_
+// column layout so iaMetaDuplicateCheck_ reads cols 1-3 identically.
+function iaWriteTestMeta_(ctx, email, mobile, name, industry, threadId, msgId) {
+  var sheet = iaEnsureTestSheet_(ctx.metaSheetName,
+    ['Key', 'Email', 'Mobile', 'Name', 'Industry', 'Date', 'ThreadId', 'MsgId', 'Source']);
+  var key = (email || '') + '|' + (mobile || '');
+  sheet.appendRow([key, email, mobile, name, industry, new Date(), threadId, msgId, 'test']);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // IA.S04 · FOUNDATION QUEUE ENQUEUE
 // Writes one record to _ProcessingQueue (step=INTAKE, status=PENDING).
 // This makes the candidate immediately visible to Foundation processors.
 // ═══════════════════════════════════════════════════════════════════
 
-function iaEnqueueFoundation_(kaiNo, email, trade) {
-  var qs = getMasterSS_().getSheetByName('_ProcessingQueue');
-  if (!qs) {
-    Logger.log('IA: _ProcessingQueue tab not found — skipping Foundation enqueue for ' + kaiNo);
-    return;
-  }
+function iaEnqueueFoundation_(kaiNo, email, trade, ctx) {
+  ctx = ctx || iaResolveCtx_(null);
   // _ProcessingQueue headers:
   //   QueueID | KAINo | Step | Status | FailureReason | LastAttempt | RetryCount | CreatedAt
+  var qHeaders = ['QueueID', 'KAINo', 'Step', 'Status', 'FailureReason',
+                  'LastAttempt', 'RetryCount', 'CreatedAt'];
+  var qs;
+  if (ctx.testMode) {
+    qs = iaEnsureTestSheet_(ctx.queueSheetName, qHeaders);
+  } else {
+    qs = getMasterSS_().getSheetByName(ctx.queueSheetName);
+    if (!qs) {
+      Logger.log('IA: _ProcessingQueue tab not found — skipping Foundation enqueue for ' + kaiNo);
+      return;
+    }
+  }
   var qId = 'IA-' + new Date().getTime() + '-' + Math.floor(Math.random() * 9000 + 1000);
   qs.appendRow([qId, kaiNo, IA_QUEUE_STEP, 'PENDING', '', '', 0, new Date()]);
 }
@@ -263,13 +342,13 @@ function iaEnqueueFoundation_(kaiNo, email, trade) {
 // ═══════════════════════════════════════════════════════════════════
 
 function intakeStressTest100() {
-  var N  = 100;
-  var ss = getMasterSS_();
+  var N   = 100;
+  var ctx = iaResolveCtx_({ testMode: true });   // ISOLATED — _TEST_* sheets only
 
-  var candSheet = ss.getSheetByName(CONFIG.sheetName);
-  var qSheet    = ss.getSheetByName('_ProcessingQueue');
-  if (!candSheet) { Logger.log('IA STRESS: Candidates sheet not found.'); return null; }
-  if (!qSheet)    { Logger.log('IA STRESS: _ProcessingQueue sheet not found.'); return null; }
+  // Ensure isolated test sheets exist before measuring baselines.
+  var candSheet = iaEnsureTestSheet_(ctx.candSheetName, CONFIG.headers);
+  var qSheet    = iaEnsureTestSheet_(ctx.queueSheetName,
+    ['QueueID', 'KAINo', 'Step', 'Status', 'FailureReason', 'LastAttempt', 'RetryCount', 'CreatedAt']);
 
   var baseCandRows = candSheet.getLastRow();
   var baseQRows    = qSheet.getLastRow();
@@ -322,7 +401,8 @@ function intakeStressTest100() {
       new Date(),                       // appDate
       email,                            // candEmail
       mob,                              // candMobile
-      fakeParsed                        // parsed
+      fakeParsed,                       // parsed
+      { testMode: true }                // ISOLATED — _TEST_* sheets + TEST counter
     );
 
     if (outcome !== 'CREATED') {
@@ -412,56 +492,49 @@ function intakeStressTest100() {
 // ─────────────────────────────────────────────────────────────────
 
 function intakeStressTestCleanup_() {
-  var ss        = getMasterSS_();
-  var nameCol   = CONFIG.inputColumns.name;
+  // Test isolation (Option A): ALL synthetic data lives in dedicated _TEST_*
+  // sheets. Cleanup = delete those sheets outright. This is atomic per sheet
+  // and CANNOT touch production Candidates / _Meta / _ProcessingQueue. Even a
+  // total cleanup failure leaves ZERO production pollution — the worst case is
+  // three orphan _TEST_* tabs that can be deleted by hand at any time.
+  var ss = getMasterSS_();
+  var targets = [IA_TEST_CAND_SHEET, IA_TEST_META_SHEET, IA_TEST_QUEUE_SHEET];
+  var deleted = {}, removedCount = 0, failures = [];
 
-  // --- Clean Candidates ---
-  var cs    = ss.getSheetByName(CONFIG.sheetName);
-  var cLast = cs.getLastRow();
-  var toDeleteC = [];
-  if (cLast > 1) {
-    var cNames = cs.getRange(2, nameCol, cLast - 1, 1).getValues();
-    for (var i = cNames.length - 1; i >= 0; i--) {
-      if (String(cNames[i][0]).indexOf(IA_STRESS_PREFIX) === 0)
-        toDeleteC.push(i + 2);
+  targets.forEach(function (name) {
+    try {
+      var sh = ss.getSheetByName(name);
+      if (sh) {
+        var rows = Math.max(0, sh.getLastRow() - 1);
+        ss.deleteSheet(sh);
+        deleted[name] = rows;
+        removedCount++;
+      } else {
+        deleted[name] = 0;   // already absent — nothing to remove
+      }
+    } catch (e) {
+      failures.push(name + ': ' + e.message);
+      Logger.log('IA CLEANUP: failed to delete ' + name + ' — ' + e.message);
     }
-  }
-  toDeleteC.forEach(function (r) { cs.deleteRow(r); });
+  });
 
-  // --- Clean _ProcessingQueue (step=INTAKE rows) ---
-  var qs    = ss.getSheetByName('_ProcessingQueue');
-  var qLast = qs ? qs.getLastRow() : 0;
-  var toDeleteQ = [];
-  if (qs && qLast > 1) {
-    var qData = qs.getRange(2, 1, qLast - 1, 3).getValues();
-    for (var j = qData.length - 1; j >= 0; j--) {
-      if (String(qData[j][2]) === IA_QUEUE_STEP)
-        toDeleteQ.push(j + 2);
-    }
-  }
-  toDeleteQ.forEach(function (r) { qs.deleteRow(r); });
+  // Reset the TEST KAI counter so the next test run starts clean. This NEVER
+  // touches the production counter (kai_no_counter) — different key entirely.
+  try {
+    PropertiesService.getScriptProperties()
+      .deleteProperty(CONFIG_V2.kaiNoTestCounterKey);
+  } catch (e) {}
 
-  // --- Clean _Meta (stress test email entries) ---
-  var ms    = ss.getSheetByName(CONFIG.metaSheetName);
-  var mLast = ms ? ms.getLastRow() : 0;
-  var toDeleteM = [];
-  if (ms && mLast > 1) {
-    var mData = ms.getRange(2, 1, mLast - 1, 2).getValues();
-    for (var m = mData.length - 1; m >= 0; m--) {
-      if (String(mData[m][0]).indexOf('@kai.stress.test') !== -1 ||
-          String(mData[m][1]).indexOf('@kai.stress.test') !== -1)
-        toDeleteM.push(m + 2);
-    }
-  }
-  toDeleteM.forEach(function (r) { ms.deleteRow(r); });
+  Logger.log('IA STRESS CLEANUP: removed test sheets ' + JSON.stringify(deleted) +
+             (failures.length ? ' | FAILURES: ' + failures.join('; ') : ' | clean') +
+             ' | TEST counter reset.');
 
-  Logger.log('IA STRESS CLEANUP: Candidates=' + toDeleteC.length +
-             ' | Queue=' + toDeleteQ.length +
-             ' | Meta=' + toDeleteM.length + ' rows removed.');
   return {
-    candidatesDeleted: toDeleteC.length,
-    queueDeleted:      toDeleteQ.length,
-    metaDeleted:       toDeleteM.length
+    candidatesDeleted: deleted[IA_TEST_CAND_SHEET]  || 0,
+    queueDeleted:      deleted[IA_TEST_QUEUE_SHEET] || 0,
+    metaDeleted:       deleted[IA_TEST_META_SHEET]  || 0,
+    sheetsRemoved:     removedCount,
+    failures:          failures
   };
 }
 
@@ -517,7 +590,8 @@ function intakeConcRun_(tag) {
     };
     var out = intakeCreateCandidate_(scored, 'CONC-' + tag + '-' + i, 'CONC-MSG-' + tag + i,
                                      '', new Date(), email, mob,
-                                     { full_name: scored.full_name, email: email, industry: 'Construction' });
+                                     { full_name: scored.full_name, email: email, industry: 'Construction' },
+                                     { testMode: true });   // ISOLATED — _TEST_* + TEST counter
     if (out === 'CREATED') created++;
   }
   Logger.log('IA CONC batch ' + tag + ': created ' + created + '/' + IA_CONC_PER);
@@ -525,7 +599,11 @@ function intakeConcRun_(tag) {
 
 // Collector — scans Candidates for all CONC rows, reports cross-batch collisions.
 function intakeConcurrencyReport_() {
-  var cs   = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  var cs   = getMasterSS_().getSheetByName(IA_TEST_CAND_SHEET);   // ISOLATED test sheet
+  if (!cs || cs.getLastRow() < 2) {
+    Logger.log('IA CONC REPORT: no _TEST_Candidates data — did the batches run?');
+    return { rows: 0, uniqueKai: 0, blankKai: 0, collisions: [], verdict: 'NO DATA' };
+  }
   var last = cs.getLastRow();
   var nameCol = CONFIG.inputColumns.name;
   var kaiCol  = CONFIG_V2.extCol.kaiNo;

@@ -42,6 +42,9 @@ var CONFIG_V2 = {
   subIdPrefix:     'AYE-SUB',
   kaiNoCounterKey: 'kai_no_counter',
   reqIdCounterKey: 'req_id_counter',
+  // Mission Zero test isolation — synthetic tests NEVER touch production numbering.
+  kaiNoTestPrefix:     'TEST-KAI',
+  kaiNoTestCounterKey: 'kai_no_counter_TEST',
 
   // ── 18 operational candidate states ───────────────────────────
   candidateStates: [
@@ -310,14 +313,22 @@ function generateReqId_() {
 // @param {object} [opts] - { lockHeld:true } when the caller already owns the
 //                          script lock (e.g. intakeCreateCandidate_), to avoid
 //                          double-acquire / early-release of the same lock.
+//                          { testMode:true } mints from a SEPARATE test counter
+//                          (kai_no_counter_TEST) with a TEST-KAI prefix so synthetic
+//                          tests consume ZERO production KAI numbers. Production
+//                          numbering and audit history are untouched. The same
+//                          LockService serialization applies in both modes.
 function generateKaiNo_(opts) {
   opts = opts || {};
+  var isTest      = opts.testMode === true;
+  var counterKey  = isTest ? CONFIG_V2.kaiNoTestCounterKey : CONFIG_V2.kaiNoCounterKey;
+  var prefix      = isTest ? CONFIG_V2.kaiNoTestPrefix      : CONFIG_V2.kaiNoPrefix;
 
   function mint_() {
     var props   = PropertiesService.getScriptProperties();
-    var counter = parseInt(props.getProperty(CONFIG_V2.kaiNoCounterKey) || '0') + 1;
-    props.setProperty(CONFIG_V2.kaiNoCounterKey, String(counter));
-    return CONFIG_V2.kaiNoPrefix + '-' + new Date().getFullYear() + '-' +
+    var counter = parseInt(props.getProperty(counterKey) || '0') + 1;
+    props.setProperty(counterKey, String(counter));
+    return prefix + '-' + new Date().getFullYear() + '-' +
            String(counter).padStart(6, '0');
   }
 
