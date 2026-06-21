@@ -934,9 +934,26 @@ function processThread_v291_(thread, circuit) {
     return 'REJECTED';
   }
 
-  if (typeof writeToSheet_  === 'function') writeToSheet_(scored, threadId, cvLink, appDate);
-  if (typeof writeToMeta_   === 'function') writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
-  if (typeof appendConsent_ === 'function') appendConsent_(parsed, appDate, threadId);
+  // v291 — Atomic intake path (intake_atomic_v1.gs)
+  // Falls back to legacy three-call pattern only if intake_atomic_v1.gs is not deployed.
+  if (typeof intakeCreateCandidate_ === 'function') {
+    var iaResult291 = intakeCreateCandidate_(
+      scored, threadId, message.getId(), cvLink, appDate, candEmail, candMobile, parsed);
+    if (iaResult291 === 'DUPLICATE') {
+      if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, doneLabel);
+      return 'DUPLICATE';
+    }
+    if (iaResult291 === 'LOCK_TIMEOUT' || iaResult291 === 'ERROR') {
+      if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, errorLabel);
+      return iaResult291;
+    }
+    // iaResult291 === 'CREATED' — fall through to quota + log + followup
+  } else {
+    // Legacy path — only runs if intake_atomic_v1.gs not deployed (should never happen in production)
+    if (typeof writeToSheet_  === 'function') writeToSheet_(scored, threadId, cvLink, appDate);
+    if (typeof writeToMeta_   === 'function') writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
+    if (typeof appendConsent_ === 'function') appendConsent_(parsed, appDate, threadId);
+  }
   if (typeof incrementQuota_=== 'function') incrementQuota_('cv');
 
   appendLog_v291_({ status:'PROCESSED', name:scored.full_name, email:candEmail, mobile:candMobile,
