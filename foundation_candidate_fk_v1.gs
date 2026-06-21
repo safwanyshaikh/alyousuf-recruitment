@@ -26,7 +26,8 @@ var FCAND_NEW_HEADERS = [
   'PhotoUrl','WhatsApp','PassportNumber','PassportExpiry','PassportStatus',
   'TotalExperience','GCCExperience','CurrentCountry','CurrentCity',
   'PreviousGCCCountry','CurrentEmployer','Education','Languages',
-  'Certificates','NoticeRaw','FoundationState','UpdatedAt','CreatedAt'
+  'Certificates','NoticeRaw','FoundationState','UpdatedAt','CreatedAt',
+  'DOB','Age','Gender'
 ];
 
 // FoundationState governed vocabulary (18 states)
@@ -45,7 +46,15 @@ var FCAND_PASSPORT_VOCAB = ['VALID','EXPIRING-SOON','EXPIRED','MISSING'];
 var FCAND_K14_COLS = [
   'Score','Verdict','Assessment','Top3','Deployability','Match IDs',
   'Readiness','Risk','Confidence','Reasoning','Recommendations','Missing Data',
-  'Tech Review','AIScore','AIAssessment'
+  'Tech Review','AIScore','AIAssessment',
+  'K14 Tier','K14 Match Rank','K14 Match Explanation','K14 Freshness','K14 Trade Classification'
+];
+
+// Performance / outcome metrics — Foundation NEVER stores these (Rule 14)
+var FCAND_PERF_COLS = [
+  'Rating','Reliability','FillRate','SubmissionCount','MobilizationRate',
+  'Placement Metrics','Associate Performance','Selection Ratios',
+  'Success Ratios','Outcome Statistics'
 ];
 
 // Legacy state → FoundationState derivation map
@@ -295,6 +304,63 @@ function dryRunCandidateMigration() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// FCAND.S05D · DUPLICATE DETECTION
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * FCAND.S05D.F01 — scan Candidates for an existing record matching the incoming
+ * contact signals.  Priority: PassportNumber > Mobile > Email.
+ *
+ * @param {object} s        - live sheet context from fcandSheet_()
+ * @param {object} signals  - { PassportNumber, Mobile, Email }
+ * @returns {{ duplicate:boolean, existingKaiNo:string|null, reason:string|null }}
+ */
+function fcandFindDuplicate_(s, signals) {
+  var passportNum = String(signals.PassportNumber || '').trim();
+  var mobile      = String(signals.Mobile         || '').trim();
+  var email       = String(signals.Email          || '').trim().toLowerCase();
+
+  var last = s.sheet.getLastRow();
+  if (last < 2) return { duplicate: false, existingKaiNo: null, reason: null };
+
+  var kaiCol      = s.idx['KAI No'];
+  var passportCol = s.idx['PassportNumber'];
+  var mobileCol   = s.idx['Mobile'];
+  var emailCol    = s.idx['Email'];
+
+  // read identity columns in one batch (avoids row-by-row Sheets API calls)
+  var numCols = s.lastCol;
+  var colsToRead = [kaiCol, passportCol, mobileCol, emailCol].filter(Boolean);
+  var maxCol = Math.max.apply(null, colsToRead);
+
+  var data = s.sheet.getRange(2, 1, last - 1, maxCol).getValues();
+
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i];
+    var rowKai      = kaiCol      ? String(row[kaiCol - 1]      || '').trim()         : '';
+    var rowPassport = passportCol ? String(row[passportCol - 1]  || '').trim()         : '';
+    var rowMobile   = mobileCol   ? String(row[mobileCol - 1]    || '').trim()         : '';
+    var rowEmail    = emailCol    ? String(row[emailCol - 1]      || '').trim().toLowerCase() : '';
+
+    if (!rowKai) continue;
+
+    // priority 1: PassportNumber
+    if (passportNum && rowPassport && passportNum === rowPassport)
+      return { duplicate: true, existingKaiNo: rowKai, reason: 'PassportNumber match: ' + passportNum };
+
+    // priority 2: Mobile
+    if (mobile && rowMobile && mobile === rowMobile)
+      return { duplicate: true, existingKaiNo: rowKai, reason: 'Mobile match: ' + mobile };
+
+    // priority 3: Email
+    if (email && rowEmail && email === rowEmail)
+      return { duplicate: true, existingKaiNo: rowKai, reason: 'Email match: ' + email };
+  }
+
+  return { duplicate: false, existingKaiNo: null, reason: null };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // FCAND.S06 · WRITE ENGINE
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -317,6 +383,10 @@ function createCandidate(fields, actor) {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     throw new Error('FCAND: Email format invalid.');
 
+  // Nationality required (canonical schema §A)
+  if (!String(fields.Nationality || '').trim())
+    throw new Error('FCAND: Nationality is required.');
+
   // FK validation
   if (fields['Source Associate'] && !/^ASSOC_UNRESOLVED$/.test(fields['Source Associate'])) {
     if (!findAssociateById(fields['Source Associate']))
@@ -327,7 +397,11 @@ function createCandidate(fields, actor) {
       throw new Error('FCAND: Source Campaign "' + fields['Source Campaign'] + '" does not resolve to a live Campaign (Rule 12).');
   }
 
+  // Trade: if absent, force FoundationState to UNKNOWN_TRADE (canonical schema §A)
+  var tradeVal = String(fields.Trade || '').trim();
   var fsVal = String(fields.FoundationState || 'NEW').trim();
+  if (!tradeVal) fsVal = 'UNKNOWN_TRADE';
+
   if (FCAND_STATES.indexOf(fsVal) === -1)
     throw new Error('FCAND: FoundationState "' + fsVal + '" not in governed vocabulary.');
 
@@ -341,13 +415,23 @@ function createCandidate(fields, actor) {
   });
 
   // Rule 14: refuse performance metrics
-  var perfFields = ['Rating','Reliability','FillRate','SubmissionCount','MobilizationRate'];
-  perfFields.forEach(function (f) {
+  FCAND_PERF_COLS.forEach(function (f) {
     if (fields[f] !== undefined)
       throw new Error('FCAND: "' + f + '" is a performance metric — forbidden in Foundation (Rule 14).');
   });
 
   var s = fcandSheet_();
+
+  // Duplicate prevention (GAP-2): Passport -> Mobile -> Email priority
+  var dupCheck = fcandFindDuplicate_(s, {
+    PassportNumber: fields.PassportNumber,
+    Mobile: mobile,
+    Email: email
+  });
+  if (dupCheck.duplicate)
+    return { ok: false, duplicate: true, existingKaiNo: dupCheck.existingKaiNo,
+             reason: dupCheck.reason };
+
   var kaiNo = fcandNextKaiNo_(s);
   var now = new Date();
 
@@ -361,8 +445,11 @@ function createCandidate(fields, actor) {
     'Name':           String(fields.Name).trim(),
     'Mobile':         mobile,
     'Email':          email,
-    'Nationality':    fields.Nationality  || '',
-    'Trade':          fields.Trade        || '',
+    'Nationality':    String(fields.Nationality).trim(),
+    'Trade':          tradeVal,
+    'DOB':            fields.DOB    || '',
+    'Age':            fields.Age    || '',
+    'Gender':         fields.Gender || '',
     'Candidate State': '',                          // legacy — blank; Execution transitions it
     'Source Associate': fields['Source Associate'] || '',
     'Source Campaign':  fields['Source Campaign']  || '',
@@ -493,33 +580,80 @@ function verifyCandidateAcceptance() {
   });
 
   chk('Create — missing Name refused', function () {
-    try { createCandidate({ Mobile: '+971500000000' }, { role: 'Recruiter', by: 'uat@kai.os' }); }
+    try { createCandidate({ Mobile: '+971500000000', Nationality: 'UAE', Trade: 'Welder' },
+                          { role: 'Recruiter', by: 'uat@kai.os' }); }
     catch (e) { return 'correctly refused: ' + e.message; }
     throw new Error('invalid write not refused');
   });
   chk('Create — no contact refused', function () {
-    try { createCandidate({ Name: 'X' }, { role: 'Recruiter', by: 'uat@kai.os' }); }
+    try { createCandidate({ Name: 'X', Nationality: 'UAE', Trade: 'Welder' },
+                          { role: 'Recruiter', by: 'uat@kai.os' }); }
     catch (e) { return 'correctly refused: ' + e.message; }
     throw new Error('invalid write not refused');
   });
-  chk('Create — K14 field refused (Rule 7)', function () {
-    try { createCandidate({ Name: 'X', Mobile: '+1', Score: 90 },
+  chk('Create — missing Nationality refused', function () {
+    try { createCandidate({ Name: 'X', Mobile: '+971500000099', Trade: 'Welder' },
+                          { role: 'Recruiter', by: 'uat@kai.os' }); }
+    catch (e) { return 'correctly refused: ' + e.message; }
+    throw new Error('missing Nationality not refused');
+  });
+  chk('Create — missing Trade forces UNKNOWN_TRADE state', function () {
+    var uniqueMobile = '+9715' + Date.now().toString().slice(-8);
+    var r = createCandidate({ Name: 'UAT NoTrade ' + Date.now(), Mobile: uniqueMobile,
+                              Nationality: 'UAE' },
+                            { role: 'Recruiter', by: 'uat@kai.os' });
+    if (!r.ok) throw new Error('write failed: ' + JSON.stringify(r));
+    var written = findCandidateByKaiNo(r['KAI No']);
+    if (!written || written.FoundationState !== 'UNKNOWN_TRADE')
+      throw new Error('FoundationState expected UNKNOWN_TRADE, got ' + (written && written.FoundationState));
+    return 'UNKNOWN_TRADE auto-assigned: ' + r['KAI No'];
+  });
+  chk('Create — K14 field refused (Rule 7 — legacy)', function () {
+    try { createCandidate({ Name: 'X', Mobile: '+1', Nationality: 'UAE', Score: 90 },
                           { role: 'Recruiter', by: 'uat@kai.os' }); }
     catch (e) { return 'correctly refused: ' + e.message; }
     throw new Error('K14 field not refused');
   });
+  chk('Create — K14 Tier refused (Rule 7 — extended)', function () {
+    try { createCandidate({ Name: 'X', Mobile: '+1', Nationality: 'UAE', 'K14 Tier': 'STRONG' },
+                          { role: 'Recruiter', by: 'uat@kai.os' }); }
+    catch (e) { return 'correctly refused: ' + e.message; }
+    throw new Error('K14 Tier not refused');
+  });
+  chk('Create — K14 Freshness refused (Rule 7 — extended)', function () {
+    try { createCandidate({ Name: 'X', Mobile: '+1', Nationality: 'UAE', 'K14 Freshness': 25 },
+                          { role: 'Recruiter', by: 'uat@kai.os' }); }
+    catch (e) { return 'correctly refused: ' + e.message; }
+    throw new Error('K14 Freshness not refused');
+  });
+  chk('Create — Placement Metrics refused (Rule 14 — extended)', function () {
+    try { createCandidate({ Name: 'X', Mobile: '+1', Nationality: 'UAE', 'Placement Metrics': 5 },
+                          { role: 'Recruiter', by: 'uat@kai.os' }); }
+    catch (e) { return 'correctly refused: ' + e.message; }
+    throw new Error('Placement Metrics not refused');
+  });
   chk('Create — off-vocabulary FoundationState refused', function () {
-    try { createCandidate({ Name: 'X', Mobile: '+1', FoundationState: 'MAYBE' },
+    try { createCandidate({ Name: 'X', Mobile: '+1', Nationality: 'UAE', FoundationState: 'MAYBE' },
                           { role: 'Recruiter', by: 'uat@kai.os' }); }
     catch (e) { return 'correctly refused: ' + e.message; }
     throw new Error('invalid FoundationState not refused');
   });
-  chk('Create — valid write succeeds', function () {
-    var r = createCandidate({ Name: 'UAT Candidate ' + Date.now(), Mobile: '+971500000001',
-                              Nationality: 'UAE', Trade: 'Welder' },
+  chk('Create — valid write with DOB/Age/Gender succeeds', function () {
+    var uniqueMobile = '+9716' + Date.now().toString().slice(-8);
+    var r = createCandidate({ Name: 'UAT Full ' + Date.now(), Mobile: uniqueMobile,
+                              Nationality: 'Pakistan', Trade: 'Electrician',
+                              DOB: '1990-05-15', Age: '35', Gender: 'Male' },
                             { role: 'Recruiter', by: 'uat@kai.os' });
     if (!r.ok || !r['KAI No']) throw new Error('no KAI No returned');
     return 'KAI No=' + r['KAI No'];
+  });
+  chk('Duplicate prevention — Mobile collision returned (not thrown)', function () {
+    var dup = createCandidate({ Name: 'UAT Dup Mobile', Mobile: '+971500000001',
+                                Nationality: 'India', Trade: 'Plumber' },
+                              { role: 'Recruiter', by: 'uat@kai.os' });
+    if (dup.ok !== false || !dup.duplicate)
+      throw new Error('expected duplicate:true, got ' + JSON.stringify(dup));
+    return 'duplicate correctly detected: ' + dup.existingKaiNo;
   });
   chk('PassportStatus derivation correct', function () {
     var future = new Date(); future.setFullYear(future.getFullYear() + 2);
@@ -533,7 +667,7 @@ function verifyCandidateAcceptance() {
     return 'VALID/MISSING/EXPIRED correctly derived';
   });
   chk('No performance/K14 column written to Foundation', function () {
-    var forbidden = ['Rating','Reliability','FillRate','SubmissionCount','MobilizationRate'];
+    var forbidden = FCAND_PERF_COLS.concat(FCAND_K14_COLS);
     var found = forbidden.filter(function (f) { return f in s.idx; });
     if (found.length) throw new Error('Forbidden column in schema: ' + found.join(','));
     return 'clean';
