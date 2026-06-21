@@ -329,8 +329,8 @@ function fcandFindDuplicate_(s, signals) {
   var emailCol    = s.idx['Email'];
 
   // read identity columns in one batch (avoids row-by-row Sheets API calls)
-  var numCols = s.lastCol;
   var colsToRead = [kaiCol, passportCol, mobileCol, emailCol].filter(Boolean);
+  if (!colsToRead.length) return { duplicate: false, existingKaiNo: null, reason: null };
   var maxCol = Math.max.apply(null, colsToRead);
 
   var data = s.sheet.getRange(2, 1, last - 1, maxCol).getValues();
@@ -1016,4 +1016,25 @@ function fcandTestGap1_() {
     passed:            passed,
     total:             results.length
   };
+}
+
+/**
+ * FCAND.S10.T02 — Delete test rows written by fcandTestGap1_().
+ * Run after confirming test results. Removes rows whose Name starts with 'GAP1 '.
+ * CAUTION: deletes rows permanently. Only call after inspecting test output.
+ */
+function fcandCleanupGap1Tests_() {
+  var s = fcandSheet_();
+  var nameCol = s.idx['Name'];
+  if (!nameCol) { Logger.log('FCAND: Name column not found — no cleanup.'); return { deleted: 0 }; }
+  var last = s.sheet.getLastRow();
+  if (last < 2) return { deleted: 0 };
+  var data = s.sheet.getRange(2, nameCol, last - 1, 1).getValues();
+  var toDelete = [];
+  for (var i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][0]).indexOf('GAP1 ') === 0) toDelete.push(i + 2);
+  }
+  toDelete.forEach(function (rowNum) { s.sheet.deleteRow(rowNum); });
+  Logger.log('FCAND cleanup: deleted ' + toDelete.length + ' GAP1 test rows.');
+  return { deleted: toDelete.length };
 }

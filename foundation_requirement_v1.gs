@@ -561,3 +561,29 @@ function frLog_(event, actor, payload) {
                    detail: JSON.stringify(payload || {}) });
   } catch (e) {}
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// FR.S09 · PUBLIC SURFACE
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * FR.S09.F01 — Public endpoint: create a Requirement, called via google.script.run.
+ * UI calls this, then calls matchCandidatesForReqPublic(ReqID) with the returned ReqID.
+ * Layer: Foundation write only. No match logic here.
+ *
+ * @param {object} fields - { CampaignID, Trade, Quantity, 'Deploy Country', ... }
+ * @returns {object} { ok:true, ReqID, CampaignID, ProjectID, ClientID }
+ *                or { ok:false, msg:'...' }
+ */
+function createRequirementPublic(fields) {
+  try {
+    var actor = {
+      by:   (Session.getActiveUser() ? Session.getActiveUser().getEmail() : 'ui-recruiter'),
+      role: 'Recruiter'
+    };
+    return createRequirement(fields || {}, actor);
+  } catch (e) {
+    frLog_('createRequirementPublic', 'ui-recruiter', { error: e.message });
+    return { ok: false, msg: e.message };
+  }
+}

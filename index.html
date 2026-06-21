@@ -139,7 +139,48 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
 .resp-btn.confirmed{background:#E8F8F0;color:#006640;border-color:#AADDCC;}
 .resp-btn.not-interested{background:#FFF0F0;color:#CC0000;border-color:#FFAAAA;}
 .resp-btn.no-response{background:#FFF8E8;color:#885500;border-color:#FFD080;}
-@media(max-width:900px){.layout{grid-template-columns:1fr;}.stats-row{grid-template-columns:repeat(2,1fr);}.details-grid{grid-template-columns:repeat(2,1fr);}.action-row{grid-template-columns:1fr 1fr;}.bs-grid{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:900px){.layout{grid-template-columns:1fr;}.stats-row{grid-template-columns:repeat(2,1fr);}.details-grid{grid-template-columns:repeat(2,1fr);}.action-row{grid-template-columns:1fr 1fr;}.bs-grid{grid-template-columns:repeat(3,1fr);}
+.req-layout{grid-template-columns:1fr;}}
+/* ── Mode switcher ── */
+.mode-nav{display:flex;gap:8px;margin-bottom:18px;}
+.mode-btn{padding:9px 22px;border:2px solid #ddd;border-radius:20px;background:white;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;color:#555;}
+.mode-btn.active{background:#1B2A4A;color:white;border-color:#1B2A4A;}
+/* ── Requirements layout ── */
+.req-layout{display:grid;grid-template-columns:400px 1fr;gap:18px;}
+/* ── Tier badges ── */
+.tier-badge{display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;margin-left:6px;}
+.tier-STRONG{background:#E8F8F0;color:#006640;}
+.tier-GOOD{background:#E8F0FF;color:#1B2A9A;}
+.tier-POSSIBLE{background:#FFF8E8;color:#885500;}
+.tier-LONG_SHOT{background:#FFF0F0;color:#CC0000;}
+/* ── Match cards ── */
+.match-card{background:white;border-radius:10px;padding:14px;margin-bottom:8px;box-shadow:0 2px 8px rgba(0,0,0,0.07);border-left:4px solid #ddd;display:flex;align-items:flex-start;gap:12px;transition:box-shadow 0.2s;}
+.match-card:hover{box-shadow:0 4px 14px rgba(0,0,0,0.12);}
+.match-card.STRONG{border-left-color:#00A86B;}
+.match-card.GOOD{border-left-color:#378ADD;}
+.match-card.POSSIBLE{border-left-color:#FFA500;}
+.match-card.LONG_SHOT{border-left-color:#FF4444;}
+.match-rank{width:30px;height:30px;border-radius:50%;background:#1B2A4A;color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}
+.match-score-circle{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;font-size:17px;border:2px solid;}
+.match-info{flex:1;min-width:0;}
+.match-name{font-size:14px;font-weight:700;color:#1B2A4A;}
+.match-sub{font-size:11px;color:#888;margin-top:2px;}
+.match-breakdown{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;}
+.mb-item{background:#f8fafc;border-radius:5px;padding:4px 6px;text-align:center;}
+.mb-lbl{font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.4px;}
+.mb-val{font-size:12px;font-weight:700;color:#1B2A4A;margin-top:1px;}
+.match-signals{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+.signal-tag{background:#F0F4FF;color:#1B3A5C;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:500;}
+/* ── Requirement summary ── */
+.req-result-hdr{background:#F0F7FF;border-radius:10px;padding:14px;margin-bottom:14px;}
+.req-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;}
+.req-meta-item{background:white;border-radius:7px;padding:8px;}
+.req-meta-lbl{font-size:10px;color:#aaa;text-transform:uppercase;}
+.req-meta-val{font-size:13px;font-weight:700;color:#1B2A4A;margin-top:2px;}
+.tier-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;}
+.ts-item{text-align:center;background:white;border-radius:7px;padding:8px;}
+.ts-num{font-size:22px;font-weight:700;}
+.ts-label{font-size:10px;color:#888;margin-top:2px;}
 </style>
 </head>
 <body>
@@ -166,6 +207,13 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
 
   <div class="api-strip" id="apiStrip"><strong>K14 Intelligence:</strong> Screening runs server-side via K14 (Foundation → K14 → Execution → UI). No API key needed in the browser.</div>
 
+  <div class="mode-nav">
+    <button class="mode-btn active" id="modeBtn-screening" onclick="switchMode('screening')">CV Screening</button>
+    <button class="mode-btn" id="modeBtn-requirements" onclick="switchMode('requirements')">Requirements &amp; Match</button>
+  </div>
+
+  <!-- ═══════════════ MODE: CV SCREENING ═══════════════ -->
+  <div id="mode-screening">
   <div class="layout">
 
     <!-- LEFT: Filter Panel -->
@@ -582,7 +630,178 @@ textarea:focus{outline:none;border-color:#2C4A7C;}
 
     </div>
   </div>
-</div>
+  </div><!-- end mode-screening -->
+
+  <!-- ═══════════════ MODE: REQUIREMENTS & MATCH ═══════════════ -->
+  <div id="mode-requirements" style="display:none;">
+    <div class="req-layout">
+
+      <!-- LEFT: Requirement form -->
+      <div class="card" style="height:fit-content;">
+        <h2>Requirements &amp; Match Engine</h2>
+
+        <!-- Match existing -->
+        <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:2px solid #f0f4f8;">
+          <div style="font-size:11px;font-weight:600;color:#1B2A4A;margin-bottom:6px;">Match Against Existing Requirement ID</div>
+          <div style="display:flex;gap:8px;">
+            <input id="req-existing-id" type="text" placeholder="REQ-YYYYMMDD-0001" style="flex:1;padding:8px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;color:#333;">
+            <button onclick="matchExistingReq()" class="btn btn-secondary" style="width:auto;padding:8px 14px;font-size:12px;margin:0;white-space:nowrap;">Find Matches</button>
+          </div>
+        </div>
+
+        <!-- New requirement form -->
+        <div class="section-label sl-red">Required Fields</div>
+        <div class="form-group">
+          <label>Campaign ID <span class="req">*</span></label>
+          <input id="req-campId" type="text" placeholder="CAMP-YYYYMMDD-0001">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Trade <span class="req">*</span></label>
+            <select id="req-trade">
+              <option value="">Select Trade</option>
+              <optgroup label="Oil & Gas / Mechanical">
+                <option>Welder</option><option>Pipe Fitter</option><option>Mechanical Fitter</option>
+                <option>Rigger</option><option>Millwright</option>
+              </optgroup>
+              <optgroup label="Electrical / Instrumentation">
+                <option>Electrician</option><option>Instrument Technician</option>
+                <option>DCS / SCADA Technician</option><option>Calibration Technician</option>
+              </optgroup>
+              <optgroup label="Construction / Civil">
+                <option>Mason</option><option>Carpenter / Shuttering</option>
+                <option>Steel Fixer / Rebar</option><option>Scaffolder</option><option>Painter</option>
+              </optgroup>
+              <optgroup label="Support & Specialist">
+                <option>Crane Operator</option><option>Forklift Operator</option>
+                <option>NDT Technician</option><option>Safety Officer</option>
+                <option>Foreman</option><option>Helper / Unskilled</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Deploy Country <span class="req">*</span></label>
+            <select id="req-country">
+              <option value="">Select</option>
+              <option>Saudi Arabia</option><option>UAE</option><option>Qatar</option>
+              <option>Kuwait</option><option>Bahrain</option><option>Oman</option>
+              <option>Iraq</option><option>Jordan</option><option>Libya</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Quantity <span class="req">*</span></label>
+          <input id="req-qty" type="number" min="1" value="1">
+        </div>
+
+        <div class="section-label sl-blue">Optional Filters (improve match ranking)</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min Experience (yrs)</label>
+            <input id="req-minexp" type="number" min="0" placeholder="e.g. 3">
+          </div>
+          <div class="form-group">
+            <label>GCC Preference</label>
+            <select id="req-gcc">
+              <option value="">Not Specified</option>
+              <option value="gcc">GCC Preferred</option>
+              <option value="indian">Indian Preferred</option>
+              <option value="pakistani">Pakistani Preferred</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min Age</label>
+            <input id="req-minage" type="number" min="18" placeholder="18">
+          </div>
+          <div class="form-group">
+            <label>Max Age</label>
+            <input id="req-maxage" type="number" placeholder="55">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Interview Mode</label>
+            <select id="req-intmode">
+              <option value="">Not Specified</option>
+              <option value="Face-to-Face">Face-to-Face</option>
+              <option value="Virtual">Virtual</option>
+              <option value="Telephonic">Telephonic</option>
+              <option value="CV">CV Only</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Urgency</label>
+            <select id="req-urgency">
+              <option value="">Normal</option>
+              <option value="URGENT">Urgent</option>
+              <option value="HIGH">High</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <input id="req-notes" type="text" placeholder="Optional — recruiter notes">
+        </div>
+
+        <button id="req-create-btn" class="btn btn-primary" onclick="createReqAndMatch()" style="margin-top:8px;">Create Requirement &amp; Find Matches</button>
+      </div>
+
+      <!-- RIGHT: Match results -->
+      <div>
+        <!-- Loading -->
+        <div class="card" id="matchLoading" style="display:none;text-align:center;padding:50px;">
+          <div style="width:44px;height:44px;border:4px solid #f0f4f8;border-top:4px solid #1B2A4A;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 14px;"></div>
+          <p style="font-weight:600;color:#1B2A4A;font-size:14px;">K14 matching engine running...</p>
+          <p style="font-size:11px;color:#999;margin-top:5px;">Scoring all Foundation candidates · Ranking by trade · freshness · experience · passport</p>
+        </div>
+
+        <!-- Empty state -->
+        <div class="card" id="matchEmpty" style="text-align:center;padding:50px 22px;">
+          <div style="font-size:48px;margin-bottom:12px;">🔍</div>
+          <div style="font-size:16px;font-weight:600;color:#1B2A4A;margin-bottom:6px;">Recruiter Review Queue</div>
+          <div style="font-size:12px;color:#888;line-height:1.9;">
+            Create a new requirement or enter an existing ID above.<br>
+            K14 scores every candidate in Foundation against the requirement<br>
+            <strong>STRONG 75+</strong>&nbsp;·&nbsp;<strong>GOOD 55–74</strong>&nbsp;·&nbsp;<strong>POSSIBLE 35–54</strong>
+          </div>
+        </div>
+
+        <!-- Results panel -->
+        <div id="matchPanel" style="display:none;">
+          <div class="req-result-hdr">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+              <div>
+                <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px;">Requirement</div>
+                <div style="font-size:16px;font-weight:700;color:#1B2A4A;" id="rs-reqid"></div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.5px;">Trade</div>
+                <div style="font-size:16px;font-weight:700;color:#1B2A4A;" id="rs-trade"></div>
+              </div>
+            </div>
+            <div class="req-meta">
+              <div class="req-meta-item"><div class="req-meta-lbl">Client</div><div class="req-meta-val" id="rs-client">—</div></div>
+              <div class="req-meta-item"><div class="req-meta-lbl">Deploy Country</div><div class="req-meta-val" id="rs-country">—</div></div>
+              <div class="req-meta-item"><div class="req-meta-lbl">Quantity</div><div class="req-meta-val" id="rs-qty">—</div></div>
+              <div class="req-meta-item"><div class="req-meta-lbl">Total Matched</div><div class="req-meta-val" id="rs-total" style="color:#1B2A9A;">0</div></div>
+            </div>
+            <div class="tier-summary">
+              <div class="ts-item"><div class="ts-num" id="rs-strong" style="color:#006640;">0</div><div class="ts-label">STRONG 75+</div></div>
+              <div class="ts-item"><div class="ts-num" id="rs-good" style="color:#1B2A9A;">0</div><div class="ts-label">GOOD 55–74</div></div>
+              <div class="ts-item"><div class="ts-num" id="rs-possible" style="color:#885500;">0</div><div class="ts-label">POSSIBLE 35–54</div></div>
+              <div class="ts-item"><div class="ts-num" id="rs-longshot" style="color:#CC0000;">0</div><div class="ts-label">LONG SHOT</div></div>
+            </div>
+          </div>
+          <div id="matchList"></div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- end mode-requirements -->
+
+</div><!-- end container -->
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -962,6 +1181,150 @@ function dlResult(){
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
   a.href=url;a.download=(curr.name||'candidate').replace(/\s+/g,'_')+'_v3.json';
   a.click();URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// GAP-3 — REQUIREMENTS & MATCH ENGINE
+// Two-call pattern: createRequirementPublic (Foundation write)
+//                   → matchCandidatesForReqPublic (K14 read)
+// UI orchestrates the calls. No intelligence in the browser.
+// ─────────────────────────────────────────────────────────────────
+
+function switchMode(mode){
+  document.getElementById('mode-screening').style.display=mode==='screening'?'block':'none';
+  document.getElementById('mode-requirements').style.display=mode==='requirements'?'block':'none';
+  document.getElementById('modeBtn-screening').classList.toggle('active',mode==='screening');
+  document.getElementById('modeBtn-requirements').classList.toggle('active',mode==='requirements');
+}
+
+function getReqFields(){
+  return{
+    CampaignID:               document.getElementById('req-campId').value.trim(),
+    Trade:                    document.getElementById('req-trade').value,
+    Quantity:                 parseInt(document.getElementById('req-qty').value)||1,
+    'Deploy Country':         document.getElementById('req-country').value,
+    'Min Experience':         document.getElementById('req-minexp').value||'',
+    'Min Age':                document.getElementById('req-minage').value||'',
+    'Max Age':                document.getElementById('req-maxage').value||'',
+    'GCC Preference':         document.getElementById('req-gcc').value||'',
+    'Interview Mode':         document.getElementById('req-intmode').value||'',
+    Urgency:                  document.getElementById('req-urgency').value||'',
+    Notes:                    document.getElementById('req-notes').value.trim()||''
+  };
+}
+
+function createReqAndMatch(){
+  const f=getReqFields();
+  if(!f.CampaignID){alert('Campaign ID is required');return;}
+  if(!f.Trade){alert('Trade is required');return;}
+  if(!f['Deploy Country']){alert('Deploy Country is required');return;}
+
+  const btn=document.getElementById('req-create-btn');
+  btn.disabled=true;btn.textContent='Creating requirement...';
+  document.getElementById('matchPanel').style.display='none';
+  document.getElementById('matchEmpty').style.display='none';
+  document.getElementById('matchLoading').style.display='block';
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res||!res.ok){
+        btn.disabled=false;btn.textContent='Create Requirement & Find Matches';
+        document.getElementById('matchLoading').style.display='none';
+        document.getElementById('matchEmpty').style.display='block';
+        alert('Requirement creation failed: '+(res&&res.msg?res.msg:'Unknown error'));
+        return;
+      }
+      btn.textContent='Matching candidates...';
+      runMatchForReq(res.ReqID);
+    })
+    .withFailureHandler(function(err){
+      btn.disabled=false;btn.textContent='Create Requirement & Find Matches';
+      document.getElementById('matchLoading').style.display='none';
+      document.getElementById('matchEmpty').style.display='block';
+      alert('Error: '+err.message);
+    })
+    .createRequirementPublic(f);
+}
+
+function matchExistingReq(){
+  const reqId=document.getElementById('req-existing-id').value.trim();
+  if(!reqId){alert('Enter a Requirement ID (e.g. REQ-20260621-0001)');return;}
+  document.getElementById('matchPanel').style.display='none';
+  document.getElementById('matchEmpty').style.display='none';
+  document.getElementById('matchLoading').style.display='block';
+  runMatchForReq(reqId);
+}
+
+function runMatchForReq(reqId){
+  const btn=document.getElementById('req-create-btn');
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled=false;btn.textContent='Create Requirement & Find Matches';
+      document.getElementById('matchLoading').style.display='none';
+      if(!res||!res.ok){
+        document.getElementById('matchEmpty').style.display='block';
+        alert('Match failed: '+(res&&res.msg?res.msg:'Unknown error'));
+        return;
+      }
+      renderMatchResults(res);
+    })
+    .withFailureHandler(function(err){
+      btn.disabled=false;btn.textContent='Create Requirement & Find Matches';
+      document.getElementById('matchLoading').style.display='none';
+      document.getElementById('matchEmpty').style.display='block';
+      alert('Match error: '+err.message);
+    })
+    .matchCandidatesForReqPublic(reqId,30);
+}
+
+function renderMatchResults(data){
+  const req=data.req||{};
+  const matches=data.matches||[];
+  const s=data.summary||{};
+
+  document.getElementById('rs-reqid').textContent=data.reqId||'';
+  document.getElementById('rs-trade').textContent=req.trade||'';
+  document.getElementById('rs-client').textContent=req.clientName||'—';
+  document.getElementById('rs-country').textContent=req.deployCountry||'—';
+  document.getElementById('rs-qty').textContent=req.quantity||'—';
+  document.getElementById('rs-total').textContent=s.total||0;
+  document.getElementById('rs-strong').textContent=s.strong||0;
+  document.getElementById('rs-good').textContent=s.good||0;
+  document.getElementById('rs-possible').textContent=s.possible||0;
+  document.getElementById('rs-longshot').textContent=s.longShot||0;
+
+  const list=document.getElementById('matchList');
+  if(!matches.length){
+    list.innerHTML='<div class="card" style="text-align:center;padding:30px;color:#aaa;font-size:13px;">No candidates matched at POSSIBLE tier or above for this requirement.</div>';
+  }else{
+    list.innerHTML=matches.map((m,i)=>{
+      const score=m.score||0;
+      const tier=m.tier||'LONG_SHOT';
+      const scoreBg=score>=75?'#E8F8F0':score>=55?'#E8F0FF':score>=35?'#FFF8E8':'#FFF0F0';
+      const scoreTc=score>=75?'#006640':score>=55?'#1B2A9A':score>=35?'#885500':'#CC0000';
+      const bd=m.breakdown||{};
+      const sigs=m.signals||[];
+      const exp=m.experience?m.experience+' yrs':'';
+      const loc=m.currentLocation||'';
+      const nat=m.nationality||'';
+      return `<div class="match-card ${tier}">
+        <div class="match-rank">${i+1}</div>
+        <div class="match-score-circle" style="background:${scoreBg};color:${scoreTc};border-color:${scoreTc};">${score}</div>
+        <div class="match-info">
+          <div class="match-name">${m.name||'—'} <span class="tier-badge tier-${tier}">${tier}</span></div>
+          <div class="match-sub">${[m.trade,nat,exp,loc].filter(Boolean).join(' · ')}</div>
+          <div class="match-breakdown">
+            <div class="mb-item"><div class="mb-lbl">Trade</div><div class="mb-val">${bd.trade||0}/40</div></div>
+            <div class="mb-item"><div class="mb-lbl">Fresh</div><div class="mb-val">${bd.freshness||0}/30</div></div>
+            <div class="mb-item"><div class="mb-lbl">Deploy</div><div class="mb-val">${bd.deployReady||0}/15</div></div>
+            <div class="mb-item"><div class="mb-lbl">Exp</div><div class="mb-val">${bd.experience||0}/10</div></div>
+          </div>
+          ${sigs.length?`<div class="match-signals">${sigs.map(sg=>`<span class="signal-tag">${sg}</span>`).join('')}</div>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('matchPanel').style.display='block';
 }
 </script>
 </body>
