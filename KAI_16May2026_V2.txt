@@ -300,12 +300,41 @@ function generateReqId_() {
 }
 
 // S32.F06 — Generate unique KAI No (AYE-KAI-2026-000001)
-function generateKaiNo_() {
-  var props   = PropertiesService.getScriptProperties();
-  var counter = parseInt(props.getProperty(CONFIG_V2.kaiNoCounterKey)||'0') + 1;
-  props.setProperty(CONFIG_V2.kaiNoCounterKey, String(counter));
-  return CONFIG_V2.kaiNoPrefix + '-' + new Date().getFullYear() + '-' +
-         String(counter).padStart(6,'0');
+// SINGLE WRITER (Mission Zero): this is the ONLY function that increments the
+// KAI counter. Every caller (intake, dashboard backfill, CSV import, review
+// approval, mobility refresh, missing-info, client-ref, Foundation) routes here.
+// The PropertiesService read-modify-write is serialized by LockService so two
+// concurrent executions can never read the same counter value — the root-cause
+// fix for the 90 collisions (contiguous KAI runs from concurrent dashboard loads).
+//
+// @param {object} [opts] - { lockHeld:true } when the caller already owns the
+//                          script lock (e.g. intakeCreateCandidate_), to avoid
+//                          double-acquire / early-release of the same lock.
+function generateKaiNo_(opts) {
+  opts = opts || {};
+
+  function mint_() {
+    var props   = PropertiesService.getScriptProperties();
+    var counter = parseInt(props.getProperty(CONFIG_V2.kaiNoCounterKey) || '0') + 1;
+    props.setProperty(CONFIG_V2.kaiNoCounterKey, String(counter));
+    return CONFIG_V2.kaiNoPrefix + '-' + new Date().getFullYear() + '-' +
+           String(counter).padStart(6, '0');
+  }
+
+  // Caller already holds the script lock — mint directly inside their section.
+  if (opts.lockHeld === true) return mint_();
+
+  // Standalone caller — acquire the script lock for the counter critical section.
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    // Never mint without serialization — refuse rather than risk a collision.
+    throw new Error('generateKaiNo_: could not acquire script lock — KAI not issued (collision guard).');
+  }
+  try {
+    return mint_();
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
 }
 
 // S32.F07 — Save requirement to _Requirements sheet

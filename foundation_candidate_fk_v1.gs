@@ -126,18 +126,16 @@ function fcandUpdateRow_(sheet, rowNum, patch, idx) {
 // FCAND.S02 · ID GENERATION
 // ───────────────────────────────────────────────────────────────────────────
 
+// SINGLE WRITER (Mission Zero): delegate to the one atomic mint
+// (generateKaiNo_ in KAI_16May2026_V2.gs). The previous column-scan that
+// produced the legacy 'KAI-0001' format is removed — it was both a format
+// fork (production format is AYE-KAI-2026-NNNNNN) and a second collision
+// source (two concurrent scans could read the same max). Foundation now
+// issues the same atomic, lock-serialized KAI as the live intake path.
 function fcandNextKaiNo_(s) {
-  var last = s.sheet.getLastRow();
-  var kaiCol = s.idx['KAI No'];
-  if (!kaiCol || last < 2) return 'KAI-0001';
-  var col = s.sheet.getRange(2, kaiCol, last - 1, 1).getValues();
-  var max = 0;
-  col.forEach(function (r) {
-    var v = String(r[0] || '');
-    var m = v.match(/KAI-(\d+)/);
-    if (m) { var n = parseInt(m[1], 10); if (n > max) max = n; }
-  });
-  return 'KAI-' + ('0000' + (max + 1)).slice(-4);
+  if (typeof generateKaiNo_ === 'function') return generateKaiNo_();
+  // Hard fail rather than silently mint a non-production / unguarded KAI.
+  throw new Error('fcandNextKaiNo_: generateKaiNo_ (single writer) not available — KAI not issued.');
 }
 
 // ───────────────────────────────────────────────────────────────────────────

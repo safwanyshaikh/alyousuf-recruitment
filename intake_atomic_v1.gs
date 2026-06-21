@@ -91,11 +91,11 @@ function intakeCreateCandidate_(scored, threadId, msgId, cvLink, appDate,
     }
 
     // ── STEP 2: KAI issuance — PropertiesService R-M-W under lock ──
-    // generateKaiNo_() is defined in KAI_16May2026_V2.gs.
-    // With the lock held, the read-modify-write on PropertiesService
-    // is atomic relative to other pipeline executions.
-    // This is the fix for the 90 Phase-1 collisions.
-    var kaiNo = generateKaiNo_();
+    // generateKaiNo_() is the SINGLE WRITER (KAI_16May2026_V2.gs S32.F06).
+    // We already hold the script lock for this whole critical section, so we
+    // pass lockHeld:true to mint directly without re-acquiring / early-releasing
+    // the same lock. The counter RMW is therefore atomic vs every other caller.
+    var kaiNo = generateKaiNo_({ lockHeld: true });
     Logger.log('IA: KAI issued inside lock — ' + kaiNo);
 
     // ── STEP 3: Candidate row write WITH KAI No at birth ──────────
@@ -463,4 +463,108 @@ function intakeStressTestCleanup_() {
     queueDeleted:      toDeleteQ.length,
     metaDeleted:       toDeleteM.length
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IA.S06 · CONCURRENCY HARNESS — 5 parallel batches of 100
+//
+// Apps Script cannot spawn threads inside one execution. True concurrency
+// requires multiple SIMULTANEOUS executions. This harness installs five
+// one-time triggers that all fire ~1 minute out, so five separate executions
+// hit generateKaiNo_ at the same time — the exact condition that produced the
+// 90 collisions. With the single-writer lock in place, the collector must
+// report 0 cross-batch collisions.
+//
+// PROCEDURE (Apps Script editor):
+//   1. Run  intakeConcurrencyInstall_()   → schedules 5 batches (fires in ~1 min)
+//   2. Wait ~3 minutes for all 5 to finish
+//   3. Run  intakeConcurrencyReport_()    → prints cross-batch collision report
+//   4. Run  intakeStressTestCleanup_()    → removes all synthetic rows
+//      Run  intakeConcurrencyUninstall_() → removes any leftover triggers
+// ═══════════════════════════════════════════════════════════════════
+
+var IA_CONC_PREFIX  = IA_STRESS_PREFIX + 'CONC_';   // STRESS_TEST_CONC_
+var IA_CONC_BATCHES = ['A', 'B', 'C', 'D', 'E'];
+var IA_CONC_PER     = 100;
+
+function intakeConcurrencyInstall_() {
+  IA_CONC_BATCHES.forEach(function (tag) {
+    ScriptApp.newTrigger('intakeConcBatch' + tag).timeBased().after(60 * 1000).create();
+  });
+  Logger.log('IA CONC: 5 batches scheduled (intakeConcBatchA..E) — fire in ~60s, ' +
+             IA_CONC_PER + ' candidates each (500 total). Run intakeConcurrencyReport_() after ~3 min.');
+}
+
+// Named trigger targets — each runs in its own execution (true concurrency).
+function intakeConcBatchA() { intakeConcRun_('A'); }
+function intakeConcBatchB() { intakeConcRun_('B'); }
+function intakeConcBatchC() { intakeConcRun_('C'); }
+function intakeConcBatchD() { intakeConcRun_('D'); }
+function intakeConcBatchE() { intakeConcRun_('E'); }
+
+function intakeConcRun_(tag) {
+  var created = 0;
+  for (var i = 1; i <= IA_CONC_PER; i++) {
+    var mob   = IA_STRESS_MOB_PFX + tag.charCodeAt(0) + String(Date.now()).slice(-7) + i;
+    var email = 'conc.' + tag + '.' + i + '.' + Date.now() + '@kai.stress.test';
+    var scored = {
+      full_name: IA_CONC_PREFIX + tag + '_' + i, nationality: 'Testistan',
+      mobile: mob, email: email, education: '', positionApplied: 'Welder',
+      trade: 'Welder', industry: 'Construction', experience: 5, gulfExperience: 1,
+      dob: '', age: 30, verdict: 'NEEDS_CALL', flag: '', score: 50,
+      scoreBreakdown: 'conc', recommendedRoles: '', kaiAssessment: '',
+      recruiterAction: '', notes: 'CONC ' + tag
+    };
+    var out = intakeCreateCandidate_(scored, 'CONC-' + tag + '-' + i, 'CONC-MSG-' + tag + i,
+                                     '', new Date(), email, mob,
+                                     { full_name: scored.full_name, email: email, industry: 'Construction' });
+    if (out === 'CREATED') created++;
+  }
+  Logger.log('IA CONC batch ' + tag + ': created ' + created + '/' + IA_CONC_PER);
+}
+
+// Collector — scans Candidates for all CONC rows, reports cross-batch collisions.
+function intakeConcurrencyReport_() {
+  var cs   = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  var last = cs.getLastRow();
+  var nameCol = CONFIG.inputColumns.name;
+  var kaiCol  = CONFIG_V2.extCol.kaiNo;
+
+  var data = cs.getRange(2, 1, last - 1, kaiCol).getValues();
+  var kaiSeen = {}, collisions = [], rows = 0, blankKai = 0;
+
+  for (var i = 0; i < data.length; i++) {
+    var nm = String(data[i][nameCol - 1] || '');
+    if (nm.indexOf(IA_CONC_PREFIX) !== 0) continue;
+    rows++;
+    var kai = String(data[i][kaiCol - 1] || '').trim();
+    if (!kai) { blankKai++; continue; }
+    if (kaiSeen[kai]) collisions.push({ kaiNo: kai, rowA: kaiSeen[kai], rowB: i + 2, name: nm });
+    else kaiSeen[kai] = i + 2;
+  }
+
+  var verdict = (rows > 0 && collisions.length === 0 && blankKai === 0)
+              ? 'PASS — 0 cross-batch collisions, 0 blank KAI' : 'FAIL';
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('MISSION ZERO — CONCURRENCY REPORT (5 x ' + IA_CONC_PER + ')');
+  Logger.log('  CONC candidate rows : ' + rows);
+  Logger.log('  Unique KAI numbers  : ' + Object.keys(kaiSeen).length);
+  Logger.log('  Blank KAI rows      : ' + blankKai);
+  Logger.log('  Cross-batch collide : ' + collisions.length);
+  Logger.log('  VERDICT             : ' + verdict);
+  if (collisions.length) collisions.forEach(function (c) { Logger.log('  COLLISION ' + JSON.stringify(c)); });
+  Logger.log('══════════════════════════════════════════════════');
+  return { rows: rows, uniqueKai: Object.keys(kaiSeen).length, blankKai: blankKai,
+           collisions: collisions, verdict: verdict };
+}
+
+function intakeConcurrencyUninstall_() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (String(t.getHandlerFunction()).indexOf('intakeConcBatch') === 0) {
+      ScriptApp.deleteTrigger(t); removed++;
+    }
+  });
+  Logger.log('IA CONC: removed ' + removed + ' leftover triggers.');
+  return { triggersRemoved: removed };
 }
