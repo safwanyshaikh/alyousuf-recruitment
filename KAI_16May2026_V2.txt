@@ -763,7 +763,7 @@ function refreshMobilityAndDeployability() {
       bMiss.push(['']); bState.push([row[ec.state-1]||'']); return;
     }
     var cand = buildCandidateObj_(row, 0);
-    var kaiNo = cand.kaiNo || generateKaiNo_();
+    var kaiNo = cand.kaiNo || '';
     bKai.push([kaiNo]);
     var mob = computeMobilityStatus_(cand);
     bMob.push([mob]);
@@ -1116,7 +1116,6 @@ function getDashboardDataV2() {
       todayCount:0,deployReady:0,saudiTransfer:0,uaeVisit:0,
       fresherPool:0,hold:0
     };
-    var kaiNosToWrite = {};  // rowIndex → kaiNo for batch write
     var records=[], trades={}, nationalities={}, statesMap={}, mobMap={};
     data.forEach(function(row,idx) {
       var av = String(row[ic.active-1]||'').toUpperCase().trim();
@@ -1148,12 +1147,7 @@ function getDashboardDataV2() {
       if (state) statesMap[state]=true; if (mob) mobMap[mob]=true;
       var cand   = buildCandidateObj_(row, idx+2);
       var na     = getNextAction_(cand);
-      // KAI No: use existing or generate new — batch write at end for performance
       var kaiNo = String(row[ec.kaiNo-1]||'').trim();
-      if (!kaiNo) {
-        kaiNo = generateKaiNo_();
-        kaiNosToWrite[idx+2] = kaiNo;  // collected for batch write below
-      }
       records.push({
         rowIndex:        idx+2,
         kaiNo:           kaiNo,
@@ -1206,16 +1200,6 @@ function getDashboardDataV2() {
         recruiterRemark: row.length >= 44 ? String(row[43]||'').trim() : ''
       });
     });
-
-    // Batch-write any newly generated KAI Nos to the sheet (permanent, survives all script changes)
-    var newKaiKeys = Object.keys(kaiNosToWrite);
-    if (newKaiKeys.length > 0) {
-      newKaiKeys.forEach(function(rowIdx) {
-        try { sheet.getRange(parseInt(rowIdx), ec.kaiNo).setValue(kaiNosToWrite[rowIdx]); } catch(e) {}
-      });
-      try { SpreadsheetApp.flush(); } catch(e) {}
-      Logger.log('S37: Generated ' + newKaiKeys.length + ' new KAI Nos');
-    }
 
     records.sort(function(a,b){return String(b.applicationDate).localeCompare(String(a.applicationDate));});
     var result = {

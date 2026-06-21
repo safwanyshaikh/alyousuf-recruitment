@@ -1287,8 +1287,14 @@ function applyDecisionRules_(scored, rules) {
 // ═══════════════════════════════════════════════════════════════════
 // S13 · SHEET WRITERS
 // ═══════════════════════════════════════════════════════════════════
-// S13.F01 — write scored candidate to Candidates sheet
+// S13.F01 — DEPRECATED: direct creation path disabled. Use intakeCreateCandidate_().
+// This function is intentionally blocked to enforce Mission Zero single-writer mandate.
+// All callers have been migrated to intakeCreateCandidate_ in intake_atomic_v1.gs.
 function writeToSheet_(scored, threadId, cvLink, appDate) {
+  throw new Error(
+    'writeToSheet_: DEPRECATED — single-writer mandate (Mission Zero). ' +
+    'Use intakeCreateCandidate_() from intake_atomic_v1.gs.'
+  );
   var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
   if (!sheet) { Logger.log('S13: Candidates sheet not found.'); return; }
   var ic  = CONFIG.inputColumns;

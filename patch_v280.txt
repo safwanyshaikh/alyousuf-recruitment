@@ -459,12 +459,17 @@ function checkImportDuplicate_(email, mobile, name) {
 }
 
 // S42.F06 — Append a validated candidate row to Candidates sheet
-function appendImportedCandidate_(sheetRow) {
+// kaiNo (optional): if provided, written at col 25 (KAI No) at creation time (atomic — no second patch).
+function appendImportedCandidate_(sheetRow, kaiNo) {
   var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
   if (!sheet) return { ok: false, msg: 'Candidates sheet not found' };
-  // Use trimmed row (24 base cols minimum)
-  var row24 = sheetRow.slice(0, CONFIG.headers.length);
-  sheet.appendRow(row24);
+  var row = sheetRow.slice(0, CONFIG.headers.length);
+  if (kaiNo) {
+    var kaiCol = CONFIG_V2.extCol.kaiNo;
+    while (row.length < kaiCol) row.push('');
+    row[kaiCol - 1] = kaiNo;
+  }
+  sheet.appendRow(row);
   return { ok: true, rowIndex: sheet.getLastRow() };
 }
 
@@ -865,14 +870,12 @@ function processCsvJob_(jobId, queueRowIndex, queueSheet) {
         updated++;
         addToHistory_(jobId, 'RECORD_MERGED', res.data.name + ' | ' + dup.matchOn, 'import-engine');
       } else {
-        // Append new candidate
-        var appRes = appendImportedCandidate_(res.sheetRow);
+        // Append new candidate — KAI minted and written at row-birth (single appendRow, atomic)
+        var importKaiNo = generateKaiNo_();  // LockService-serialized (single writer)
+        var appRes = appendImportedCandidate_(res.sheetRow, importKaiNo);
         if (appRes.ok) {
-          // Assign KAI No and state
           try {
-            var cs    = getMasterSS_().getSheetByName(CONFIG.sheetName);
-            var kaiNo = generateKaiNo_();
-            cs.getRange(appRes.rowIndex, CONFIG_V2.extCol.kaiNo).setValue(kaiNo);
+            var cs = getMasterSS_().getSheetByName(CONFIG.sheetName);
             cs.getRange(appRes.rowIndex, CONFIG_V2.extCol.state).setValue(
               res.data.email || res.data.mobile ? 'PARSED' : 'INCOMPLETE_CONTACT'
             );
