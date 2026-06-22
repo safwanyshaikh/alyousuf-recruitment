@@ -190,3 +190,114 @@ function kai14RealCvTest() {
   Logger.log('═══ KAI14 REAL CV TEST ═══\n' + JSON.stringify(res, null, 2));
   return res;
 }
+
+function runIntake5() { return gmailIntakeRun(5); }
+
+function kai14ParseAudit() {
+  var candidates = candidateAll_(false);
+  var results = [];
+
+  var RAW_TITLE_PROMPT =
+    'From this CV copy the EXACT text from the "Position Applied For", ' +
+    '"Applying For", "Career Objective", or "Desired Position" field. ' +
+    'If none of those exist, copy the most recent job title exactly as written. ' +
+    'One line only. No interpretation. No extra words. Just copy the exact text.';
+
+  var REPARSE_PROMPT =
+    'From this CV extract ONLY this JSON. No markdown. No code fences. Raw JSON only.\n' +
+    '{"experience_years":0,"nationality":""}\n' +
+    'experience_years: COPY the number from any Total Experience statement. ' +
+    'If not stated, count years from first job to 2026.\n' +
+    'nationality: COPY the exact text from the Nationality or Citizenship field. ' +
+    'Empty string if the field does not appear on the CV.\n' +
+    'Return ONLY the raw JSON object.';
+
+  for (var i = 0; i < candidates.length; i++) {
+    var c = candidates[i];
+    var cvLink = String(c.CVLink || '');
+    var m = cvLink.match(/\/d\/([a-zA-Z0-9_-]+)\//);
+    if (!m) {
+      results.push({ kaiNo: c.KAINo, name: c.FullName, error: 'no Drive file ID in CVLink' });
+      continue;
+    }
+    try {
+      var file   = DriveApp.getFileById(m[1]);
+      var blob   = file.getBlob();
+      var b64    = Utilities.base64Encode(blob.getBytes());
+      var mime   = blob.getContentType();
+      var inline = { mimeType: mime, bytesBase64: b64 };
+
+      var cvTitle = geminiText(RAW_TITLE_PROMPT, inline).trim();
+      Utilities.sleep(1500);
+      var reparse = geminiJson(REPARSE_PROMPT, inline);
+      Utilities.sleep(1500);
+
+      var pTrade = normText_(c.Trade).toLowerCase();
+      var rTrade = normText_(cvTitle).toLowerCase();
+      var pNat   = normText_(c.Nationality).toLowerCase();
+      var rNat   = normText_(reparse.nationality).toLowerCase();
+      var pExp   = parseFloat(c.Experience) || 0;
+      var rExp   = parseFloat(reparse.experience_years) || 0;
+
+      results.push({
+        kaiNo:           c.KAINo,
+        name:            c.FullName,
+        cvTitleRaw:      cvTitle,
+        parsedTrade:     c.Trade,
+        tradeVerdict:    pTrade === rTrade ? 'CORRECT' : 'FAIL',
+        expParsed:       pExp,
+        expExpected:     rExp,
+        expVerdict:      Math.abs(pExp - rExp) <= 1 ? 'CORRECT' : 'FAIL',
+        natParsed:       c.Nationality,
+        natExpected:     reparse.nationality,
+        natVerdict:      pNat === rNat ? 'CORRECT' : 'FAIL'
+      });
+    } catch (e) {
+      results.push({ kaiNo: c.KAINo, name: c.FullName, error: e.message });
+    }
+  }
+
+  var total = 0, tOk = 0, eOk = 0, nOk = 0, failed = [];
+  results.forEach(function(r) {
+    if (r.error) { failed.push(r); return; }
+    total++;
+    if (r.tradeVerdict === 'CORRECT') { tOk++; } else { failed.push(r); }
+    if (r.expVerdict   === 'CORRECT') { eOk++; }
+    if (r.natVerdict   === 'CORRECT') { nOk++; }
+  });
+
+  var tradeAcc = total ? Math.round(tOk / total * 100) : 0;
+  var expAcc   = total ? Math.round(eOk / total * 100) : 0;
+  var natAcc   = total ? Math.round(nOk / total * 100) : 0;
+  var gate     = (tradeAcc >= 90 && expAcc >= 85 && natAcc >= 95) ? 'PASS' : 'FAIL';
+
+  Logger.log('════ KAI14 PARSE AUDIT ════');
+  results.forEach(function(r) {
+    if (r.error) { Logger.log(r.kaiNo + ' | ERROR: ' + r.error); return; }
+    Logger.log(
+      r.kaiNo + ' | ' + r.name + '\n' +
+      '  CV Title (Raw):       ' + r.cvTitleRaw    + '\n' +
+      '  Parsed Trade:         ' + r.parsedTrade   + '\n' +
+      '  Trade Verdict:        ' + r.tradeVerdict  + '\n' +
+      '  Experience Parsed:    ' + r.expParsed     + '\n' +
+      '  Experience Expected:  ' + r.expExpected   + '\n' +
+      '  Exp Verdict:          ' + r.expVerdict    + '\n' +
+      '  Nationality Parsed:   ' + r.natParsed     + '\n' +
+      '  Nationality Expected: ' + r.natExpected   + '\n' +
+      '  Nat Verdict:          ' + r.natVerdict
+    );
+  });
+  Logger.log('──────────────────────────────────');
+  Logger.log('Trade Accuracy:       ' + tradeAcc + '% (gate >=90%)');
+  Logger.log('Experience Accuracy:  ' + expAcc   + '% (gate >=85%)');
+  Logger.log('Nationality Accuracy: ' + natAcc   + '% (gate >=95%)');
+  Logger.log('PARSER GATE:          ' + gate);
+
+  return {
+    results: results, failed: failed,
+    tradeAccuracy: tradeAcc + '%',
+    expAccuracy:   expAcc   + '%',
+    natAccuracy:   natAcc   + '%',
+    gate: gate
+  };
+}
