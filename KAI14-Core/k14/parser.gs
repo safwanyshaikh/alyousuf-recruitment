@@ -7,17 +7,43 @@
  */
 
 var K14_PARSE_PROMPT =
-  'You are a GCC blue-collar recruitment CV parser. Extract STRICT JSON only, ' +
-  'no prose. Use empty string for unknown fields. Schema:\n' +
+  'You are a recruitment CV parser for GCC-based hiring. ' +
+  'Extract STRICT JSON only. No markdown. No prose. No code fences. ' +
+  'Use empty string for unknown fields. Schema:\n' +
   '{\n' +
   '  "full_name": "", "email": "", "mobile": "", "passport_no": "",\n' +
   '  "nationality": "", "dob": "", "age": 0,\n' +
   '  "trade": "", "industry": "", "experience_years": 0, "gulf_experience_years": 0,\n' +
   '  "education": "", "position_applied": ""\n' +
   '}\n' +
-  'Rules: mobile = digits with country code if present. trade = the single primary ' +
-  'blue-collar trade (e.g. Welder, Electrician, Mason, Driver). experience_years = ' +
-  'total years as a number. Return ONLY the JSON object.';
+  'RULES — follow exactly:\n' +
+  'full_name: exact name from CV header or top section.\n' +
+  'email: exact email address from CV.\n' +
+  'mobile: phone number digits only, include country code digits if present.\n' +
+  'passport_no: exact passport or ID number as printed. Empty string if not found.\n' +
+  'nationality: country of citizenship exactly as written in the CV ' +
+  '(look in personal details, header, or objective section). ' +
+  'Empty string only if genuinely absent — do not guess.\n' +
+  'dob: date of birth in YYYY-MM-DD format. Empty string if not found.\n' +
+  'age: age as integer. Calculate from DOB if age not stated.\n' +
+  'trade: the EXACT primary job title or role as it appears in the CV. ' +
+  'Copy the title from the "Position Applied For", "Objective", or most recent job. ' +
+  'Do NOT rephrase, generalize, or translate to a different role family. ' +
+  'If CV says "Engine Officer" write "Engine Officer". ' +
+  'If CV says "Panchayat Secretary" write "Panchayat Secretary". ' +
+  'If CV says "QC Inspector" write "QC Inspector". ' +
+  'Never substitute a different trade.\n' +
+  'industry: the sector or industry the candidate has primarily worked in.\n' +
+  'experience_years: TOTAL years of professional work experience as a decimal number. ' +
+  'If the CV states a total (e.g. "12 years experience"), use that number. ' +
+  'Otherwise sum all individual job durations shown in the work history.\n' +
+  'gulf_experience_years: years worked specifically inside GCC countries ' +
+  '(UAE, Saudi Arabia, Qatar, Kuwait, Oman, Bahrain) as a decimal number. ' +
+  'Zero if none found.\n' +
+  'education: highest academic qualification.\n' +
+  'position_applied: exact text from any "Position Applied" or "Applying For" field. ' +
+  'Empty string if not present.\n' +
+  'Return ONLY the raw JSON object. No other text before or after.';
 
 /**
  * parseCv_ — parse one CV.
