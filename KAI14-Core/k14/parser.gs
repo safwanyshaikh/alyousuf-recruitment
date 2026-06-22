@@ -29,10 +29,18 @@ var K14_PARSE_PROMPT =
   'Empty string only if the word "nationality" or "citizenship" does not appear on the CV.\n' +
   'dob — COPY the date of birth exactly, convert to YYYY-MM-DD format only.\n' +
   'age — COPY the age number if stated. Zero if not found.\n' +
-  'trade — COPY the text from "Position Applied For", "Applying For", "Desired Position", ' +
-  'or "Career Objective" exactly as written. ' +
-  'If none of those sections exist, COPY the most recent job title exactly. ' +
-  'Do NOT change the words. Do NOT map to a different role.\n' +
+  'trade — COPY the job title using this EXACT priority order:\n' +
+  '  1. "Position Applied For" field — copy verbatim\n' +
+  '  2. "Applying For" field — copy verbatim\n' +
+  '  3. "Desired Position" field — copy verbatim\n' +
+  '  4. "Current Position" field — copy verbatim\n' +
+  '  5. Most recent job title from work history — copy verbatim\n' +
+  '  6. Empty string — if none of the above exist\n' +
+  'STOP copying at the first period, comma, semicolon, or line break. ' +
+  'Maximum 8 words. Return the job title only — not a sentence, not an objective, ' +
+  'not a description, not a paragraph. ' +
+  'Do NOT use Career Objective, Career Summary, or Profile sections as the trade source. ' +
+  'Do NOT infer. Do NOT rewrite. Do NOT normalize. Do NOT summarize. Do NOT convert.\n' +
   'industry — COPY the industry or sector name as it appears on the CV. ' +
   'Empty string if not stated.\n' +
   'experience_years — COPY the number from any "Total Experience" or "Years of Experience" ' +
