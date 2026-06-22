@@ -7,43 +7,43 @@
  */
 
 var K14_PARSE_PROMPT =
-  'You are a recruitment CV parser for GCC-based hiring. ' +
-  'Extract STRICT JSON only. No markdown. No prose. No code fences. ' +
-  'Use empty string for unknown fields. Schema:\n' +
+  'You are a CV data extractor. Your only job is to COPY text from the CV into JSON fields. ' +
+  'Do NOT interpret. Do NOT normalize. Do NOT infer. Do NOT reclassify. Do NOT rephrase. ' +
+  'Copy verbatim. If a field is not present in the CV write empty string or 0. ' +
+  'No markdown. No code fences. Return ONLY the raw JSON object.\n\n' +
+  'Schema:\n' +
   '{\n' +
   '  "full_name": "", "email": "", "mobile": "", "passport_no": "",\n' +
   '  "nationality": "", "dob": "", "age": 0,\n' +
   '  "trade": "", "industry": "", "experience_years": 0, "gulf_experience_years": 0,\n' +
   '  "education": "", "position_applied": ""\n' +
-  '}\n' +
-  'RULES — follow exactly:\n' +
-  'full_name: exact name from CV header or top section.\n' +
-  'email: exact email address from CV.\n' +
-  'mobile: phone number digits only, include country code digits if present.\n' +
-  'passport_no: exact passport or ID number as printed. Empty string if not found.\n' +
-  'nationality: country of citizenship exactly as written in the CV ' +
-  '(look in personal details, header, or objective section). ' +
-  'Empty string only if genuinely absent — do not guess.\n' +
-  'dob: date of birth in YYYY-MM-DD format. Empty string if not found.\n' +
-  'age: age as integer. Calculate from DOB if age not stated.\n' +
-  'trade: the EXACT primary job title or role as it appears in the CV. ' +
-  'Copy the title from the "Position Applied For", "Objective", or most recent job. ' +
-  'Do NOT rephrase, generalize, or translate to a different role family. ' +
-  'If CV says "Engine Officer" write "Engine Officer". ' +
-  'If CV says "Panchayat Secretary" write "Panchayat Secretary". ' +
-  'If CV says "QC Inspector" write "QC Inspector". ' +
-  'Never substitute a different trade.\n' +
-  'industry: the sector or industry the candidate has primarily worked in.\n' +
-  'experience_years: TOTAL years of professional work experience as a decimal number. ' +
-  'If the CV states a total (e.g. "12 years experience"), use that number. ' +
-  'Otherwise sum all individual job durations shown in the work history.\n' +
-  'gulf_experience_years: years worked specifically inside GCC countries ' +
-  '(UAE, Saudi Arabia, Qatar, Kuwait, Oman, Bahrain) as a decimal number. ' +
-  'Zero if none found.\n' +
-  'education: highest academic qualification.\n' +
-  'position_applied: exact text from any "Position Applied" or "Applying For" field. ' +
-  'Empty string if not present.\n' +
-  'Return ONLY the raw JSON object. No other text before or after.';
+  '}\n\n' +
+  'FIELD EXTRACTION RULES:\n' +
+  'full_name — COPY the name exactly as it appears at the top of the CV.\n' +
+  'email — COPY the email address exactly as written.\n' +
+  'mobile — COPY the phone number digits exactly, include country code digits if shown.\n' +
+  'passport_no — COPY the passport or national ID number exactly as printed. ' +
+  'Empty string if not found anywhere on the CV.\n' +
+  'nationality — COPY the exact word(s) from the "Nationality" or "Citizenship" field. ' +
+  'Look in personal details, header, and profile sections. ' +
+  'Empty string only if the word "nationality" or "citizenship" does not appear on the CV.\n' +
+  'dob — COPY the date of birth exactly, convert to YYYY-MM-DD format only.\n' +
+  'age — COPY the age number if stated. Zero if not found.\n' +
+  'trade — COPY the text from "Position Applied For", "Applying For", "Desired Position", ' +
+  'or "Career Objective" exactly as written. ' +
+  'If none of those sections exist, COPY the most recent job title exactly. ' +
+  'Do NOT change the words. Do NOT map to a different role.\n' +
+  'industry — COPY the industry or sector name as it appears on the CV. ' +
+  'Empty string if not stated.\n' +
+  'experience_years — COPY the number from any "Total Experience" or "Years of Experience" ' +
+  'statement as a number (e.g. "12 years experience" = 12). ' +
+  'If no total is stated, write the number of years from first employment year to 2026.\n' +
+  'gulf_experience_years — COPY the number of years worked in UAE, Saudi Arabia, Qatar, ' +
+  'Kuwait, Oman, or Bahrain if stated. Zero if not mentioned.\n' +
+  'education — COPY the highest qualification exactly as written.\n' +
+  'position_applied — COPY the text from "Position Applied", "Applying For", or ' +
+  '"Desired Role" field exactly. Empty string if not present.\n' +
+  'Return ONLY the raw JSON object. Nothing before it. Nothing after it.';
 
 /**
  * parseCv_ — parse one CV.
