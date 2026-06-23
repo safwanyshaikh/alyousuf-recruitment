@@ -30,11 +30,16 @@ function matchRequirement(reqId, opts) {
     if (!trade) return;
 
     var s = 0, reasons = [];
-    // Trade is the gate — exact or contains.
-    if (trade === reqTrade)            { s += 50; reasons.push('trade exact'); }
+    // Trade gate — exact, contains, or same role family.
+    var candFamily = getTradeFamily_(trade);
+    var reqFamily  = getTradeFamily_(reqTrade);
+    if (trade === reqTrade)
+      { s += 50; reasons.push('trade exact'); }
     else if (reqTrade && (trade.indexOf(reqTrade) >= 0 || reqTrade.indexOf(trade) >= 0))
-                                       { s += 35; reasons.push('trade related'); }
-    else return;                       // different trade → not a match
+      { s += 35; reasons.push('trade related'); }
+    else if (candFamily && reqFamily && candFamily === reqFamily)
+      { s += 25; reasons.push('trade family: ' + candFamily); }
+    else return;                       // different family → not a match
 
     var exp = parseFloat(c.Experience) || 0;
     if (exp >= reqMinExp)              { s += 20; reasons.push('exp ok (' + exp + 'y)'); }
