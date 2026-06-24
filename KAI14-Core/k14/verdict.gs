@@ -7,16 +7,15 @@
  *   evidencePrepare_(c)  — DETERMINISTIC. Produces FACTS. Decides NOTHING.
  *                          No thresholds. No classification. No scoring.
  *                          No trust points. Arithmetic + assembly only.
+ *                          Names every absence explicitly. Prepares source
+ *                          inputs for S3/S4/S6/S7 of the 7-source model.
  *
  *   kaiVerdict_(c)       — THE ONLY DECISION-MAKER. One Gemini call.
- *                          Reasons over raw evidence + prepared facts.
- *                          Decides positions, credibility, timeline,
- *                          regional confidence, and human-review need.
+ *                          Executes the 7-step Constitutional reasoning chain.
+ *                          Decides: positions · capability · credibility ·
+ *                          timeline · regional · human-review.
  *
- * Phase-1 scope: P1 Validation-Before-Acceptance · P2 Inference-Before-
- * Interrogation · P3 Experience Credibility · P4 Timeline Validation ·
- * P5 Location Intelligence · P13 Multi-Evidence Confidence · P14 Human-First.
- *
+ * 13 Constitutional Principles govern every reasoning step.
  * NO taxonomy. NO role families. NO keyword tables. NO ATS logic.
  * LOW / INCOHERENT / review-flag NEVER reject — they route to a human.
  *
@@ -49,183 +48,412 @@ var VERDICT_COLS = [
 function educationCompletionRange_(education) {
   var e = String(education || '').toLowerCase();
   if (!e.trim()) return null;
-  if (/ph\.?d|doctorate|d\.phil/.test(e))                       return { label: 'PhD',        min: 24, max: 27 };
-  if (/m\.?tech|m\.?e\b|m\.?sc|mba|m\.?phil|master/.test(e))    return { label: 'Masters',    min: 22, max: 25 };
+  if (/ph\.?d|doctorate|d\.phil/.test(e))                        return { label: 'PhD',       min: 24, max: 27 };
+  if (/m\.?tech|m\.?e\b|m\.?sc|mba|m\.?phil|master/.test(e))    return { label: 'Masters',   min: 22, max: 25 };
   if (/b\.?tech|b\.?e\b|b\.?sc|b\.?eng|b\.?com|b\.?a\b|bachelor|degree|graduat/.test(e))
-                                                                return { label: 'Degree',     min: 20, max: 23 };
-  if (/diploma|dip\./.test(e))                                  return { label: 'Diploma',    min: 18, max: 20 };
-  if (/iti|ncvt|ntc|trade cert|vocational/.test(e))            return { label: 'ITI/Trade',  min: 17, max: 19 };
+                                                                  return { label: 'Degree',    min: 20, max: 23 };
+  if (/diploma|dip\./.test(e))                                   return { label: 'Diploma',   min: 18, max: 20 };
+  if (/iti|ncvt|ntc|trade cert|vocational/.test(e))             return { label: 'ITI/Trade', min: 17, max: 19 };
   if (/ssc|hsc|sslc|matric|10th|12th|secondary|high school/.test(e))
-                                                                return { label: 'Secondary',  min: 16, max: 18 };
+                                                                  return { label: 'Secondary', min: 16, max: 18 };
   return null;  // present but unrecognized — Verdict reasons from the raw string
 }
 
 /**
  * evidencePrepare_ — DETERMINISTIC. Produces facts only. Decides nothing.
+ * Names every absence explicitly. Computes source-specific inputs for
+ * Sources S3, S4, S6, S7 of the 7-source credibility model.
  * @param {object} c — candidate object
  * @returns {object} facts assembled for the Verdict prompt
  */
 function evidencePrepare_(c) {
-  var age        = parseInt(c.Age, 10)            || 0;
-  var expClaimed = parseFloat(c.Experience)       || 0;
-  var gulfExp    = parseFloat(c.GulfExperience)   || 0;
+  var age        = parseInt(c.Age, 10)          || 0;
+  var expClaimed = parseFloat(c.Experience)     || 0;
+  var gulfExp    = parseFloat(c.GulfExperience) || 0;
   var eduRange   = educationCompletionRange_(c.Education);
+  var mobile     = String(c.Mobile || '').replace(/^'/, '').trim();
 
-  // Max possible experience — only when age exists. Use the EARLIEST completion
-  // age (most generous to the candidate) so the fact never overstates a concern.
-  var maxPossible = 'N/A — age absent';
-  var variance    = 'N/A';
-  if (age > 0 && eduRange) {
-    var mp = age - eduRange.min;
-    if (mp < 0) mp = 0;
+  // ── Age-based max possible experience ──
+  var maxPossible, variance;
+  if (age <= 0) {
+    maxPossible = 'N/A — age absent';
+    variance    = 'N/A — age absent';
+  } else if (!eduRange) {
+    maxPossible = 'N/A — education not recognized';
+    variance    = 'N/A — education not recognized';
+  } else {
+    var mp = Math.max(0, age - eduRange.min);
     maxPossible = mp;
     variance    = Math.round((expClaimed - mp) * 10) / 10;
-  } else if (age > 0 && !eduRange) {
-    maxPossible = 'N/A — education not recognized';
   }
 
-  // Gulf vs total — raw delta (positive = gulf exceeds total = impossible).
-  var gulfDelta = Math.round((gulfExp - expClaimed) * 10) / 10;
+  // ── Gulf coherence inputs (S3) ──
+  var gulfDelta      = Math.round((gulfExp - expClaimed) * 10) / 10;
+  var gulfImpossible = gulfExp > 0 && expClaimed > 0 && gulfExp > expClaimed;
+  var gulfPresent    = gulfExp > 0;
 
-  // Location evidence stack — assembled, NOT judged. Country detection is a
-  // byproduct; the stack + (later) KAI inference are the deliverable.
-  var mobile = String(c.Mobile || '').replace(/^'/, '').trim();
+  // ── Location evidence stack (S7) ──
   var stack = [];
-  if (mobile)          stack.push('mobile: ' + mobile);
-  if (normText_(c.Nationality)) stack.push('nationality: ' + normText_(c.Nationality));
-  if (gulfExp > 0)     stack.push('gulf experience: ' + gulfExp + 'y');
-  if (normText_(c.Industry))    stack.push('industry: ' + normText_(c.Industry));
+  if (mobile)                           stack.push('mobile: ' + mobile);
+  if (normText_(c.Nationality))         stack.push('nationality: ' + normText_(c.Nationality));
+  if (gulfPresent)                      stack.push('gulf experience: ' + gulfExp + 'y');
+  if (normText_(c.Industry))            stack.push('industry: ' + normText_(c.Industry));
+  if (normText_(c.PositionApplied))     stack.push('applied for: ' + normText_(c.PositionApplied));
 
-  // Identity evidence presence — plain facts, NO trust points, NO scoring.
+  // ── Identity evidence ──
   var identityFacts =
     'passport ' + (normText_(c.PassportNo) ? 'present' : 'absent') + '; ' +
     'email '    + (normText_(c.Email)      ? 'present' : 'absent') + '; ' +
     'mobile '   + (mobile                  ? 'present' : 'absent');
 
+  // ── Credential indicator (S6) ──
+  var credentialIndicator = eduRange
+    ? (eduRange.label + ' — recognized credential type')
+    : (normText_(c.Education)
+        ? 'Education present but type unrecognized by intake parser'
+        : 'Education absent');
+
+  // ── Project / industry evidence (S4) ──
+  var projectEvidence = normText_(c.Industry)
+    ? 'Industry: ' + normText_(c.Industry)
+    : 'industry absent';
+
+  // ── Explicit absence list for Evidence Inventory step (P1) ──
+  var absent = [];
+  if (age <= 0)                          absent.push('Age');
+  if (!normText_(c.Education))           absent.push('Education');
+  if (!normText_(c.Trade))               absent.push('Current/Recent Title');
+  if (!normText_(c.PositionApplied))     absent.push('Position Applied For');
+  if (!normText_(c.Nationality))         absent.push('Nationality');
+  if (!normText_(c.Industry))            absent.push('Industry');
+  if (!gulfPresent)                      absent.push('Gulf Experience');
+  if (!mobile)                           absent.push('Mobile');
+  if (!normText_(c.PassportNo))          absent.push('Passport');
+  if (!normText_(c.Email))               absent.push('Email');
+
   return {
-    age: age,
-    expClaimed: expClaimed,
-    gulfExp: gulfExp,
-    eduRange: eduRange,
-    maxPossible: maxPossible,
-    variance: variance,
-    gulfDelta: gulfDelta,
-    stack: stack,
-    identityFacts: identityFacts
+    age:                 age,
+    expClaimed:          expClaimed,
+    gulfExp:             gulfExp,
+    eduRange:            eduRange,
+    maxPossible:         maxPossible,
+    variance:            variance,
+    gulfDelta:           gulfDelta,
+    gulfImpossible:      gulfImpossible,
+    gulfPresent:         gulfPresent,
+    stack:               stack,
+    identityFacts:       identityFacts,
+    credentialIndicator: credentialIndicator,
+    projectEvidence:     projectEvidence,
+    absentFields:        absent
   };
 }
 
 /**
- * buildVerdictPrompt_ — assemble the reasoning prompt from raw evidence + facts.
- * Facts are presented as EVIDENCE. The prompt asks KAI to REASON, never to
- * apply a threshold.
+ * buildVerdictPrompt_ — assemble the 7-step Constitutional reasoning prompt.
+ * The 13 Principles govern every step. Facts are EVIDENCE, not rules.
+ * Gemini executes the full chain in one call and returns the complete JSON.
  */
 function buildVerdictPrompt_(c, f) {
   var eduRangeStr = f.eduRange
-    ? f.eduRange.label + ' (typically completed age ' + f.eduRange.min + '-' + f.eduRange.max + ')'
+    ? f.eduRange.label + ' (typically completed age ' + f.eduRange.min + '–' + f.eduRange.max + ')'
     : 'not recognized / not stated';
 
-  return '' +
-  'You are KAI — a Human Intelligence recruitment engine.\n' +
-  'Reason from evidence. A job title is a signal, not a conclusion.\n' +
-  'Education indicates qualification level. Experience indicates depth.\n' +
-  'You DECIDE every judgment below. The numbers given are EVIDENCE, not rules.\n' +
-  'Never reject a candidate. When evidence is thin or conflicting, lower your\n' +
-  'confidence and set human_review = true. Missing data is normal — reason from\n' +
-  'whatever evidence exists and say what is missing.\n\n' +
+  var absentStr = f.absentFields.length
+    ? f.absentFields.join(', ')
+    : 'none — all key fields present';
 
-  'CANDIDATE EVIDENCE (verbatim from CV):\n' +
-  '  Position Applied For : ' + (normText_(c.PositionApplied) || '(not stated)') + '\n' +
-  '  Current/Recent Title : ' + (normText_(c.Trade)           || '(not stated)') + '\n' +
-  '  Education            : ' + (normText_(c.Education)        || '(not stated)') + '\n' +
-  '  Total Experience     : ' + f.expClaimed + ' years\n' +
-  '  Gulf Experience      : ' + f.gulfExp + ' years\n' +
-  '  Industry             : ' + (normText_(c.Industry)        || '(not stated)') + '\n' +
-  '  Age                  : ' + (f.age > 0 ? f.age + ' years' : '(not stated)') + '\n' +
-  '  Nationality          : ' + (normText_(c.Nationality)     || '(not stated)') + '\n\n' +
+  return (
+'You are KAI — the Human Intelligence recruitment reasoning engine.\n' +
+'Your task: execute the 7-step Constitutional reasoning chain below and return\n' +
+'a single JSON verdict. Do NOT shortcut, skip, or merge steps.\n\n' +
 
-  'PREPARED FACTS (arithmetic evidence — reason with these, do not just echo):\n' +
-  '  Education completion band : ' + eduRangeStr + '\n' +
-  '  Max possible experience   : ' + f.maxPossible + '\n' +
-  '  Experience variance       : ' + f.variance +
-        '   (positive = claim exceeds the generous maximum)\n' +
-  '  Gulf-vs-Total delta       : ' + f.gulfDelta +
-        '   (positive = Gulf exceeds Total = impossible)\n' +
-  '  Identity evidence         : ' + f.identityFacts + '\n' +
-  '  Location evidence stack   : ' + (f.stack.length ? f.stack.join(' | ') : '(none)') + '\n\n' +
+'══════════════════════════════════════════════════════\n' +
+'13 CONSTITUTIONAL PRINCIPLES (govern every step)\n' +
+'══════════════════════════════════════════════════════\n' +
+'P1  Evidence Inventory First — enumerate what IS present and what is ABSENT\n' +
+'    before any judgment. Named absences are inputs, not disqualifiers.\n' +
+'P2  Inference Before Interrogation — reason from available evidence;\n' +
+'    never penalize a candidate for data that was simply not collected.\n' +
+'P3  Capability Is What Was Done — capability_domain is plain English describing\n' +
+'    demonstrated field of work. No taxonomy. No role families. No keywords.\n' +
+'P4  Capability Wins — when capability and credential disagree, capability\n' +
+'    governs position generation. Always. A B.E. Mechanical who has spent\n' +
+'    8 years in piping engineering IS a Piping Engineer, not a Mechanical\n' +
+'    Engineer. 8 years in HSE IS an HSE professional, not a civil engineer.\n' +
+'P5  Credential Extends or Confirms — education is positioned relative to\n' +
+'    demonstrated capability. Education NEVER overrides career trajectory.\n' +
+'P6  Seven Sources — confidence and credibility emerge from corroboration\n' +
+'    across 7 independent sources. Count is context, not a rule. One hard\n' +
+'    CONTRADICTS (Gulf > Total) may outweigh several SUPPORTS.\n' +
+'P7  Absence Is Neutral — evidence absence is NEUTRAL unless other evidence\n' +
+'    actively contradicts it. Never treat absence as contradiction.\n' +
+'P8  Credibility Is Not Age-Centric — experience_credibility reasons from\n' +
+'    internal coherence of the whole evidence picture. When age is absent,\n' +
+'    judge on role-title progression, gulf-vs-total coherence, and seniority\n' +
+'    consistency. Do NOT default to LOW when age is absent.\n' +
+'P9  Capability Level Is Inferred — infer capability_level from duration,\n' +
+'    complexity, environment, and consistency. No fixed year bands ever.\n' +
+'P10 qual_risk Is Always False at Intake — qual_risk is requirement-specific.\n' +
+'    It has no meaning at intake. Always return false.\n' +
+'P11 Human Review Is Success — LOW credibility, INCOHERENT timeline, thin\n' +
+'    identity (all three absent), or critical missing evidence routes to a\n' +
+'    human. This is the engine working correctly. Never minimize it.\n' +
+'P12 Three Positions From Capability — all three positions are capability-driven.\n' +
+'    No credential fallback for position3. Gemini decides all three from\n' +
+'    demonstrated work evidence. Empty string if no third can be inferred.\n' +
+'P13 qual_level Is Credential Vocabulary Only — exactly one of:\n' +
+'    Degree | Diploma | ITI Trade | Certification Based | Unknown.\n' +
+'    Never an occupational label (not "Engineer", not "Technician").\n\n' +
 
-  'Return ONLY this JSON (no markdown, no code fences):\n' +
-  '{\n' +
-  '  "position1": "", "position2": "", "position3": "",\n' +
-  '  "qual_level": "", "qual_note": "", "cap_summary": "", "confidence": 0,\n' +
-  '  "experience_credibility": "", "credibility_reasoning": "",\n' +
-  '  "timeline_credibility": "", "timeline_notes": "",\n' +
-  '  "regional_confidence": "", "inference_notes": "",\n' +
-  '  "human_review": false\n' +
-  '}\n\n' +
+'══════════════════════════════════════════════════════\n' +
+'CANDIDATE EVIDENCE (verbatim from CV)\n' +
+'══════════════════════════════════════════════════════\n' +
+'Position Applied For : ' + (normText_(c.PositionApplied) || '(absent)') + '\n' +
+'Current/Recent Title : ' + (normText_(c.Trade)           || '(absent)') + '\n' +
+'Education            : ' + (normText_(c.Education)       || '(absent)') + '\n' +
+'Total Experience     : ' + (f.expClaimed > 0 ? f.expClaimed + ' years' : '(absent)') + '\n' +
+'Gulf Experience      : ' + (f.gulfPresent ? f.gulfExp + ' years' : '(absent)') + '\n' +
+'Industry             : ' + (normText_(c.Industry)        || '(absent)') + '\n' +
+'Age                  : ' + (f.age > 0 ? f.age + ' years' : '(absent)') + '\n' +
+'Nationality          : ' + (normText_(c.Nationality)     || '(absent)') + '\n\n' +
 
-  'HOW TO DECIDE EACH FIELD:\n' +
-  'position1/2/3 — The three positions this human can most credibly hold, best\n' +
-  '  first. May rank ABOVE or BELOW the claimed title depending on evidence.\n' +
-  '  Reason from education + experience + industry + history. No lookup tables.\n' +
-  'qual_level — One of: "Degree Engineer" | "Diploma Technician" | "Trade\n' +
-  '  Certified" | "Experienced Professional" | "Unknown". From education evidence\n' +
-  '  only. If education is absent, "Unknown" — do NOT penalize, infer from work.\n' +
-  'qual_note — Note any qualification gap relative to the claimed title. Note GCC\n' +
-  '  reality: "Diploma Engineer", "Site Engineer", "Junior Engineer" are common\n' +
-  '  and NOT problems. Empty if nothing notable.\n' +
-  'cap_summary — One sentence on what this human can demonstrably do.\n' +
-  'confidence — 0-100 in position1. Lower it when key evidence (age, education,\n' +
-  '  applied position) is missing or signals conflict.\n' +
-  'experience_credibility — YOU decide: "HIGH" | "MEDIUM" | "LOW". Ask: can this\n' +
-  '  claimed experience realistically exist given the band, variance, and title?\n' +
-  '  When age is absent, judge on internal coherence, not a formula.\n' +
-  'credibility_reasoning — One sentence citing the evidence behind your call.\n' +
-  'timeline_credibility — YOU decide: "COHERENT" | "MINOR_GAPS" | "INCOHERENT".\n' +
-  '  Reason across education, employment span, seniority progression, and the\n' +
-  '  Gulf-vs-Total delta. Gulf exceeding Total, or seniority impossible for the\n' +
-  '  years, is INCOHERENT.\n' +
-  'timeline_notes — One sentence on what you observed in the chronology.\n' +
-  'regional_confidence — From the location evidence stack, your judgment of where\n' +
-  '  this candidate is established, e.g. "Saudi: High", "UAE: Medium", "Unclear".\n' +
-  '  Country detection is incidental — the reasoning matters.\n' +
-  'inference_notes — One sentence explaining the regional inference and any gap.\n' +
-  'human_review — true if anything (LOW credibility, INCOHERENT timeline, thin\n' +
-  '  identity, missing critical evidence) warrants a recruiter looking. Never\n' +
-  '  reject — flag.\n\n' +
-  'Return ONLY the raw JSON object. Nothing before it. Nothing after it.';
+'══════════════════════════════════════════════════════\n' +
+'PREPARED ARITHMETIC FACTS (do not re-compute — use as inputs)\n' +
+'══════════════════════════════════════════════════════\n' +
+'Education completion band : ' + eduRangeStr + '\n' +
+'Max possible experience   : ' + f.maxPossible + '\n' +
+'Experience variance       : ' + f.variance + '   (positive = claim exceeds generous max)\n' +
+'Gulf-vs-Total delta       : ' + f.gulfDelta + '   (positive = Gulf > Total = impossible)\n' +
+'Gulf impossible flag      : ' + (f.gulfImpossible
+    ? 'YES — Gulf (' + f.gulfExp + 'y) exceeds Total (' + f.expClaimed + 'y)'
+    : 'no') + '\n' +
+'Credential indicator (S6) : ' + f.credentialIndicator + '\n' +
+'Project / industry (S4)   : ' + f.projectEvidence + '\n' +
+'Identity evidence         : ' + f.identityFacts + '\n' +
+'Location stack (S7)       : ' + (f.stack.length ? f.stack.join(' | ') : '(none)') + '\n' +
+'Named absences (P1)       : ' + absentStr + '\n\n' +
+
+'══════════════════════════════════════════════════════\n' +
+'7-STEP CONSTITUTIONAL REASONING CHAIN\n' +
+'Execute in order. Do not skip. Do not output partial JSON mid-chain.\n' +
+'══════════════════════════════════════════════════════\n\n' +
+
+'STEP 1 — EVIDENCE INVENTORY (P1, P7)\n' +
+'  Enumerate what IS present from the evidence above.\n' +
+'  Enumerate what is ABSENT using the named absences list.\n' +
+'  Apply P7: each absence is NEUTRAL unless other evidence actively\n' +
+'  contradicts it. Do not penalize. Do not assume.\n\n' +
+
+'STEP 2 — CAPABILITY INTELLIGENCE (P3, P4, P9)\n' +
+'  From work history, title, industry, duration, and environment:\n' +
+'  capability_domain — plain English field this person has demonstrated.\n' +
+'    Examples: "piping engineering", "HSE management", "civil construction",\n' +
+'    "electrical installation", "quantity surveying". No taxonomy.\n' +
+'  capability_level — Gemini-inferred from duration + complexity + environment\n' +
+'    + consistency. Examples: "entry-level practitioner", "mid-career\n' +
+'    specialist", "senior practitioner", "expert". No fixed year bands (P9).\n' +
+'  capability_clarity — HIGH | MEDIUM | LOW. How clearly does the evidence\n' +
+'    establish the domain? Multiple consistent titles in one domain = HIGH.\n' +
+'    Single vague title = LOW. Conflicting domains = LOW.\n\n' +
+
+'STEP 3 — CREDENTIAL VALIDATION (P5, P13)\n' +
+'  credential_relationship — one of:\n' +
+'    EXTENDS (education goes beyond or deepens the capability claim)\n' +
+'    CONFIRMS (education subject aligns with demonstrated work)\n' +
+'    IRRELEVANT (education subject unrelated to demonstrated work)\n' +
+'    ABSENT (no education data available)\n' +
+'  credential_contribution — one sentence on how education contributes to\n' +
+'    understanding this candidate\'s capability. This is a note, not a verdict.\n' +
+'    Example: "B.E. Mechanical provides foundational theory that supports but\n' +
+'    does not define 8 years of specialist piping engineering practice."\n' +
+'  qual_level — exactly one of (P13): Degree | Diploma | ITI Trade |\n' +
+'    Certification Based | Unknown. From education evidence only.\n' +
+'  qual_note — note anything about the qualification worth flagging for a\n' +
+'    recruiter. GCC context: Diploma Engineer is normal, not a concern.\n' +
+'    Empty string if nothing notable.\n' +
+'  qual_risk — always false at intake (P10).\n\n' +
+
+'STEP 4 — MULTI-EVIDENCE CREDIBILITY (P6, P7, P8)\n' +
+'  Assess each source independently. Return SUPPORTS | NEUTRAL | CONTRADICTS.\n\n' +
+'  S1 Age (biological timeline check)\n' +
+'    Is claimed experience physically possible given age and eduRange.min?\n' +
+'    Age absent → NEUTRAL (P7). Do not default to LOW because age is absent.\n' +
+'  S2 Education (credential-experience alignment)\n' +
+'    Does the education level fit the seniority and role complexity claimed?\n' +
+'  S3 Gulf (regional coherence)\n' +
+'    Is gulf experience plausible vs total? Gulf > Total = CONTRADICTS.\n' +
+'    Gulf absent but high total claimed in region = NEUTRAL (P7).\n' +
+'  S4 Project (industry / project context)\n' +
+'    Does the industry context support the depth and specialisation claimed?\n' +
+'  S5 Role (title and career progression)\n' +
+'    Does title progression reflect realistic career growth in this domain?\n' +
+'    An established HSE professional is not a civil engineer (P4).\n' +
+'  S6 Credential (formal qualification as independent signal)\n' +
+'    Does the qualification level, as a standalone signal, align with the\n' +
+'    seniority and experience claimed?\n' +
+'  S7 Regional (location evidence stack)\n' +
+'    Does the location stack (mobile, nationality, gulf) support realistic\n' +
+'    employment in the claimed region?\n\n' +
+'  After assessing all 7 sources:\n' +
+'  sources_supporting — count of SUPPORTS verdicts\n' +
+'  sources_contradicting — count of CONTRADICTS verdicts\n' +
+'  experience_credibility — YOU reason to HIGH | MEDIUM | LOW (P6, P8).\n' +
+'    Count is context, not a rule. Reason from the dominant evidence picture.\n' +
+'    A hard CONTRADICTS (Gulf > Total) can outweigh multiple SUPPORTS.\n' +
+'    When age is absent, judge coherence from the other 6 sources (P8).\n' +
+'  credibility_reasoning — one sentence citing dominant evidence behind\n' +
+'    your credibility call.\n\n' +
+
+'STEP 5 — POSITION GENERATION (P4, P12)\n' +
+'  Generate three positions from demonstrated capability (P4, P12).\n' +
+'  position1 — primary capability position. May be ABOVE or BELOW claimed\n' +
+'    title when evidence warrants. Capability governs, not the title given.\n' +
+'  position2 — next most credible alternative or adjacent position in the\n' +
+'    same capability domain or a closely related one.\n' +
+'  position3 — third position, also capability-driven (P12). NOT a\n' +
+'    credential fallback. NOT "Junior X" because of a degree. A genuine\n' +
+'    third capability statement, or empty string if none can be responsibly\n' +
+'    inferred from the evidence.\n\n' +
+
+'STEP 6 — CONFIDENCE AND HUMAN REVIEW (P11)\n' +
+'  confidence — 0 to 100. Your reasoning-based confidence in position1.\n' +
+'    No caps. No floors. Earn it from genuine corroboration across sources.\n' +
+'  human_review — true if ANY of the following:\n' +
+'    · experience_credibility is LOW\n' +
+'    · timeline_credibility is INCOHERENT\n' +
+'    · identity is thin (passport AND email AND mobile all absent)\n' +
+'    · critical evidence is absent that would materially change the verdict\n' +
+'    Human review is intelligence success (P11). Do NOT minimize it.\n' +
+'  human_review_reason — one sentence for the recruiter: what to verify.\n' +
+'    Empty string if human_review is false.\n\n' +
+
+'STEP 7 — VERDICT ASSEMBLY\n' +
+'  Compile all fields into the final JSON.\n' +
+'  timeline_credibility — COHERENT | MINOR_GAPS | INCOHERENT.\n' +
+'    Reason across education span, employment duration, seniority\n' +
+'    progression, and the Gulf-vs-Total delta.\n' +
+'  timeline_notes — one sentence on what you observed in the chronology.\n' +
+'  regional_confidence — plain English judgment of where this candidate\n' +
+'    is regionally established. Examples: "Saudi: High", "UAE: Medium",\n' +
+'    "India-based, no GCC presence evident", "Region unclear".\n' +
+'  inference_notes — one sentence on the regional inference and any gap.\n' +
+'  cap_summary — one sentence on what this human can demonstrably do.\n\n' +
+
+'══════════════════════════════════════════════════════\n' +
+'RETURN ONLY THIS JSON — NO MARKDOWN, NO CODE FENCES, NOTHING ELSE\n' +
+'══════════════════════════════════════════════════════\n' +
+'{\n' +
+'  "position1": "",\n' +
+'  "position2": "",\n' +
+'  "position3": "",\n' +
+'  "capability_domain": "",\n' +
+'  "capability_level": "",\n' +
+'  "capability_clarity": "",\n' +
+'  "credential_relationship": "",\n' +
+'  "credential_contribution": "",\n' +
+'  "qual_level": "",\n' +
+'  "qual_note": "",\n' +
+'  "qual_risk": false,\n' +
+'  "cap_summary": "",\n' +
+'  "confidence": 0,\n' +
+'  "source_s1_age": "",\n' +
+'  "source_s2_education": "",\n' +
+'  "source_s3_gulf": "",\n' +
+'  "source_s4_project": "",\n' +
+'  "source_s5_role": "",\n' +
+'  "source_s6_credential": "",\n' +
+'  "source_s7_regional": "",\n' +
+'  "sources_supporting": 0,\n' +
+'  "sources_contradicting": 0,\n' +
+'  "experience_credibility": "",\n' +
+'  "credibility_reasoning": "",\n' +
+'  "timeline_credibility": "",\n' +
+'  "timeline_notes": "",\n' +
+'  "regional_confidence": "",\n' +
+'  "inference_notes": "",\n' +
+'  "human_review": false,\n' +
+'  "human_review_reason": ""\n' +
+'}'
+  );
 }
 
 /**
- * kaiVerdict_ — THE decision-maker. One Gemini call. Reasons over everything.
+ * kaiVerdict_ — THE decision-maker. One Gemini call. 7-step Constitutional chain.
+ * Maps expanded JSON schema to the 19 existing verdict columns.
  * @param {object} c — candidate object
- * @returns {object} prepared facts + verdict decisions, merged
+ * @returns {object} prepared facts + verdict decisions, ready for verdictWriteRow_
  */
 function kaiVerdict_(c) {
   var f = evidencePrepare_(c);
   var j = geminiJson(buildVerdictPrompt_(c, f), null);
 
+  // ── KAIQualNote: credential_contribution (primary) + qual_note if distinct ──
+  var credContrib  = normText_(j.credential_contribution) || '';
+  var qualNoteRaw  = normText_(j.qual_note)               || '';
+  var qualNote     = (credContrib && qualNoteRaw && credContrib !== qualNoteRaw)
+    ? credContrib + ' | ' + qualNoteRaw
+    : (credContrib || qualNoteRaw);
+
+  // ── KAICredReasoning: reasoning sentence + all 7 source verdicts ──
+  var sourcesSummary = [
+    'S1-Age:'  + (normText_(j.source_s1_age)         || '?'),
+    'S2-Edu:'  + (normText_(j.source_s2_education)   || '?'),
+    'S3-Gulf:' + (normText_(j.source_s3_gulf)        || '?'),
+    'S4-Proj:' + (normText_(j.source_s4_project)     || '?'),
+    'S5-Role:' + (normText_(j.source_s5_role)        || '?'),
+    'S6-Cred:' + (normText_(j.source_s6_credential)  || '?'),
+    'S7-Reg:'  + (normText_(j.source_s7_regional)    || '?')
+  ].join(' | ');
+  var credReasoning =
+    (normText_(j.credibility_reasoning) || '') +
+    ' [' + sourcesSummary + ']' +
+    ' sup=' + (parseInt(j.sources_supporting,    10) || 0) +
+    ' con=' + (parseInt(j.sources_contradicting, 10) || 0);
+
+  // ── KAIEvidenceStack: location stack + capability domain + level ──
+  var stackParts = [];
+  if (f.stack.length)                    stackParts.push(f.stack.join(' | '));
+  if (normText_(j.capability_domain))    stackParts.push('domain:' + normText_(j.capability_domain));
+  if (normText_(j.capability_level))     stackParts.push('level:' + normText_(j.capability_level));
+  var evidenceStack = stackParts.join(' || ');
+
+  // ── KAIInferenceNotes: domain + level + clarity + inference_notes ──
+  var inferParts = [];
+  if (normText_(j.capability_domain))    inferParts.push('domain:' + normText_(j.capability_domain));
+  if (normText_(j.capability_level))     inferParts.push('level:' + normText_(j.capability_level));
+  if (normText_(j.capability_clarity))   inferParts.push('clarity:' + normText_(j.capability_clarity));
+  if (normText_(j.inference_notes))      inferParts.push(normText_(j.inference_notes));
+  var inferenceNotes = inferParts.join(' | ');
+
+  // ── KAIHumanReview: 'REVIEW — [reason]' or '' ──
+  var humanReview = (j.human_review === true || String(j.human_review).toLowerCase() === 'true');
+  var humanReviewVal = humanReview
+    ? 'REVIEW — ' + (normText_(j.human_review_reason) || 'recruiter review required')
+    : '';
+
   return {
-    // facts (from prep)
+    // facts (from prep — deterministic)
     exp_claimed:      f.expClaimed,
     exp_max_possible: f.maxPossible,
     exp_variance:     f.variance,
-    evidence_stack:   f.stack.join(' | '),
-    // decisions (from Verdict)
+    evidence_stack:   evidenceStack,
+    // decisions (from Verdict — one Gemini call)
     position1:        normText_(j.position1)  || '',
     position2:        normText_(j.position2)  || '',
     position3:        normText_(j.position3)  || '',
     qual_level:       normText_(j.qual_level) || 'Unknown',
-    qual_note:        normText_(j.qual_note)  || '',
-    cap_summary:      normText_(j.cap_summary)|| '',
+    qual_note:        qualNote,
+    cap_summary:      normText_(j.cap_summary) || '',
     confidence:       parseInt(j.confidence, 10) || 0,
     exp_credibility:  normText_(j.experience_credibility) || 'MEDIUM',
-    cred_reasoning:   normText_(j.credibility_reasoning)  || '',
-    timeline_cred:    normText_(j.timeline_credibility)   || '',
-    timeline_notes:   normText_(j.timeline_notes)         || '',
-    regional_conf:    normText_(j.regional_confidence)    || '',
-    inference_notes:  normText_(j.inference_notes)        || '',
-    human_review:     (j.human_review === true || String(j.human_review).toLowerCase() === 'true')
+    cred_reasoning:   credReasoning,
+    timeline_cred:    normText_(j.timeline_credibility) || '',
+    timeline_notes:   normText_(j.timeline_notes)       || '',
+    regional_conf:    normText_(j.regional_confidence)  || '',
+    inference_notes:  inferenceNotes,
+    human_review:     humanReview,
+    human_review_val: humanReviewVal
   };
 }
 
@@ -270,10 +498,9 @@ function verdictWriteRow_(sh, colMap, row, v) {
   put('KAICapSummary',v.cap_summary);
   putNum('KAIConfidence', v.confidence, '0');
 
-  putNum('KAIExpClaimed',     v.exp_claimed, '0.#');
-  // max/variance may be a number or an "N/A …" string; '0.#' is ignored for text.
-  putNum('KAIExpMaxPossible', v.exp_max_possible, '0.#');
-  putNum('KAIExpVariance',    v.exp_variance, '0.#');
+  putNum('KAIExpClaimed',     v.exp_claimed,      '0.#');
+  putNum('KAIExpMaxPossible', v.exp_max_possible,  '0.#');
+  putNum('KAIExpVariance',    v.exp_variance,      '0.#');
   put('KAIExpCredibility', v.exp_credibility);
   put('KAICredReasoning',  v.cred_reasoning);
 
@@ -284,7 +511,7 @@ function verdictWriteRow_(sh, colMap, row, v) {
   put('KAIRegionalConf',   v.regional_conf);
   put('KAIInferenceNotes', v.inference_notes);
 
-  put('KAIHumanReview', v.human_review ? 'REVIEW' : '');
+  put('KAIHumanReview', v.human_review_val);
   put('KAIVerdictAt',   K14_now_());
 }
 
@@ -323,10 +550,10 @@ function kaiVerdictBatch() {
         '  Qual Level:      ' + v.qual_level + (v.qual_note ? '  [' + v.qual_note + ']' : '') + '\n' +
         '  Exp:             claimed=' + v.exp_claimed +
               '  max=' + v.exp_max_possible + '  var=' + v.exp_variance + '\n' +
-        '  Exp Credibility: ' + v.exp_credibility + '  — ' + v.cred_reasoning + '\n' +
+        '  Exp Credibility: ' + v.exp_credibility + '\n' +
         '  Timeline:        ' + v.timeline_cred + '  — ' + v.timeline_notes + '\n' +
-        '  Regional:        ' + v.regional_conf + '  — ' + v.inference_notes + '\n' +
-        '  Human Review:    ' + (v.human_review ? 'YES' : 'no') + '\n' +
+        '  Regional:        ' + v.regional_conf + '\n' +
+        '  Human Review:    ' + (v.human_review ? v.human_review_val : 'no') + '\n' +
         '  Summary:         ' + v.cap_summary
       );
     } catch (e) {
