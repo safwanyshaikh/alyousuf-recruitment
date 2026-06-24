@@ -120,7 +120,9 @@ function verdictWriteRow_(sh, colMap, row, v) {
   sh.getRange(row, colMap['KAIPosition3']).setValue(v.position3);
   sh.getRange(row, colMap['KAIQualLevel']).setValue(v.qual_level);
   sh.getRange(row, colMap['KAICapSummary']).setValue(v.cap_summary);
-  sh.getRange(row, colMap['KAIConfidence']).setValue(v.confidence);
+  var confCell = sh.getRange(row, colMap['KAIConfidence']);
+  confCell.setNumberFormat('0');
+  confCell.setValue(v.confidence);
   sh.getRange(row, colMap['KAIQualNote']).setValue(v.qual_note);
   sh.getRange(row, colMap['KAIVerdictAt']).setValue(K14_now_());
 }
