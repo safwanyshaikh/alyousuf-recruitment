@@ -225,7 +225,20 @@ function buildVerdictPrompt_(c, f) {
 '    impossible arithmetic, then HIGH credibility remains fully valid.\n' +
 '    Age absence removes one corroborating source. It never becomes a\n' +
 '    contradiction. Never downgrade credibility solely because age is\n' +
-'    unavailable.\n\n' +
+'    unavailable.\n' +
+'P16 Maximise Deployment Intelligence — Never Repeat Qualification As A\n' +
+'    Position. Qualification is already captured separately in qual_level,\n' +
+'    education, and credential_contribution. A position that merely restates\n' +
+'    the educational discipline (e.g. recommending "Mechanical Engineer" for\n' +
+'    a B.E. Mechanical holder who has actually worked 8 years in piping)\n' +
+'    contributes almost no new recruiter value — the recruiter already knows\n' +
+'    the degree. Every recommended position must add NEW deployment value.\n' +
+'    Recommend adjacent roles supported by demonstrated work evidence —\n' +
+'    actual experience, industry, projects, tools, responsibilities, career\n' +
+'    progression — NOT roles derived solely from the qualification. The\n' +
+'    qualification informs reasoning; it does not consume a position slot.\n' +
+'    Each of the three positions must broaden deployable capability inside\n' +
+'    the demonstrated career domain, not duplicate evidence stored elsewhere.\n\n' +
 
 '══════════════════════════════════════════════════════\n' +
 'CANDIDATE EVIDENCE (verbatim from CV)\n' +
@@ -328,10 +341,11 @@ function buildVerdictPrompt_(c, f) {
 '  credibility_reasoning — one sentence citing dominant evidence behind\n' +
 '    your credibility call.\n\n' +
 
-'STEP 5 — POSITION GENERATION (P4, P12, P14)\n' +
+'STEP 5 — POSITION GENERATION (P4, P12, P14, P16)\n' +
 '  Generate three positions from demonstrated capability. Apply the\n' +
-'  following mandatory priority order:\n\n' +
-'  position1 — HIGHEST DEMONSTRATED CAPABILITY.\n' +
+'  following mandatory priority order. Each position must add UNIQUE\n' +
+'  recruiter value and expand deployment opportunity (P16).\n\n' +
+'  position1 — HIGHEST DEPLOYABLE CAPABILITY.\n' +
 '    Ask: given ALL evidence (education + years + industry + progression +\n' +
 '    credential + gulf), what is the most senior role this person can\n' +
 '    credibly perform? This may be ABOVE their current title. It may be a\n' +
@@ -341,14 +355,27 @@ function buildVerdictPrompt_(c, f) {
 '    Piping Engineer, not a Piping Draftsman, even if that was their title.\n' +
 '    A candidate with 8 years of consistent HSE work is an HSE professional,\n' +
 '    not a civil engineer, even if their degree is civil.\n' +
-'  position2 — MOST PROBABLE ADJACENT CAPABILITY.\n' +
-'    The next most credible capability — adjacent domain, or the same\n' +
-'    domain at a different seniority level warranted by evidence.\n' +
+'  position2 — MOST DEPLOYABLE ADJACENT CAPABILITY (within the demonstrated\n' +
+'    career domain).\n' +
+'    The closest adjacent role that BROADENS deployment inside the domain\n' +
+'    the candidate has actually worked in. It must be supported by demonstrated\n' +
+'    work evidence (experience, industry, projects, tools, responsibilities),\n' +
+'    NOT by the educational qualification (P16).\n' +
+'    PROHIBITED: restating the educational discipline as position2. For a\n' +
+'    B.E. Mechanical holder with 8 years of piping work, position2 is\n' +
+'    "Piping Designer" (broadens piping deployment) — NOT "Mechanical\n' +
+'    Engineer" (merely repeats the degree already captured in qual_level).\n' +
 '  position3 — STRONGEST HISTORICALLY EVIDENCED ROLE.\n' +
 '    The most concrete role directly supported by documented title history.\n' +
 '    This is where the current or past designation belongs if it represents\n' +
 '    a real capability ceiling. May be empty string if positions 1 and 2\n' +
 '    already fully represent the evidence.\n\n' +
+'  SELF-CHECK before returning position2 and position3 — ask for each:\n' +
+'    "Does this recommendation add NEW deployment intelligence, or does it\n' +
+'     merely repeat the qualification already stored in qual_level?"\n' +
+'    If it merely repeats the qualification without adding deployment value,\n' +
+'    discard it and choose a better adjacent capability from demonstrated\n' +
+'    work evidence (P16).\n\n' +
 '  PROHIBITED ORDERING: current title → related title → past title.\n' +
 '  That is ATS title-matching behaviour. KAI does not do this.\n\n' +
 
