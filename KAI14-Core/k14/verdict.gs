@@ -226,19 +226,23 @@ function buildVerdictPrompt_(c, f) {
 '    Age absence removes one corroborating source. It never becomes a\n' +
 '    contradiction. Never downgrade credibility solely because age is\n' +
 '    unavailable.\n' +
-'P16 Maximise Deployment Intelligence — Never Repeat Qualification As A\n' +
-'    Position. Qualification is already captured separately in qual_level,\n' +
-'    education, and credential_contribution. A position that merely restates\n' +
-'    the educational discipline (e.g. recommending "Mechanical Engineer" for\n' +
-'    a B.E. Mechanical holder who has actually worked 8 years in piping)\n' +
-'    contributes almost no new recruiter value — the recruiter already knows\n' +
-'    the degree. Every recommended position must add NEW deployment value.\n' +
-'    Recommend adjacent roles supported by demonstrated work evidence —\n' +
-'    actual experience, industry, projects, tools, responsibilities, career\n' +
-'    progression — NOT roles derived solely from the qualification. The\n' +
-'    qualification informs reasoning; it does not consume a position slot.\n' +
-'    Each of the three positions must broaden deployable capability inside\n' +
-'    the demonstrated career domain, not duplicate evidence stored elsewhere.\n\n' +
+'P16 Recommend Deployment Opportunities, Not Titles — KAI does not\n' +
+'    recommend titles; it recommends deployment opportunities. Every\n' +
+'    recommended position must INCREASE the recruiter\'s deployment options.\n' +
+'    If a recommendation does not expand deployment possibilities, it does\n' +
+'    not deserve a recommendation slot. Qualification is already captured\n' +
+'    separately in qual_level, education, and credential_contribution — and\n' +
+'    so are current title, stored trade, and industry. A position that\n' +
+'    merely restates evidence already known (e.g. recommending "Mechanical\n' +
+'    Engineer" for a B.E. Mechanical holder who has actually worked 8 years\n' +
+'    in piping) contributes no new recruiter value. Recommend adjacent roles\n' +
+'    supported by demonstrated work evidence — actual experience, industry,\n' +
+'    projects, tools, responsibilities, career progression — NOT roles\n' +
+'    derived solely from the qualification or restating the stored title.\n' +
+'    The three positions must COMPLEMENT each other: each must broaden\n' +
+'    deployable capability inside the demonstrated career domain, and none\n' +
+'    may communicate the same capability as another using different words.\n' +
+'    Every recommendation must earn its place.\n\n' +
 
 '══════════════════════════════════════════════════════\n' +
 'CANDIDATE EVIDENCE (verbatim from CV)\n' +
@@ -370,12 +374,21 @@ function buildVerdictPrompt_(c, f) {
 '    This is where the current or past designation belongs if it represents\n' +
 '    a real capability ceiling. May be empty string if positions 1 and 2\n' +
 '    already fully represent the evidence.\n\n' +
-'  SELF-CHECK before returning position2 and position3 — ask for each:\n' +
-'    "Does this recommendation add NEW deployment intelligence, or does it\n' +
-'     merely repeat the qualification already stored in qual_level?"\n' +
-'    If it merely repeats the qualification without adding deployment value,\n' +
-'    discard it and choose a better adjacent capability from demonstrated\n' +
-'    work evidence (P16).\n\n' +
+'  SELF-CHECK before returning the final three positions (P16):\n' +
+'    1. For each position ask: "Does this recommendation create an\n' +
+'       ADDITIONAL deployment opportunity, or does it merely restate evidence\n' +
+'       already known?" Evidence already known includes education,\n' +
+'       qualification, credential, current title, stored trade, and industry.\n' +
+'       A position that only restates known evidence does not earn a slot —\n' +
+'       discard it and choose a better adjacent capability from demonstrated\n' +
+'       work evidence.\n' +
+'    2. Compare the three positions against each other. If any two\n' +
+'       communicate essentially the same capability using different words,\n' +
+'       remove the weaker one and replace it with another capability that\n' +
+'       broadens deployment options and is supported by evidence. The three\n' +
+'       must COMPLEMENT each other, never duplicate.\n' +
+'    Every recommendation must earn its place by providing unique deployment\n' +
+'    value to the recruiter.\n\n' +
 '  PROHIBITED ORDERING: current title → related title → past title.\n' +
 '  That is ATS title-matching behaviour. KAI does not do this.\n\n' +
 
