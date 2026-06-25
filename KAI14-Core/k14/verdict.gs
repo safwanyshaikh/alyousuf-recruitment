@@ -273,7 +273,26 @@ function buildVerdictPrompt_(c, f) {
 'Named absences (P1)       : ' + absentStr + '\n\n' +
 
 '══════════════════════════════════════════════════════\n' +
-'7-STEP CONSTITUTIONAL REASONING CHAIN\n' +
+'DETERMINISTIC EVIDENCE — IMMUTABILITY RULE\n' +
+'══════════════════════════════════════════════════════\n' +
+'The arithmetic facts above are computed by the KAI intake engine.\n' +
+'They are objective evidence. They have higher authority than your\n' +
+'interpretation. You reason OVER them. You never rewrite them.\n\n' +
+'You MAY: interpret context · explain contributing factors · soften\n' +
+'  consequence · adjust confidence · explain why the gap may be minor.\n' +
+'You must NEVER: contradict an arithmetic result · describe a timeline\n' +
+'  as "no gaps" or "no impossible arithmetic" when the evidence shows\n' +
+'  otherwise · return timeline_credibility = COHERENT when a factual\n' +
+'  contradiction exists in the prepared data.\n\n' +
+'SPECIFIC RULES (non-negotiable):\n' +
+'  · If Experience Variance > 0 (claimed exceeds the generous max):\n' +
+'    acknowledge this discrepancy in your reasoning. You may assess it\n' +
+'    as minor or major, but you cannot deny it exists. timeline_credibility\n' +
+'    must be MINOR_GAPS or INCOHERENT — never COHERENT.\n' +
+'  · If Gulf impossible flag = YES (Gulf > Total):\n' +
+'    you must flag this. timeline_credibility must be INCOHERENT.\n' +
+'  Human Review remains your judgment call. These rules govern only\n' +
+'  whether you may deny a deterministic arithmetic fact.\n\n' + +
 'Execute in order. Do not skip. Do not output partial JSON mid-chain.\n' +
 '══════════════════════════════════════════════════════\n\n' +
 
