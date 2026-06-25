@@ -39,6 +39,9 @@ var VERDICT_COLS = [
   'KAIHumanReview', 'KAIVerdictAt'
 ];
 
+// Commit ID stamped into every batch summary for traceability.
+var VERDICT_ENGINE_COMMIT = 'f08d6fd';
+
 /**
  * educationCompletionRange_ — biological reference RANGE, not a decision table.
  * Returns the earliest..latest realistic age at which this education completes.
@@ -702,70 +705,227 @@ function verdictWriteRow_(sh, colMap, row, v) {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * kaiVerdictBatch — run the engine on all production candidates.
- * One Gemini call per candidate. ~2s each. 20 candidates ≈ 45s.
+ * kaiVerdictBatch — Historical Alignment execution engine.
+ *
+ * @param {number|null} limit        Max candidates to PROCESS this run (null = all).
+ *                                   Skipped candidates do not count toward the limit.
+ *                                   Examples: kaiVerdictBatch(5)  kaiVerdictBatch(50)
+ *                                             kaiVerdictBatch(null)
+ * @param {boolean}     forceRebuild Re-process already-enriched candidates (default false).
+ * @param {boolean}     dryRun       Run full pipeline but write nothing to sheet (default false).
+ *
+ * Skip guard: KAIVerdictAt is the single enrichment sentinel.
+ *   Non-blank KAIVerdictAt → SKIPPED_ALREADY_ENRICHED (unless forceRebuild=true).
+ * Concurrency: LockService prevents two batch runs from overlapping.
+ * Resume: re-run safely at any time; enriched rows are skipped automatically.
  */
-function kaiVerdictBatch() {
-  var sh         = K14_sheet_(K14.sheets.candidates, CANDIDATE_HEADERS);
-  var colMap     = verdictColMap_(sh);
-  var candidates = candidateAll_(false);
+function kaiVerdictBatch(limit, forceRebuild, dryRun) {
+  // ── Parameter defaults ──
+  limit        = (typeof limit === 'number' && limit > 0) ? Math.floor(limit) : null;
+  forceRebuild = (forceRebuild === true);
+  dryRun       = (dryRun       === true);
 
-  var passed = 0, failed = 0, skipped = 0, review = 0;
-  Logger.log('═══ KAI VERDICT BATCH — ' + candidates.length + ' candidates ═══');
-
-  for (var i = 0; i < candidates.length; i++) {
-    var c = candidates[i];
-    if (!c.KAINo) { skipped++; continue; }
-
-    try {
-      var v = kaiVerdict_(c);
-      verdictWriteRow_(sh, colMap, c._row, v);
-      passed++;
-      if (v.human_review) review++;
-
-      Logger.log(
-        c.KAINo + ' | ' + (c.FullName || '(blank)') + '\n' +
-        '  Stored Trade:    ' + (c.Trade || '—') + '\n' +
-        '  Position 1:      ' + v.position1 + '  (confidence=' + v.confidence + '%)\n' +
-        '  Position 2:      ' + v.position2 + '\n' +
-        '  Position 3:      ' + v.position3 + '\n' +
-        '  Qual Level:      ' + v.qual_level + (v.qual_note ? '  [' + v.qual_note + ']' : '') + '\n' +
-        '  Exp:             claimed=' + v.exp_claimed +
-              '  max=' + v.exp_max_possible + '  var=' + v.exp_variance + '\n' +
-        '  Exp Credibility: ' + v.exp_credibility + '\n' +
-        '  Timeline:        ' + v.timeline_cred + '  — ' + v.timeline_notes + '\n' +
-        '  Regional:        ' + v.regional_conf + '\n' +
-        '  Human Review:    ' + (v.human_review ? v.human_review_val : 'no') + '\n' +
-        '  Summary:         ' + v.cap_summary
-      );
-    } catch (e) {
-      failed++;
-      Logger.log('FAIL ' + c.KAINo + ': ' + e.message);
-      logError('K14', 'kaiVerdictBatch', e.message, c.KAINo);
-    }
-
-    if (i < candidates.length - 1) Utilities.sleep(1500);
+  // ── Concurrency lock — abort if another batch is active ──
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(5000);
+  } catch (lockErr) {
+    Logger.log('KAI VERDICT BATCH — Batch already active. Abort.');
+    logEvent('K14', 'VERDICT_BATCH_LOCKED', { detail: 'concurrent execution prevented' });
+    return { ok: false, error: 'Batch already active' };
   }
 
-  Logger.log('──────────────────────────────────');
-  Logger.log('Total=' + candidates.length + '  Passed=' + passed +
-             '  Failed=' + failed + '  Skipped=' + skipped +
-             '  HumanReview=' + review);
-  logEvent('K14', 'VERDICT_BATCH_DONE',
-    { detail: 'passed=' + passed + ' failed=' + failed + ' review=' + review });
-  return { total: candidates.length, passed: passed, failed: failed,
-           skipped: skipped, review: review };
+  var batchId   = 'BATCH-' + new Date().getTime();
+  var startTime = new Date();
+
+  try {
+    var sh         = K14_sheet_(K14.sheets.candidates, CANDIDATE_HEADERS);
+    var colMap     = verdictColMap_(sh);
+    var candidates = candidateAll_(false);
+
+    // ── Read KAIVerdictAt column once — single sheet read for skip guard ──
+    var verdictAtCol  = colMap['KAIVerdictAt'];
+    var lastRow       = sh.getLastRow();
+    var verdictAtData = lastRow > 1
+      ? sh.getRange(2, verdictAtCol, lastRow - 1, 1).getValues()
+      : [];
+
+    // ── Counters ──
+    var processedCount = 0;  // passed + failed — governs limit enforcement
+    var passed = 0, failed = 0, skipped = 0, review = 0;
+    var highCount = 0, medCount = 0, lowCount = 0;
+    var totalConf = 0, rule2Count = 0;
+    var firstKai = '', lastKai = '';
+
+    Logger.log(
+      '═══ KAI VERDICT BATCH START ═══\n' +
+      'Batch   : ' + batchId + '\n' +
+      'Commit  : ' + VERDICT_ENGINE_COMMIT + '\n' +
+      'Mode    : ' + (dryRun ? 'DRY RUN — no writes' : 'LIVE') + '\n' +
+      'Limit   : ' + (limit !== null ? limit : 'none — all candidates') + '\n' +
+      'Rebuild : ' + (forceRebuild ? 'yes — skip guard disabled' : 'no') + '\n' +
+      'Loaded  : ' + candidates.length + ' candidates'
+    );
+
+    for (var i = 0; i < candidates.length; i++) {
+      // Limit guards processed count (Gemini calls), not loop iterations
+      if (limit !== null && processedCount >= limit) break;
+
+      var c = candidates[i];
+
+      if (!c.KAINo) { skipped++; continue; }
+
+      // ── Skip guard — KAIVerdictAt is the single enrichment sentinel ──
+      var rowIdx       = c._row - 2;  // sheet row 2 = verdictAtData index 0
+      var rowVerdictAt = (rowIdx >= 0 && verdictAtData[rowIdx])
+        ? verdictAtData[rowIdx][0] : '';
+      if (!forceRebuild && rowVerdictAt !== '' && rowVerdictAt !== null && rowVerdictAt !== undefined) {
+        skipped++;
+        Logger.log('SKIPPED_ALREADY_ENRICHED: ' + c.KAINo);
+        continue;
+      }
+
+      // ── Execute verdict pipeline ──
+      try {
+        var v = kaiVerdict_(c);
+
+        if (!dryRun) {
+          verdictWriteRow_(sh, colMap, c._row, v);
+        }
+
+        passed++;
+        processedCount++;
+        if (!firstKai) firstKai = c.KAINo;
+        lastKai = c.KAINo;
+
+        if (v.human_review) review++;
+
+        var cred = (v.exp_credibility || '').toUpperCase();
+        if      (cred === 'HIGH') highCount++;
+        else if (cred === 'LOW')  lowCount++;
+        else                      medCount++;
+
+        totalConf += (typeof v.confidence === 'number' ? v.confidence : 0);
+        if ((v.cred_reasoning || '').indexOf('KAI-R2') >= 0) rule2Count++;
+
+        Logger.log(
+          (dryRun ? '[DRY] ' : '') +
+          c.KAINo + ' | ' + (c.FullName || '(blank)') + '\n' +
+          '  Stored Trade:    ' + (c.Trade || '—') + '\n' +
+          '  Position 1:      ' + v.position1 + '  (confidence=' + v.confidence + '%)\n' +
+          '  Position 2:      ' + v.position2 + '\n' +
+          '  Position 3:      ' + v.position3 + '\n' +
+          '  Qual Level:      ' + v.qual_level + (v.qual_note ? '  [' + v.qual_note + ']' : '') + '\n' +
+          '  Exp:             claimed=' + v.exp_claimed +
+                '  max=' + v.exp_max_possible + '  var=' + v.exp_variance + '\n' +
+          '  Exp Credibility: ' + v.exp_credibility + '\n' +
+          '  Timeline:        ' + v.timeline_cred + '  — ' + v.timeline_notes + '\n' +
+          '  Regional:        ' + v.regional_conf + '\n' +
+          '  Human Review:    ' + (v.human_review ? v.human_review_val : 'no') + '\n' +
+          '  Summary:         ' + v.cap_summary
+        );
+      } catch (e) {
+        failed++;
+        processedCount++;
+        Logger.log('FAIL ' + c.KAINo + ': ' + e.message);
+        logError('K14', 'kaiVerdictBatch', e.message, c.KAINo);
+      }
+
+      // Rate-limit courtesy pause after every Gemini call
+      Utilities.sleep(1500);
+    }
+
+    // ── Execution summary ──
+    var endTime   = new Date();
+    var durationS = Math.round((endTime - startTime) / 1000);
+    var avgConf   = passed > 0 ? Math.round(totalConf / passed) : 0;
+
+    var summary = {
+      ok:               true,
+      batch_id:         batchId,
+      commit:           VERDICT_ENGINE_COMMIT,
+      mode:             dryRun ? 'DRY RUN' : 'LIVE',
+      start:            startTime.toISOString(),
+      end:              endTime.toISOString(),
+      duration_s:       durationS,
+      candidates_read:  candidates.length,
+      processed:        passed,
+      skipped:          skipped,
+      failed:           failed,
+      human_review:     review,
+      high:             highCount,
+      medium:           medCount,
+      low:              lowCount,
+      avg_confidence:   avgConf,
+      policy_overrides: rule2Count,
+      first_kai:        firstKai || '—',
+      last_kai:         lastKai  || '—'
+    };
+
+    Logger.log(
+      '══════════════════════════════════\n' +
+      'KAI VERDICT BATCH SUMMARY\n' +
+      '══════════════════════════════════\n' +
+      'Batch ID        : ' + batchId + '\n' +
+      'Commit          : ' + VERDICT_ENGINE_COMMIT + '\n' +
+      'Mode            : ' + (dryRun ? 'DRY RUN — no writes' : 'LIVE') + '\n' +
+      'Start           : ' + startTime.toISOString() + '\n' +
+      'End             : ' + endTime.toISOString() + '\n' +
+      'Duration        : ' + durationS + 's\n' +
+      '──────────────────────────────────\n' +
+      'Candidates Read : ' + candidates.length + '\n' +
+      'Processed       : ' + passed + '\n' +
+      'Skipped         : ' + skipped + '\n' +
+      'Failed          : ' + failed + '\n' +
+      '──────────────────────────────────\n' +
+      'Human Review    : ' + review + '\n' +
+      'HIGH            : ' + highCount + '\n' +
+      'MEDIUM          : ' + medCount + '\n' +
+      'LOW             : ' + lowCount + '\n' +
+      'Avg Confidence  : ' + avgConf + '%\n' +
+      'Policy Overrides: ' + rule2Count + ' (Rule 2)\n' +
+      '──────────────────────────────────\n' +
+      'First KAINo     : ' + (firstKai || '—') + '\n' +
+      'Last KAINo      : ' + (lastKai  || '—') + '\n' +
+      '══════════════════════════════════'
+    );
+
+    logEvent('K14', 'VERDICT_BATCH_DONE', {
+      detail: 'processed=' + passed + ' failed=' + failed +
+              ' review=' + review + ' dryRun=' + dryRun + ' batchId=' + batchId
+    });
+
+    return summary;
+
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
- * kaiVerdictOne — run the engine on a single candidate. For testing.
- * @param {string} kaiNo  e.g. 'AYE-KAI-2026-000016'
+ * kaiVerdictOne — run the engine on a single candidate.
+ * @param {string}  kaiNo        e.g. 'AYE-KAI-2026-000016'
+ * @param {boolean} forceRebuild Override skip guard and re-enrich (default false).
+ *
+ * Skip guard: returns SKIPPED_ALREADY_ENRICHED if KAIVerdictAt is populated
+ * and forceRebuild is not true. Consistent with kaiVerdictBatch sentinel logic.
  */
-function kaiVerdictOne(kaiNo) {
+function kaiVerdictOne(kaiNo, forceRebuild) {
+  forceRebuild = (forceRebuild === true);
+
   var sh     = K14_sheet_(K14.sheets.candidates, CANDIDATE_HEADERS);
   var colMap = verdictColMap_(sh);
   var c      = candidateGetByKai_(kaiNo, false);
   if (!c) return { ok: false, error: 'KAINo not found: ' + kaiNo };
+
+  // ── Skip guard — KAIVerdictAt is the single enrichment sentinel ──
+  if (!forceRebuild) {
+    var existingAt = sh.getRange(c._row, colMap['KAIVerdictAt']).getValue();
+    if (existingAt !== '' && existingAt !== null && existingAt !== undefined) {
+      Logger.log('SKIPPED_ALREADY_ENRICHED: ' + kaiNo);
+      return { ok: false, skipped: true, reason: 'SKIPPED_ALREADY_ENRICHED', kaiNo: kaiNo };
+    }
+  }
 
   var v = kaiVerdict_(c);
   verdictWriteRow_(sh, colMap, c._row, v);
