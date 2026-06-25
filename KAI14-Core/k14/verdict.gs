@@ -476,6 +476,14 @@ function buildVerdictPrompt_(c, f) {
 /**
  * kaiVerdict_ — THE decision-maker. One Gemini call. 7-step Constitutional chain.
  * Maps expanded JSON schema to the 19 existing verdict columns.
+ *
+ * POST-GEMINI POLICY LAYER (KAI-owned, deterministic):
+ *   Rule 2 — Irrelevant credential is NEUTRAL; never reduces credibility.
+ *   Rule 3 — Capability cannot be invented from education alone; thin
+ *             evidence forces Human Review.
+ *   Rule 4 — Human Review triggers are KAI policy, not Gemini opinion.
+ *             Gemini recommends. KAI decides.
+ *
  * @param {object} c — candidate object
  * @returns {object} prepared facts + verdict decisions, ready for verdictWriteRow_
  */
@@ -483,14 +491,92 @@ function kaiVerdict_(c) {
   var f = evidencePrepare_(c);
   var j = geminiJson(buildVerdictPrompt_(c, f), null);
 
-  // ── KAIQualNote: credential_contribution (primary) + qual_note if distinct ──
-  var credContrib  = normText_(j.credential_contribution) || '';
-  var qualNoteRaw  = normText_(j.qual_note)               || '';
-  var qualNote     = (credContrib && qualNoteRaw && credContrib !== qualNoteRaw)
+  // ════════════════════════════════════════════════════════════════
+  // KAI BUSINESS POLICY — deterministic, post-Gemini
+  // Gemini reasons over evidence. KAI owns these four policy rules.
+  // ════════════════════════════════════════════════════════════════
+
+  // ── RULE 2: Irrelevant credential is NEUTRAL — must not reduce credibility ──
+  // If the only negative signal was an unrelated degree (credential_relationship
+  // = IRRELEVANT), and no arithmetic contradiction exists, credibility must not
+  // be suppressed. An HSE professional with a civil degree is still a high-
+  // credibility HSE professional. Override MEDIUM → HIGH when applicable.
+  var credRelStr      = normText_(j.credential_relationship) || '';
+  var geminiCred      = normText_(j.experience_credibility)  || 'MEDIUM';
+  var hasPosiVariance = typeof f.variance === 'number' && f.variance > 0;
+  var noArithContra   = !hasPosiVariance && !f.gulfImpossible;
+  var timelineResult  = (normText_(j.timeline_credibility)   || '').toUpperCase();
+  var rule2Applied    = false;
+  if (credRelStr === 'IRRELEVANT' &&
+      noArithContra &&
+      timelineResult !== 'INCOHERENT' &&
+      geminiCred === 'MEDIUM') {
+    geminiCred   = 'HIGH';
+    rule2Applied = true;
+  }
+
+  // ── RULES 3 + 4: KAI-owned Human Review triggers (deterministic) ──
+  // Gemini recommendation is accepted, but these KAI triggers are mandatory.
+  var reviewReasons = [];
+
+  // T1 — impossible arithmetic: experience variance positive
+  if (hasPosiVariance) {
+    reviewReasons.push('experience claim exceeds maximum possible by ' + f.variance + 'y');
+  }
+  // T2 — impossible arithmetic: Gulf exceeds Total
+  if (f.gulfImpossible) {
+    reviewReasons.push('Gulf (' + f.gulfExp + 'y) exceeds total (' + f.expClaimed + 'y)');
+  }
+  // T3 — incoherent timeline (Gemini-detected, KAI-enforced)
+  if (timelineResult === 'INCOHERENT') {
+    reviewReasons.push('incoherent timeline');
+  }
+  // T4 — LOW credibility (after Rule 2 adjustment)
+  if (geminiCred === 'LOW') {
+    reviewReasons.push('low experience credibility');
+  }
+  // T5 — unknown or thin capability domain (Rule 3)
+  //   Trigger A: Gemini explicitly returns LOW capability clarity
+  //   Trigger B: no industry AND no gulf AND confidence < 80
+  //   Either means the domain cannot be grounded in concrete work evidence.
+  //   Absence of domain evidence must never silently become evidence of capability.
+  var capClarityResult  = (normText_(j.capability_clarity) || '').toUpperCase();
+  var noContextEvidence = !normText_(c.Industry) && !f.gulfPresent;
+  var geminiConf        = parseInt(j.confidence, 10) || 0;
+  if (capClarityResult === 'LOW' || (noContextEvidence && geminiConf < 80)) {
+    reviewReasons.push('capability domain unclear or insufficient contextual evidence');
+  }
+  // T6 — thin identity: passport AND email AND mobile all absent
+  var mobileForChk = String(c.Mobile || '').replace(/^'/, '').trim();
+  if (!normText_(c.PassportNo) && !normText_(c.Email) && !mobileForChk) {
+    reviewReasons.push('thin identity: passport, email, and mobile all absent');
+  }
+  // T7 — zero experience claimed
+  if (f.expClaimed === 0) {
+    reviewReasons.push('zero experience claimed');
+  }
+
+  // Final Human Review: KAI triggers OR Gemini recommendation
+  var kaiHumanReview = reviewReasons.length > 0 ||
+      (j.human_review === true || String(j.human_review).toLowerCase() === 'true');
+
+  var geminiNote      = normText_(j.human_review_reason) || '';
+  var kaiReviewReason = reviewReasons.length > 0
+    ? reviewReasons.join('; ') + (geminiNote ? ' | ' + geminiNote : '')
+    : geminiNote;
+
+  // ════════════════════════════════════════════════════════════════
+  // COMPOSITE COLUMN VALUES — map expanded JSON to 19 verdict columns
+  // ════════════════════════════════════════════════════════════════
+
+  // KAIQualNote: credential_contribution (primary) + qual_note if distinct
+  var credContrib = normText_(j.credential_contribution) || '';
+  var qualNoteRaw = normText_(j.qual_note)               || '';
+  var qualNote    = (credContrib && qualNoteRaw && credContrib !== qualNoteRaw)
     ? credContrib + ' | ' + qualNoteRaw
     : (credContrib || qualNoteRaw);
 
-  // ── KAICredReasoning: reasoning sentence + all 7 source verdicts ──
+  // KAICredReasoning: reasoning + 7 source verdicts + policy note if Rule 2 fired
   var sourcesSummary = [
     'S1-Age:'  + (normText_(j.source_s1_age)         || '?'),
     'S2-Edu:'  + (normText_(j.source_s2_education)   || '?'),
@@ -504,16 +590,17 @@ function kaiVerdict_(c) {
     (normText_(j.credibility_reasoning) || '') +
     ' [' + sourcesSummary + ']' +
     ' sup=' + (parseInt(j.sources_supporting,    10) || 0) +
-    ' con=' + (parseInt(j.sources_contradicting, 10) || 0);
+    ' con=' + (parseInt(j.sources_contradicting, 10) || 0) +
+    (rule2Applied ? ' [KAI-R2: irrelevant credential is NEUTRAL — override to HIGH]' : '');
 
-  // ── KAIEvidenceStack: location stack + capability domain + level ──
+  // KAIEvidenceStack: location stack + capability domain + level
   var stackParts = [];
   if (f.stack.length)                    stackParts.push(f.stack.join(' | '));
   if (normText_(j.capability_domain))    stackParts.push('domain:' + normText_(j.capability_domain));
   if (normText_(j.capability_level))     stackParts.push('level:' + normText_(j.capability_level));
   var evidenceStack = stackParts.join(' || ');
 
-  // ── KAIInferenceNotes: domain + level + clarity + inference_notes ──
+  // KAIInferenceNotes: domain + level + clarity + inference_notes
   var inferParts = [];
   if (normText_(j.capability_domain))    inferParts.push('domain:' + normText_(j.capability_domain));
   if (normText_(j.capability_level))     inferParts.push('level:' + normText_(j.capability_level));
@@ -521,10 +608,9 @@ function kaiVerdict_(c) {
   if (normText_(j.inference_notes))      inferParts.push(normText_(j.inference_notes));
   var inferenceNotes = inferParts.join(' | ');
 
-  // ── KAIHumanReview: 'REVIEW — [reason]' or '' ──
-  var humanReview = (j.human_review === true || String(j.human_review).toLowerCase() === 'true');
-  var humanReviewVal = humanReview
-    ? 'REVIEW — ' + (normText_(j.human_review_reason) || 'recruiter review required')
+  // KAIHumanReview: 'REVIEW — [reason]' or ''
+  var humanReviewVal = kaiHumanReview
+    ? 'REVIEW — ' + (kaiReviewReason || 'recruiter review required')
     : '';
 
   return {
@@ -533,24 +619,25 @@ function kaiVerdict_(c) {
     exp_max_possible: f.maxPossible,
     exp_variance:     f.variance,
     evidence_stack:   evidenceStack,
-    // decisions (from Verdict — one Gemini call)
+    // decisions (Gemini reasoning + KAI policy)
     position1:        normText_(j.position1)  || '',
     position2:        normText_(j.position2)  || '',
     position3:        normText_(j.position3)  || '',
     qual_level:       normText_(j.qual_level) || 'Unknown',
     qual_note:        qualNote,
     cap_summary:      normText_(j.cap_summary) || '',
-    confidence:       parseInt(j.confidence, 10) || 0,
-    exp_credibility:  normText_(j.experience_credibility) || 'MEDIUM',
+    confidence:       geminiConf,
+    exp_credibility:  geminiCred,
     cred_reasoning:   credReasoning,
     timeline_cred:    normText_(j.timeline_credibility) || '',
     timeline_notes:   normText_(j.timeline_notes)       || '',
     regional_conf:    normText_(j.regional_confidence)  || '',
     inference_notes:  inferenceNotes,
-    human_review:     humanReview,
+    human_review:     kaiHumanReview,
     human_review_val: humanReviewVal
   };
 }
+
 
 /**
  * verdictColMap_ — ensure verdict columns exist on sheet, return col index map.
