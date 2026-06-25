@@ -204,7 +204,28 @@ function buildVerdictPrompt_(c, f) {
 '    demonstrated work evidence. Empty string if no third can be inferred.\n' +
 'P13 qual_level Is Credential Vocabulary Only — exactly one of:\n' +
 '    Degree | Diploma | ITI Trade | Certification Based | Unknown.\n' +
-'    Never an occupational label (not "Engineer", not "Technician").\n\n' +
+'    Never an occupational label (not "Engineer", not "Technician").\n' +
+'P14 Current Designation Is Evidence, Never The Ceiling — the current or\n' +
+'    recent title tells you what the candidate was called, not what they can\n' +
+'    do. Visa classifications, employer structures, and historical opportunity\n' +
+'    routinely mean GCC professionals perform engineering responsibilities\n' +
+'    while holding draftsman, technician, or supervisor titles. You must\n' +
+'    determine the highest role the candidate can credibly perform based on\n' +
+'    ALL available evidence: education, career progression, years of\n' +
+'    experience, industry, projects, gulf exposure, credential contribution,\n' +
+'    capability consistency, and overall evidence coherence. You may\n' +
+'    recommend a role that has never appeared on the CV if the evidence\n' +
+'    credibly supports that capability. Never anchor position1 on the\n' +
+'    current title. Capability always wins over designation.\n' +
+'P15 Age Absence Never Reduces Credibility — when age is absent, the Age\n' +
+'    source (S1) is NEUTRAL. Evaluate credibility from the remaining 6\n' +
+'    sources only. If those sources demonstrate consistent career\n' +
+'    progression, logical industry history, coherent gulf experience,\n' +
+'    consistent role evolution, no timeline contradictions, and no\n' +
+'    impossible arithmetic, then HIGH credibility remains fully valid.\n' +
+'    Age absence removes one corroborating source. It never becomes a\n' +
+'    contradiction. Never downgrade credibility solely because age is\n' +
+'    unavailable.\n\n' +
 
 '══════════════════════════════════════════════════════\n' +
 'CANDIDATE EVIDENCE (verbatim from CV)\n' +
@@ -278,7 +299,9 @@ function buildVerdictPrompt_(c, f) {
 '  Assess each source independently. Return SUPPORTS | NEUTRAL | CONTRADICTS.\n\n' +
 '  S1 Age (biological timeline check)\n' +
 '    Is claimed experience physically possible given age and eduRange.min?\n' +
-'    Age absent → NEUTRAL (P7). Do not default to LOW because age is absent.\n' +
+'    Age absent → NEUTRAL. Apply P15: the remaining 6 sources carry the\n' +
+'    credibility judgment. Do NOT reduce experience_credibility because\n' +
+'    age is absent. Absence here is silence, not contradiction.\n' +
 '  S2 Education (credential-experience alignment)\n' +
 '    Does the education level fit the seniority and role complexity claimed?\n' +
 '  S3 Gulf (regional coherence)\n' +
@@ -305,16 +328,29 @@ function buildVerdictPrompt_(c, f) {
 '  credibility_reasoning — one sentence citing dominant evidence behind\n' +
 '    your credibility call.\n\n' +
 
-'STEP 5 — POSITION GENERATION (P4, P12)\n' +
-'  Generate three positions from demonstrated capability (P4, P12).\n' +
-'  position1 — primary capability position. May be ABOVE or BELOW claimed\n' +
-'    title when evidence warrants. Capability governs, not the title given.\n' +
-'  position2 — next most credible alternative or adjacent position in the\n' +
-'    same capability domain or a closely related one.\n' +
-'  position3 — third position, also capability-driven (P12). NOT a\n' +
-'    credential fallback. NOT "Junior X" because of a degree. A genuine\n' +
-'    third capability statement, or empty string if none can be responsibly\n' +
-'    inferred from the evidence.\n\n' +
+'STEP 5 — POSITION GENERATION (P4, P12, P14)\n' +
+'  Generate three positions from demonstrated capability. Apply the\n' +
+'  following mandatory priority order:\n\n' +
+'  position1 — HIGHEST DEMONSTRATED CAPABILITY.\n' +
+'    Ask: given ALL evidence (education + years + industry + progression +\n' +
+'    credential + gulf), what is the most senior role this person can\n' +
+'    credibly perform? This may be ABOVE their current title. It may be a\n' +
+'    role that never appeared on the CV. Capability governs (P14).\n' +
+'    PROHIBITED: anchoring position1 on the current or most recent title.\n' +
+'    A B.E. Mechanical engineer with 8 years in piping domain work is a\n' +
+'    Piping Engineer, not a Piping Draftsman, even if that was their title.\n' +
+'    A candidate with 8 years of consistent HSE work is an HSE professional,\n' +
+'    not a civil engineer, even if their degree is civil.\n' +
+'  position2 — MOST PROBABLE ADJACENT CAPABILITY.\n' +
+'    The next most credible capability — adjacent domain, or the same\n' +
+'    domain at a different seniority level warranted by evidence.\n' +
+'  position3 — STRONGEST HISTORICALLY EVIDENCED ROLE.\n' +
+'    The most concrete role directly supported by documented title history.\n' +
+'    This is where the current or past designation belongs if it represents\n' +
+'    a real capability ceiling. May be empty string if positions 1 and 2\n' +
+'    already fully represent the evidence.\n\n' +
+'  PROHIBITED ORDERING: current title → related title → past title.\n' +
+'  That is ATS title-matching behaviour. KAI does not do this.\n\n' +
 
 'STEP 6 — CONFIDENCE AND HUMAN REVIEW (P11)\n' +
 '  confidence — 0 to 100. Your reasoning-based confidence in position1.\n' +
