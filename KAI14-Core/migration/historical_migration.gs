@@ -46,8 +46,9 @@ var MIG_OFFSET_KEY         = 'mig_offset';       // last successfully processed 
 var MIG_BATCH_KEY          = 'mig_batch_id';      // batch ID shared across all resume calls
 var MIG_DRYRUN_KEY         = 'mig_dry_run';       // locks dryRun mode for the life of a batch
 
-// Stop processing 60 seconds before the 6-min hard limit to leave time for cleanup
-var MAX_RUN_MS             = 300000;  // 5 minutes
+// Stop processing 5 minutes before the 30-min Workspace hard limit (6-min personal limit).
+// Set MIGRATION_MAX_RUN_SECS script property to override (e.g. "330" for 6-min accounts).
+var MAX_RUN_MS             = 1500000; // 25 minutes — safe for 30-min Workspace accounts
 
 // Migration_Log column schema — permanent governance certificate
 var MIGRATION_LOG_HEADERS  = [
@@ -434,31 +435,45 @@ function runHistoricalMigration(dryRun) {
   // ── Build existing-identity set (always from current KAI14 state) ─────────
   var existingSet = buildExistingSet_();
 
-  // ── Read ALL legacy data once ─────────────────────────────────────────────
+  // ── Read ONLY remaining rows (from checkpoint forward) ───────────────────
   var totalLegacyRows = legacySh.getLastRow() - 1;
   if (totalLegacyRows <= 0)
     return { ok: false, error: 'KAI MIGRATION — Legacy Candidates sheet has no data rows.' };
 
-  var legacyData = legacySh.getRange(2, 1, totalLegacyRows, legacySh.getLastColumn()).getValues();
+  if (startOffset >= totalLegacyRows) {
+    // Already finished — clear checkpoint and return complete
+    props.deleteProperty(MIG_OFFSET_KEY);
+    props.deleteProperty(MIG_BATCH_KEY);
+    props.deleteProperty(MIG_DRYRUN_KEY);
+    return { ok: true, status: 'COMPLETE', note: 'All rows already processed. Call generateMigrationAudit().' };
+  }
+
+  var readStartRow  = startOffset + 2;          // sheet row (1-indexed, +1 for header)
+  var rowsRemaining = totalLegacyRows - startOffset;
+  Logger.log('KAI MIGRATION — Reading ' + rowsRemaining + ' rows from sheet row ' + readStartRow);
+  var legacyData = legacySh.getRange(readStartRow, 1, rowsRemaining, legacySh.getLastColumn()).getValues();
+  Logger.log('KAI MIGRATION — Read complete. Starting loop at offset ' + startOffset + '.');
 
   // ── Migration loop ─────────────────────────────────────────────────────────
   var counts  = { imported: 0, skipped: 0, failed: 0, duplicate: 0 };
   var newRows = [];
   var didTimeout = false;
 
-  for (var i = startOffset; i < legacyData.length; i++) {
+  for (var i = 0; i < legacyData.length; i++) {
+    var absoluteOffset = startOffset + i;   // position in full legacy dataset
 
-    // Time check — stop 60s before hard limit
+    // Time check — stop before hard execution limit
     if ((new Date() - callStart) > MAX_RUN_MS) {
       didTimeout = true;
-      props.setProperty(MIG_OFFSET_KEY, String(i));
-      Logger.log('KAI MIGRATION — 5-min checkpoint at row ' + (i + 2) + ' of ' + (totalLegacyRows + 1) +
+      props.setProperty(MIG_OFFSET_KEY, String(absoluteOffset));
+      Logger.log('KAI MIGRATION — Time checkpoint at legacy row ' + (absoluteOffset + 2) +
+                 ' of ' + (totalLegacyRows + 1) +
                  '. Re-run runHistoricalMigration(' + dryRun + ') to continue.');
       break;
     }
 
     var legRow    = legacyData[i];
-    var sourceRow = i + 2;
+    var sourceRow = absoluteOffset + 2;    // 1-indexed sheet row (row 1 = header)
     var rowStart  = new Date();
 
     var legKaiNo  = String(legRow[legacyIdx['KAI No']] || '').trim();
@@ -563,16 +578,13 @@ function runHistoricalMigration(dryRun) {
   var isComplete = !didTimeout;
 
   if (isComplete) {
-    // Clear checkpoint — migration finished
     props.deleteProperty(MIG_OFFSET_KEY);
     props.deleteProperty(MIG_BATCH_KEY);
     props.deleteProperty(MIG_DRYRUN_KEY);
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────
-  var processedThisRun = startOffset === 0
-    ? (counts.imported + counts.skipped + counts.failed + counts.duplicate)
-    : (counts.imported + counts.skipped + counts.failed + counts.duplicate);
+  var processedThisRun = counts.imported + counts.skipped + counts.failed + counts.duplicate;
   var resumeAt = didTimeout ? parseInt(props.getProperty(MIG_OFFSET_KEY) || '0', 10) : totalLegacyRows;
 
   var summary = {
