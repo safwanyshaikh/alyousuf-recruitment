@@ -657,5 +657,176 @@ function runHistoricalMigration(dryRun) {
   Logger.log('Next action  : ' + summary.nextAction);
   Logger.log('================================================');
 
+  // ── Step 8 (auto): set kai14_counter after live run completes ────────────
+  if (!dryRun && isComplete) {
+    setKaiCounter_();
+  }
+
   return summary;
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CEO REVISED EXECUTION ORDER — STEPS 3, 4, 5, 8
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * runPreMigrationCleanup — CEO Revised Execution Order Steps 3 + 4.
+ *
+ * Step 3: Deletes all Phase-1 validation test candidates from KAI14 Candidates.
+ *         These are certification-only records — not production identities.
+ *         Identified as: any row where Source ≠ 'HISTORICAL_MIGRATION'
+ *         (since no live migration has run yet, every current row is test data).
+ *
+ * Step 4: Deletes incomplete ghost validation records — rows where KAINo is
+ *         blank OR FullName is blank. These are not production candidates.
+ *
+ * DESTRUCTIVE — permanently removes rows. Maintenance mode must be ON.
+ * Call ONCE before runHistoricalMigration(false).
+ * After this runs, Candidates must show zero rows (verify with verifyCleanSlate).
+ */
+function runPreMigrationCleanup() {
+  if (!getMaintenanceMode()) {
+    Logger.log('CLEANUP ABORTED — maintenanceMode is OFF. Run setMaintenanceMode(true) first.');
+    return { ok: false, error: 'maintenanceMode must be ON' };
+  }
+
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var candSh = ss.getSheetByName(K14.sheets.candidates);
+
+  if (!candSh) {
+    Logger.log('CLEANUP ABORTED — Candidates sheet not found.');
+    return { ok: false, error: 'Candidates sheet not found' };
+  }
+
+  var dataRows = candSh.getLastRow() - 1;
+  if (dataRows <= 0) {
+    Logger.log('CLEANUP — Candidates sheet already empty. Nothing to delete.');
+    return { ok: true, validationDeleted: 0, ghostDeleted: 0, totalDeleted: 0, remaining: 0, cleanSlate: true };
+  }
+
+  var headers = candSh.getRange(1, 1, 1, candSh.getLastColumn()).getValues()[0];
+  var kaiIdx  = headers.indexOf('KAINo');
+  var nameIdx = headers.indexOf('FullName');
+  var srcIdx  = headers.indexOf('Source');
+
+  var data = candSh.getRange(2, 1, dataRows, candSh.getLastColumn()).getValues();
+
+  var validationRows = [];  // Phase-1 test candidates
+  var ghostRows      = [];  // incomplete records (no KAINo or no FullName)
+
+  // Iterate in reverse so sheet row indices remain valid during deletion
+  for (var i = data.length - 1; i >= 0; i--) {
+    var kaiNo = String(data[i][kaiIdx]  || '').trim();
+    var name  = String(data[i][nameIdx] || '').trim();
+    var src   = String(data[i][srcIdx]  || '').trim();
+    var sheetRow = i + 2;  // 1-indexed
+
+    // Ghost: incomplete identity
+    if (!kaiNo || !name) {
+      ghostRows.push({ row: sheetRow, kaiNo: kaiNo, name: name, src: src });
+    }
+    // Validation: any source that is not a live historical migration import
+    // (since no live migration has run yet, ALL current rows are test/validation data)
+    else if (src !== 'HISTORICAL_MIGRATION') {
+      validationRows.push({ row: sheetRow, kaiNo: kaiNo, name: name, src: src });
+    }
+  }
+
+  var allToDelete = validationRows.concat(ghostRows);
+  allToDelete.sort(function(a, b) { return b.row - a.row; });  // bottom-up deletion
+
+  Logger.log('=== PRE-MIGRATION CLEANUP ===');
+  Logger.log('Validation rows to delete : ' + validationRows.length);
+  Logger.log('Ghost rows to delete      : ' + ghostRows.length);
+  Logger.log('Total rows to delete      : ' + allToDelete.length);
+
+  if (allToDelete.length > 0) {
+    // Log each deleted record for audit trail before deleting
+    allToDelete.forEach(function(r) {
+      Logger.log('DELETING row ' + r.row + ' | KAINo=' + r.kaiNo + ' | Name=' + r.name + ' | Source=' + r.src);
+    });
+    // Delete rows bottom-up
+    allToDelete.forEach(function(r) { candSh.deleteRow(r.row); });
+  }
+
+  var remaining = Math.max(0, candSh.getLastRow() - 1);
+
+  Logger.log('Remaining rows after cleanup : ' + remaining);
+  Logger.log('Clean slate                  : ' + (remaining === 0 ? 'YES — ready for migration' : 'NO — investigate remaining rows'));
+  Logger.log('=============================');
+
+  return {
+    ok:                true,
+    validationDeleted: validationRows.length,
+    ghostDeleted:      ghostRows.length,
+    totalDeleted:      allToDelete.length,
+    remaining:         remaining,
+    cleanSlate:        remaining === 0
+  };
+}
+
+/**
+ * verifyCleanSlate — CEO Revised Execution Order Step 5.
+ * Confirms KAI14 Candidates sheet has zero data rows before live migration.
+ */
+function verifyCleanSlate() {
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var candSh = ss.getSheetByName(K14.sheets.candidates);
+  var remaining = candSh ? Math.max(0, candSh.getLastRow() - 1) : 0;
+
+  Logger.log('=== CLEAN SLATE VERIFICATION ===');
+  Logger.log('KAI14 Candidates data rows : ' + remaining);
+  Logger.log('Status : ' + (remaining === 0
+    ? 'PASS — zero rows confirmed. Safe to run runHistoricalMigration(false).'
+    : 'FAIL — ' + remaining + ' rows remain. Run runPreMigrationCleanup() first.'));
+  Logger.log('================================');
+
+  return { remaining: remaining, cleanSlate: remaining === 0 };
+}
+
+/**
+ * setKaiCounter_ — CEO Revised Execution Order Step 8.
+ * Sets kai14_counter script property to MAX(KAINo numeric part) + 1.
+ * Called automatically after live migration completes.
+ * Can also be called manually as setKaiCounter().
+ */
+function setKaiCounter_() {
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var candSh = ss.getSheetByName(K14.sheets.candidates);
+
+  if (!candSh || candSh.getLastRow() < 2) {
+    Logger.log('KAI COUNTER — Candidates sheet empty. Counter not updated.');
+    return { ok: false, error: 'No candidates found' };
+  }
+
+  var headers = candSh.getRange(1, 1, 1, candSh.getLastColumn()).getValues()[0];
+  var kaiIdx  = headers.indexOf('KAINo');
+  if (kaiIdx < 0) {
+    Logger.log('KAI COUNTER — KAINo column not found.');
+    return { ok: false, error: 'KAINo column not found' };
+  }
+
+  var kaiNos  = candSh.getRange(2, kaiIdx + 1, candSh.getLastRow() - 1, 1).getValues();
+  var maxNum  = 0;
+  kaiNos.forEach(function(r) {
+    var match = String(r[0] || '').match(/(\d+)$/);
+    if (match) {
+      var n = parseInt(match[1], 10);
+      if (!isNaN(n) && n > maxNum) maxNum = n;
+    }
+  });
+
+  var nextCounter = maxNum + 1;
+  PropertiesService.getScriptProperties().setProperty(K14.kai.counterKey, String(nextCounter));
+
+  Logger.log('=== KAI COUNTER SET ===');
+  Logger.log('MAX KAINo found : ' + maxNum);
+  Logger.log('kai14_counter   : ' + nextCounter + ' (next new candidate gets this number)');
+  Logger.log('=======================');
+
+  return { ok: true, maxKaiNum: maxNum, nextCounter: nextCounter };
+}
+
+/** Public entry point for Step 8 if called manually. */
+function setKaiCounter() { return setKaiCounter_(); }
