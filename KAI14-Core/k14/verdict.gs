@@ -40,7 +40,7 @@ var VERDICT_COLS = [
 ];
 
 // Commit ID stamped into every batch summary for traceability.
-var VERDICT_ENGINE_COMMIT = 'f08d6fd';
+var VERDICT_ENGINE_COMMIT = 'c22de4c';
 
 /**
  * educationCompletionRange_ — biological reference RANGE, not a decision table.
