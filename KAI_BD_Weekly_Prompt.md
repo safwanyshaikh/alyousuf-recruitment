@@ -46,6 +46,9 @@ SECTION D — PROJECT COORDINATOR (projects driving manpower demand)
 
 SECTION E — COMPETITOR / TAKEOVER (only if actionable)
 - <Competitor> | <Client they hold> | Takeover angle: <one line> | Action: <step>
+
+SECTION F — EMERGING CORRIDORS & GOVERNMENT INTELLIGENCE (non-GCC)
+- <Country/Corridor or Policy> | What changed: <one line> | Opportunity/Constraint: <one line> | Action: <step + owner>
 ```
 
 If a section has nothing material this week, print the heading and `- None this week.`
@@ -58,9 +61,25 @@ Keep each section tight. Section A is capped at 10. Sections B–E are capped at
 **Priority geographies:** Saudi Arabia, UAE, Qatar, Kuwait, Bahrain, Oman, Russia,
 South Africa, Central Asia, Southeast Asia.
 
+**Emerging / non-GCC corridors to actively track:** Romania, Russia, Japan, Germany,
+Italy, Denmark, Portugal, and other EU / new-corridor openings for Indian workers.
+
 **Priority sectors:** Construction, Oil & Gas, EPC, Infrastructure, Manufacturing,
 Facilities Management, Logistics, Healthcare, Hospitality, Marine, Shipyard,
-Industrial Services, Shutdown Projects.
+Industrial Services, Shutdown Projects, and (for new corridors) Drivers & Transport.
+
+## GOVERNMENT / POLICY INTELLIGENCE (feeds Section F)
+
+Monitor and surface as action lines:
+- Ministry of External Affairs (MEA) announcements and bilateral mobility agreements.
+- Protector of Emigrants (PoE) / eMigrate notices and deadlines.
+- Forums such as the MEA Human Resource Mobility Forum (country sessions: Russia, Japan,
+  Germany, Italy, Denmark, Portugal).
+- New government recruitment portals/frameworks (e.g. Romania `WorkinRomania`: recruitment
+  only via registered local consultancies, worker-deposit + visa-cost rules, ~90k–100k
+  annual demand, drivers in high demand, 6–8 month visa processing). Surface the constraint
+  AND the angle (e.g. partner with a registered local consultancy) as a CEO-decision line.
+- Visa/quota/regulatory changes, deposits, licensing rules, processing-time shifts.
 
 **For every candidate company, verify before listing:** active hiring, active projects,
 expansion plans, existing Indian workforce, recruitment potential, estimated manpower
