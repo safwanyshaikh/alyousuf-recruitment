@@ -250,11 +250,22 @@ function generateMigrationAudit_(logSh) {
     return { error: 'Migration_Log is empty or missing. Run migration first.' };
 
   var hdrs        = logSh.getRange(1, 1, 1, logSh.getLastColumn()).getValues()[0];
-  var data        = logSh.getRange(2, 1, logSh.getLastRow() - 1, logSh.getLastColumn()).getValues();
+  var allData     = logSh.getRange(2, 1, logSh.getLastRow() - 1, logSh.getLastColumn()).getValues();
   var statusIdx   = hdrs.indexOf('MigrationStatus');
-  var batchIdx    = hdrs.indexOf('MigrationBatchID');
   var sourceRowIdx= hdrs.indexOf('SourceRowNumber');
   var durIdx      = hdrs.indexOf('ExecutionDurationMs');
+
+  // Deduplicate by SourceRowNumber — keep the LAST log entry per source row.
+  // This handles the case where a restart caused rows to be logged twice.
+  var seenSrcRow  = {};
+  for (var i = 0; i < allData.length; i++) {
+    var srcKey = String(allData[i][sourceRowIdx] || ('_blank_' + i));
+    seenSrcRow[srcKey] = allData[i];  // last entry per source row wins
+  }
+  var data = [];
+  for (var k in seenSrcRow) { if (seenSrcRow.hasOwnProperty(k)) data.push(seenSrcRow[k]); }
+  var rawRows     = allData.length;
+  var dedupedRows = data.length;
 
   var counts      = { IMPORTED: 0, SKIPPED: 0, FAILED: 0, DUPLICATE: 0 };
   var totalDurMs  = 0;
@@ -276,7 +287,9 @@ function generateMigrationAudit_(logSh) {
   var audit = {
     generatedAt:          new Date().toISOString(),
     migrationVersion:     MIGRATION_VERSION,
-    totalLogRows:         data.length,
+    rawLogRows:           rawRows,
+    dedupedLogRows:       dedupedRows,
+    duplicateLogEntries:  rawRows - dedupedRows,
     eligible:             eligible,
     imported:             counts.IMPORTED,
     duplicate:            counts.DUPLICATE,
@@ -316,12 +329,35 @@ function resetMigrationProgress() {
   Logger.log('KAI MIGRATION — Progress checkpoint cleared. Next run starts from row 1.');
 }
 
+/**
+ * setMigrationStartOffset — manually set the resume point without clearing the log.
+ * Use when you know N rows have already been processed and logged correctly.
+ *
+ * offsetNum = number of data rows already done (0-based index of NEXT row to process).
+ * Example: 6687 means rows 1–6687 are done; next call processes from sheet row 6689.
+ *
+ * A new batch ID is auto-assigned on the next run.
+ */
+function setMigrationStartOffset(offsetNum) {
+  if (typeof offsetNum !== 'number' || offsetNum < 0) {
+    Logger.log('KAI MIGRATION — setMigrationStartOffset: pass a positive integer. Aborted.');
+    return;
+  }
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(MIG_OFFSET_KEY,  String(Math.floor(offsetNum)));
+  props.deleteProperty(MIG_BATCH_KEY);   // new batch ID auto-created on next run
+  props.deleteProperty(MIG_DRYRUN_KEY);  // re-locked to caller's dryRun on next run
+  Logger.log('KAI MIGRATION — Manual offset set to ' + Math.floor(offsetNum) +
+             '. Next run starts from sheet row ' + (Math.floor(offsetNum) + 2) + '.');
+}
+
 function getMigrationProgress() {
   var props  = PropertiesService.getScriptProperties();
   var offset = parseInt(props.getProperty(MIG_OFFSET_KEY) || '0', 10);
   var batchId= props.getProperty(MIG_BATCH_KEY) || null;
   var dryRun = props.getProperty(MIG_DRYRUN_KEY) === 'true';
-  Logger.log('KAI MIGRATION — Current progress: offset=' + offset + ', batchId=' + batchId + ', dryRun=' + dryRun);
+  Logger.log('KAI MIGRATION — Current progress: offset=' + offset +
+             ' (next sheet row=' + (offset + 2) + '), batchId=' + batchId + ', dryRun=' + dryRun);
   return { offset: offset, batchId: batchId, dryRun: dryRun };
 }
 
