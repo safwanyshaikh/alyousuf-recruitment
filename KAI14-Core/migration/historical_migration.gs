@@ -37,7 +37,13 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 var MIGRATION_VERSION      = '1.2.0';
-var MIGRATION_GS_COMMIT    = '3defe84';  // updated each commit
+
+// Deployment identity — set via setDeploymentInfo() before running migration.
+// Never hardcoded. Read from script properties at runtime so the Migration_Log
+// always reflects the ACTUAL deployed code, not a stale constant.
+var MIG_COMMIT_PROP        = 'MIGRATION_GS_COMMIT';
+var MIG_BRANCH_PROP        = 'MIGRATION_GS_BRANCH';
+var MIG_BATCH_START_PROP   = 'MIGRATION_BATCH_START_TIME';
 var MIGRATION_LOG_SHEET    = 'Migration_Log';
 var CONFIG_SHEET           = '_Config';
 var MAINTENANCE_KEY        = 'maintenanceMode';
@@ -319,6 +325,47 @@ function generateMigrationAudit() { return generateMigrationAudit_(); }
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * setDeploymentInfo — MUST be called once before running any migration.
+ *
+ * Records the ACTUAL deployed commit and branch into Script Properties so
+ * the Migration_Log environment stamp is forensically accurate.
+ * No hardcoded commit IDs anywhere in the engine.
+ *
+ * @param {string} commitId  — exact git commit hash of the deployed code
+ * @param {string} branch    — git branch name
+ *
+ * Example:
+ *   setDeploymentInfo('e00368d', 'claude/sweet-franklin-mnmfcz')
+ */
+function setDeploymentInfo(commitId, branch) {
+  if (!commitId || !branch) {
+    Logger.log('setDeploymentInfo: both commitId and branch are required. Aborted.');
+    return;
+  }
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(MIG_COMMIT_PROP, String(commitId).trim());
+  props.setProperty(MIG_BRANCH_PROP, String(branch).trim());
+  Logger.log('=== DEPLOYMENT INFO SET ===');
+  Logger.log('historical_migration.gs commit : ' + commitId);
+  Logger.log('Branch                         : ' + branch);
+  Logger.log('verdict.gs commit              : ' +
+             (typeof VERDICT_ENGINE_COMMIT !== 'undefined' ? VERDICT_ENGINE_COMMIT : 'unknown'));
+  Logger.log('===========================');
+}
+
+/**
+ * getDeploymentInfo — returns current deployment info from script properties.
+ */
+function getDeploymentInfo() {
+  var props  = PropertiesService.getScriptProperties();
+  var commit = props.getProperty(MIG_COMMIT_PROP) || 'NOT_SET';
+  var branch = props.getProperty(MIG_BRANCH_PROP) || 'NOT_SET';
+  var verdict= (typeof VERDICT_ENGINE_COMMIT !== 'undefined') ? VERDICT_ENGINE_COMMIT : 'unknown';
+  Logger.log('Deployment: migration_gs=' + commit + ', branch=' + branch + ', verdict_gs=' + verdict);
+  return { migrationCommit: commit, branch: branch, verdictCommit: verdict };
+}
+
+/**
  * resetMigrationProgress — clears checkpoint so next run starts from row 1.
  * Call this only when you want a completely fresh migration.
  */
@@ -368,50 +415,66 @@ function getMigrationProgress() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * writeMigrationEnvironment_ — stamps engine version and environment into
- * Migration_Log as a permanent governance record at the start of each batch.
+ * writeMigrationEnvironment_ — stamps forensic environment record into Migration_Log.
  *
- * Uses existing Migration_Log columns. Status = 'MIGRATION_ENV'.
- * Ignored by generateMigrationAudit_ (not in counts object).
+ * Called TWICE per batch:
+ *   eventType='START' — written when batch opens (end time unknown)
+ *   eventType='END'   — written when batch completes (full duration known)
  *
- * Columns used:
+ * Commit and branch are read from Script Properties set by setDeploymentInfo().
+ * Never hardcoded. If not set, 'NOT_SET — run setDeploymentInfo()' is recorded.
+ *
+ * Column mapping (reuses existing Migration_Log schema — no schema change):
  *   MigrationBatchID      → batchId
- *   MigrationStartTime    → start timestamp
+ *   MigrationStartTime    → batch start timestamp
+ *   MigrationEndTime      → batch end timestamp (blank for START record)
  *   Operator              → operator email
- *   SourceSpreadsheetID   → legacy SS ID
- *   SourceSpreadsheetName → legacy SS name
- *   SourceRowNumber       → 'ENV:' + batchId  (unique key, preserved by dedup)
- *   LegacyKAINumber       → target (KAI14) spreadsheet ID
- *   MigratedKAINumber     → target spreadsheet name
- *   MigrationStatus       → 'MIGRATION_ENV'
- *   Reason                → 'historical_migration.gs: <commit>'
- *   ErrorMessage          → 'verdict.gs: <commit>  |  dryRun: <true/false>'
+ *   SourceSpreadsheetID   → legacy (source) spreadsheet ID
+ *   SourceSpreadsheetName → legacy spreadsheet name
+ *   SourceRowNumber       → 'ENV_START:<batchId>' or 'ENV_END:<batchId>'
+ *   LegacyKAINumber       → KAI14 (target) spreadsheet ID
+ *   MigratedKAINumber     → KAI14 spreadsheet name
+ *   CandidateName         → git branch | Migration v<version>
+ *   MigrationStatus       → 'MIGRATION_ENV_START' or 'MIGRATION_ENV_END'
+ *   Reason                → historical_migration.gs commit | dryRun flag
+ *   ErrorMessage          → verdict.gs commit
+ *   LegacyGulfExpRaw      → (blank)
+ *   ExecutionDurationMs   → total batch duration ms (END record only)
  */
-function writeMigrationEnvironment_(logSh, batchId, startTime, operator, legacySsId, legacySs, kaiSs, dryRun) {
-  var verdictCommit = (typeof VERDICT_ENGINE_COMMIT !== 'undefined')
-    ? VERDICT_ENGINE_COMMIT : 'unknown';
+function writeMigrationEnvironment_(logSh, eventType, batchId, startTime, endTime, operator,
+                                    legacySsId, legacySs, kaiSs, dryRun) {
+  var props         = PropertiesService.getScriptProperties();
+  var migCommit     = props.getProperty(MIG_COMMIT_PROP) || 'NOT_SET — run setDeploymentInfo()';
+  var migBranch     = props.getProperty(MIG_BRANCH_PROP) || 'NOT_SET — run setDeploymentInfo()';
+  var verdictCommit = (typeof VERDICT_ENGINE_COMMIT !== 'undefined') ? VERDICT_ENGINE_COMMIT : 'unknown';
+  var isEnd         = (eventType === 'END');
+  var durationMs    = (isEnd && startTime && endTime) ? (endTime - startTime) : '';
 
   logSh.appendRow([
     batchId,
-    startTime.toISOString(),
-    '',                               // MigrationEndTime — not yet known
+    startTime ? startTime.toISOString() : '',
+    isEnd && endTime ? endTime.toISOString() : '',
     operator,
     legacySsId,
     legacySs.getName(),
-    'ENV:' + batchId,                // SourceRowNumber — unique key for dedup
-    kaiSs.getId(),                   // LegacyKAINumber col — reused for target SS ID
-    kaiSs.getName(),                 // MigratedKAINumber col — reused for target SS name
-    '',                              // CandidateName
-    'MIGRATION_ENV',                 // MigrationStatus
-    'historical_migration.gs: ' + MIGRATION_GS_COMMIT,
-    'verdict.gs: ' + verdictCommit + '  |  dryRun: ' + dryRun,
-    '',                              // LegacyGulfExpRaw
-    ''                               // ExecutionDurationMs
+    (isEnd ? 'ENV_END:' : 'ENV_START:') + batchId,
+    kaiSs.getId(),
+    kaiSs.getName(),
+    migBranch + '  |  Migration v' + MIGRATION_VERSION,
+    isEnd ? 'MIGRATION_ENV_END' : 'MIGRATION_ENV_START',
+    'historical_migration.gs: ' + migCommit + '  |  dryRun: ' + dryRun,
+    'verdict.gs: ' + verdictCommit,
+    '',
+    durationMs
   ]);
 
-  Logger.log('KAI MIGRATION — Environment stamped: migration_gs=' + MIGRATION_GS_COMMIT +
-             ', verdict_gs=' + verdictCommit + ', operator=' + operator +
-             ', source=' + legacySsId + ', target=' + kaiSs.getId());
+  Logger.log('KAI MIGRATION — Env ' + eventType + ' stamped:' +
+             ' migration_gs=' + migCommit +
+             ', verdict_gs=' + verdictCommit +
+             ', branch=' + migBranch +
+             ', operator=' + operator +
+             ', source=' + legacySsId +
+             ', target=' + kaiSs.getId());
 }
 
 
@@ -442,6 +505,17 @@ function runHistoricalMigration(dryRun) {
     return { ok: false, error: msg };
   }
 
+  // ── Gate 1b: deployment info must be set (no stale/placeholder commit IDs) ─
+  var deployCommit = props.getProperty(MIG_COMMIT_PROP);
+  var deployBranch = props.getProperty(MIG_BRANCH_PROP);
+  if (!deployCommit || !deployBranch ||
+      deployCommit === 'NOT_SET' || deployBranch === 'NOT_SET') {
+    var msg0 = 'KAI MIGRATION ABORTED — Deployment info not set. ' +
+               'Run setDeploymentInfo(commitId, branch) first.';
+    Logger.log(msg0);
+    return { ok: false, error: msg0 };
+  }
+
   // ── Gate 2: legacy spreadsheet ID ────────────────────────────────────────
   var legacySsId = props.getProperty('LEGACY_SS_ID');
   if (!legacySsId) {
@@ -470,12 +544,14 @@ function runHistoricalMigration(dryRun) {
   var batchId = savedBatch || ('MIG-' + callStart.getTime());
   var startOffset = savedOffset;  // 0-based index into legacy data array
 
-  // Lock the batch + dryRun mode on first call; stamp environment into Migration_Log
+  // Lock the batch + dryRun mode on first call; stamp START environment record
   if (!savedBatch) {
-    props.setProperty(MIG_BATCH_KEY,  batchId);
-    props.setProperty(MIG_DRYRUN_KEY, String(dryRun));
-    props.setProperty(MIG_OFFSET_KEY, '0');
-    writeMigrationEnvironment_(ensureMigrationLog_(), batchId, callStart, operator, legacySsId, legacySs, kaiSs, dryRun);
+    props.setProperty(MIG_BATCH_KEY,       batchId);
+    props.setProperty(MIG_DRYRUN_KEY,      String(dryRun));
+    props.setProperty(MIG_OFFSET_KEY,      '0');
+    props.setProperty(MIG_BATCH_START_PROP, callStart.toISOString());  // persist start time for END record
+    writeMigrationEnvironment_(ensureMigrationLog_(), 'START', batchId,
+      callStart, null, operator, legacySsId, legacySs, kaiSs, dryRun);
   }
 
   // ── Setup ─────────────────────────────────────────────────────────────────
@@ -668,9 +744,16 @@ function runHistoricalMigration(dryRun) {
   var isComplete = !didTimeout;
 
   if (isComplete) {
+    // Stamp END environment record with actual start + end times
+    var batchStartIso = props.getProperty(MIG_BATCH_START_PROP);
+    var batchStartTime = batchStartIso ? new Date(batchStartIso) : callStart;
+    writeMigrationEnvironment_(logSh, 'END', batchId,
+      batchStartTime, endTime, operator, legacySsId, legacySs, kaiSs, dryRun);
+    // Clear checkpoint
     props.deleteProperty(MIG_OFFSET_KEY);
     props.deleteProperty(MIG_BATCH_KEY);
     props.deleteProperty(MIG_DRYRUN_KEY);
+    props.deleteProperty(MIG_BATCH_START_PROP);
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────
