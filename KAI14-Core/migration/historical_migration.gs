@@ -37,7 +37,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 var MIGRATION_VERSION      = '1.2.0';
-var MIGRATION_GS_COMMIT    = '579d461';  // updated each commit
+var MIGRATION_GS_COMMIT    = '3defe84';  // updated each commit
 var MIGRATION_LOG_SHEET    = 'Migration_Log';
 var CONFIG_SHEET           = '_Config';
 var MAINTENANCE_KEY        = 'maintenanceMode';
