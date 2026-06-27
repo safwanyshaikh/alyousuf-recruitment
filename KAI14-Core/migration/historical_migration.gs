@@ -36,7 +36,7 @@
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var MIGRATION_VERSION      = '1.2.0';
+var MIGRATION_VERSION      = '1.3.0';
 
 // Deployment identity — set via setDeploymentInfo() before running migration.
 // Never hardcoded. Read from script properties at runtime so the Migration_Log
@@ -44,6 +44,14 @@ var MIGRATION_VERSION      = '1.2.0';
 var MIG_COMMIT_PROP        = 'MIGRATION_GS_COMMIT';
 var MIG_BRANCH_PROP        = 'MIGRATION_GS_BRANCH';
 var MIG_BATCH_START_PROP   = 'MIGRATION_BATCH_START_TIME';
+
+// Registration checkpoint — stored by setDeploymentInfo(); compared at Gate 1c.
+// If active deployment diverges from registration record, migration aborts before
+// writing any candidate data. Creates an independent audit trail.
+var MIG_REG_COMMIT_PROP    = 'MIG_REG_COMMIT';
+var MIG_REG_BRANCH_PROP    = 'MIG_REG_BRANCH';
+var MIG_REG_TIMESTAMP_PROP = 'MIG_REG_TIMESTAMP';
+var MIG_REG_OPERATOR_PROP  = 'MIG_REG_OPERATOR';
 var MIGRATION_LOG_SHEET    = 'Migration_Log';
 var CONFIG_SHEET           = '_Config';
 var MAINTENANCE_KEY        = 'maintenanceMode';
@@ -291,28 +299,98 @@ function generateMigrationAudit_(logSh) {
     .filter(function(r) { return String(r[statusIdx]).toUpperCase().replace(' (DRY RUN)','') === 'IMPORTED'; })
     .reduce(function(acc, r) { return acc + (parseInt(r[sourceRowIdx], 10) || 0); }, 0);
 
+  // ── Environment verification ──────────────────────────────────────────────
+  // Scan all log rows (including ENV rows excluded from candidate counts) for
+  // MIGRATION_ENV_START and MIGRATION_ENV_END records.
+  var reasonIdx   = hdrs.indexOf('Reason');
+  var envStart    = null;
+  var envEnd      = null;
+  for (var ei = 0; ei < allData.length; ei++) {
+    var eSt = String(allData[ei][statusIdx] || '').trim().toUpperCase();
+    if (eSt === 'MIGRATION_ENV_START' && !envStart) envStart = allData[ei];
+    if (eSt === 'MIGRATION_ENV_END')                envEnd   = allData[ei];
+  }
+
+  var envStartPresent = !!envStart;
+  var envEndPresent   = !!envEnd;
+
+  // Extract commit from ENV_START Reason column:
+  //   "historical_migration.gs: <commit>  |  dryRun: ..."
+  var envCommit = '';
+  if (envStart && reasonIdx >= 0) {
+    var envReason  = String(envStart[reasonIdx] || '');
+    var envCmMatch = envReason.match(/historical_migration\.gs:\s*([a-f0-9]+)/i);
+    if (envCmMatch) envCommit = envCmMatch[1].trim();
+  }
+
+  // Compare ENV_START commit against Checkpoint 1 registration record
+  var regCommitVal  = PropertiesService.getScriptProperties()
+                        .getProperty(MIG_REG_COMMIT_PROP) || 'NOT_SET';
+  var regTimestampVal = PropertiesService.getScriptProperties()
+                          .getProperty(MIG_REG_TIMESTAMP_PROP) || 'NOT_SET';
+  var envMatchesReg = (envCommit !== '' && envCommit === regCommitVal);
+
+  // ── Success gate: all 5 CEO conditions ───────────────────────────────────
+  // 1. Imported + Skipped = Eligible Active Legacy Candidates (reconDiff === 0)
+  // 2. Failed = 0
+  // 3. Reconciliation Difference = 0
+  // 4. Migration Environment Start = Migration Environment Registration (commit match)
+  // 5. Migration Environment End present
+  var allPassed = counts.FAILED === 0 &&
+                  reconDiff === 0 &&
+                  envStartPresent &&
+                  envEndPresent &&
+                  envMatchesReg;
+
+  var declaration = allPassed
+    ? ('══════════════════════════════════════════════════\n' +
+       'HISTORICAL MIGRATION PASSED\n' +
+       'KAI14 Candidates is the sole Master Workforce Intelligence Database.\n' +
+       '──────────────────────────────────────────────────\n' +
+       'Historical Migration v1.0 — READ ONLY\n' +
+       'Migration code is frozen. No further migration features shall be implemented.\n' +
+       'Begin Phase-1 UI Integration.\n' +
+       '══════════════════════════════════════════════════')
+    : 'NOT PASSED — one or more success conditions failed. Review audit details.';
+
   var audit = {
-    generatedAt:          new Date().toISOString(),
-    migrationVersion:     MIGRATION_VERSION,
-    rawLogRows:           rawRows,
-    dedupedLogRows:       dedupedRows,
-    duplicateLogEntries:  rawRows - dedupedRows,
-    eligible:             eligible,
-    imported:             counts.IMPORTED,
-    duplicate:            counts.DUPLICATE,
-    skipped:              counts.SKIPPED,
-    failed:               counts.FAILED,
-    reconciliationDiff:   reconDiff,
-    reconciliationPassed: reconDiff === 0,
-    importedChecksum:     checksum,
-    totalDurationMs:      Math.round(totalDurMs),
-    productionGate:       reconDiff === 0
+    generatedAt:             new Date().toISOString(),
+    migrationVersion:        MIGRATION_VERSION,
+    rawLogRows:              rawRows,
+    dedupedLogRows:          dedupedRows,
+    duplicateLogEntries:     rawRows - dedupedRows,
+    eligible:                eligible,
+    imported:                counts.IMPORTED,
+    duplicate:               counts.DUPLICATE,
+    skipped:                 counts.SKIPPED,
+    failed:                  counts.FAILED,
+    reconciliationDiff:      reconDiff,
+    reconciliationPassed:    reconDiff === 0,
+    importedChecksum:        checksum,
+    totalDurationMs:         Math.round(totalDurMs),
+    envStartPresent:         envStartPresent,
+    envEndPresent:           envEndPresent,
+    envCommitInLog:          envCommit || 'not found',
+    registrationCommit:      regCommitVal,
+    registrationTimestamp:   regTimestampVal,
+    envMatchesRegistration:  envMatchesReg,
+    allSuccessConditionsMet: allPassed,
+    productionGate:          reconDiff === 0 && counts.FAILED === 0
       ? 'PASS — cleared for production cutover review'
-      : 'FAIL — Reconciliation Difference = ' + reconDiff + '. Do NOT cut over.'
+      : 'FAIL — Reconciliation Difference = ' + reconDiff + ', Failed = ' + counts.FAILED + '. Do NOT cut over.'
   };
 
   Logger.log('=== KAI14 MIGRATION AUDIT ===');
   Logger.log(JSON.stringify(audit, null, 2));
+  Logger.log('');
+  Logger.log('ENV_START present  : ' + envStartPresent);
+  Logger.log('ENV_END present    : ' + envEndPresent);
+  Logger.log('Commit in ENV_START: ' + (envCommit || 'not found'));
+  Logger.log('Registration commit: ' + regCommitVal);
+  Logger.log('Reg timestamp      : ' + regTimestampVal);
+  Logger.log('Env matches reg    : ' + envMatchesReg);
+  Logger.log('');
+  Logger.log(declaration);
   Logger.log('=============================');
   return audit;
 }
@@ -342,15 +420,36 @@ function setDeploymentInfo(commitId, branch) {
     Logger.log('setDeploymentInfo: both commitId and branch are required. Aborted.');
     return;
   }
+  var commit    = String(commitId).trim();
+  var branchStr = String(branch).trim();
+  var operator  = Session.getActiveUser().getEmail() || 'unknown';
+  var timestamp = new Date().toISOString();
+
   var props = PropertiesService.getScriptProperties();
-  props.setProperty(MIG_COMMIT_PROP, String(commitId).trim());
-  props.setProperty(MIG_BRANCH_PROP, String(branch).trim());
-  Logger.log('=== DEPLOYMENT INFO SET ===');
-  Logger.log('historical_migration.gs commit : ' + commitId);
-  Logger.log('Branch                         : ' + branch);
-  Logger.log('verdict.gs commit              : ' +
+
+  // Active deployment props (read by runHistoricalMigration Gate 1b)
+  props.setProperty(MIG_COMMIT_PROP, commit);
+  props.setProperty(MIG_BRANCH_PROP, branchStr);
+
+  // Registration checkpoint (Checkpoint 1) — independent record compared at Gate 1c
+  props.setProperty(MIG_REG_COMMIT_PROP,    commit);
+  props.setProperty(MIG_REG_BRANCH_PROP,    branchStr);
+  props.setProperty(MIG_REG_TIMESTAMP_PROP, timestamp);
+  props.setProperty(MIG_REG_OPERATOR_PROP,  operator);
+
+  Logger.log('═══════════════════════════════════════════════════');
+  Logger.log('CHECKPOINT 1 — DEPLOYMENT REGISTRATION');
+  Logger.log('  Commit              : ' + commit);
+  Logger.log('  Branch              : ' + branchStr);
+  Logger.log('  Operator            : ' + operator);
+  Logger.log('  Registration time   : ' + timestamp);
+  Logger.log('  verdict.gs commit   : ' +
              (typeof VERDICT_ENGINE_COMMIT !== 'undefined' ? VERDICT_ENGINE_COMMIT : 'unknown'));
-  Logger.log('===========================');
+  Logger.log('─ Operator confirmation required ──────────────────');
+  Logger.log('  Verify the above commit matches the code');
+  Logger.log('  currently saved in Apps Script, then proceed');
+  Logger.log('  to Step 6: runHistoricalMigration(false)');
+  Logger.log('═══════════════════════════════════════════════════');
 }
 
 /**
@@ -516,6 +615,36 @@ function runHistoricalMigration(dryRun) {
     return { ok: false, error: msg0 };
   }
 
+  // ── Gate 1c: CHECKPOINT 2 — verify active deployment matches registration ─
+  // Checkpoint 1 = registration record written by setDeploymentInfo().
+  // Checkpoint 2 = active deployment props read right now.
+  // Both must match. Any divergence aborts before any candidate data is written.
+  var regCommit    = props.getProperty(MIG_REG_COMMIT_PROP)    || 'NOT_SET';
+  var regBranch    = props.getProperty(MIG_REG_BRANCH_PROP)    || 'NOT_SET';
+  var regTimestamp = props.getProperty(MIG_REG_TIMESTAMP_PROP) || 'NOT_SET';
+  var regOperator  = props.getProperty(MIG_REG_OPERATOR_PROP)  || 'NOT_SET';
+
+  Logger.log('═══════════════════════════════════════════════════');
+  Logger.log('CHECKPOINT 2 — MIGRATION START');
+  Logger.log('  Commit (active)       : ' + deployCommit);
+  Logger.log('  Branch (active)       : ' + deployBranch);
+  Logger.log('─ Checkpoint 1 registration record ───────────────');
+  Logger.log('  Commit (registered)   : ' + regCommit);
+  Logger.log('  Branch (registered)   : ' + regBranch);
+  Logger.log('  Operator (registered) : ' + regOperator);
+  Logger.log('  Registered at         : ' + regTimestamp);
+  Logger.log('═══════════════════════════════════════════════════');
+
+  if (deployCommit !== regCommit || deployBranch !== regBranch) {
+    var mismatchMsg = 'KAI MIGRATION ABORTED — Checkpoint mismatch. ' +
+      'Active commit [' + deployCommit + '] / branch [' + deployBranch + '] ' +
+      'does not match registration commit [' + regCommit + '] / branch [' + regBranch + ']. ' +
+      'Call setDeploymentInfo() again to re-register the current deployment.';
+    Logger.log(mismatchMsg);
+    return { ok: false, error: mismatchMsg };
+  }
+  Logger.log('CHECKPOINT 2 — MATCH CONFIRMED. Proceeding.');
+
   // ── Gate 2: legacy spreadsheet ID ────────────────────────────────────────
   var legacySsId = props.getProperty('LEGACY_SS_ID');
   if (!legacySsId) {
@@ -541,20 +670,10 @@ function runHistoricalMigration(dryRun) {
     dryRun = lockedDryRun;
   }
 
-  var batchId = savedBatch || ('MIG-' + callStart.getTime());
-  var startOffset = savedOffset;  // 0-based index into legacy data array
+  var batchId     = savedBatch || ('MIG-' + callStart.getTime());
+  var startOffset = savedOffset;
 
-  // Lock the batch + dryRun mode on first call; stamp START environment record
-  if (!savedBatch) {
-    props.setProperty(MIG_BATCH_KEY,       batchId);
-    props.setProperty(MIG_DRYRUN_KEY,      String(dryRun));
-    props.setProperty(MIG_OFFSET_KEY,      '0');
-    props.setProperty(MIG_BATCH_START_PROP, callStart.toISOString());  // persist start time for END record
-    writeMigrationEnvironment_(ensureMigrationLog_(), 'START', batchId,
-      callStart, null, operator, legacySsId, legacySs, kaiSs, dryRun);
-  }
-
-  // ── Setup ─────────────────────────────────────────────────────────────────
+  // ── Setup — must precede !savedBatch block so START stamp has valid values ─
   var operator = Session.getActiveUser().getEmail() || 'unknown';
   var kaiSs    = SpreadsheetApp.getActiveSpreadsheet();
   var logSh    = ensureMigrationLog_();
@@ -564,7 +683,7 @@ function runHistoricalMigration(dryRun) {
     return { ok: false, error: 'KAI MIGRATION ABORTED — Candidates sheet not found.' };
   }
 
-  // ── Open legacy spreadsheet ───────────────────────────────────────────────
+  // ── Open legacy spreadsheet — must precede !savedBatch block ─────────────
   var legacySs, legacySh;
   try {
     legacySs = SpreadsheetApp.openById(legacySsId);
@@ -572,6 +691,16 @@ function runHistoricalMigration(dryRun) {
     if (!legacySh) throw new Error('Candidates sheet not found in legacy spreadsheet.');
   } catch (e) {
     return { ok: false, error: 'KAI MIGRATION ABORTED — Cannot open legacy spreadsheet: ' + e.message };
+  }
+
+  // ── Lock the batch + dryRun mode on first call; stamp START environment record ─
+  if (!savedBatch) {
+    props.setProperty(MIG_BATCH_KEY,        batchId);
+    props.setProperty(MIG_DRYRUN_KEY,       String(dryRun));
+    props.setProperty(MIG_OFFSET_KEY,       '0');
+    props.setProperty(MIG_BATCH_START_PROP, callStart.toISOString());
+    writeMigrationEnvironment_(logSh, 'START', batchId,
+      callStart, null, operator, legacySsId, legacySs, kaiSs, dryRun);
   }
 
   // ── Read legacy schema ────────────────────────────────────────────────────
