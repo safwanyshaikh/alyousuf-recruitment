@@ -670,6 +670,100 @@ function runHistoricalMigration(dryRun) {
 // CEO REVISED EXECUTION ORDER — STEPS 3, 4, 5, 8
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Sheet name for Phase-1 certification archive
+var PHASE1_CERT_SHEET = '_Phase1_Certification';
+
+/**
+ * archivePhase1Certification — CEO Safeguard (runs BEFORE runPreMigrationCleanup).
+ *
+ * Copies every Phase-1 validation candidate (all columns including all 19 VERDICT_COLS)
+ * from KAI14 Candidates into a new permanent sheet: _Phase1_Certification.
+ *
+ * This sheet is certification evidence for future regression testing.
+ * It is NOT a second database. It is never used by any KAI engine.
+ *
+ * Safe to re-run: if sheet already exists and has matching row count, skips.
+ * runPreMigrationCleanup() will not proceed until this archive is confirmed.
+ */
+function archivePhase1Certification() {
+  if (!getMaintenanceMode()) {
+    Logger.log('ARCHIVE ABORTED — maintenanceMode is OFF.');
+    return { ok: false, error: 'maintenanceMode must be ON' };
+  }
+
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var candSh = ss.getSheetByName(K14.sheets.candidates);
+
+  if (!candSh || candSh.getLastRow() < 2) {
+    Logger.log('ARCHIVE ABORTED — Candidates sheet is empty. Nothing to archive.');
+    return { ok: false, error: 'Candidates sheet empty' };
+  }
+
+  var totalCols = candSh.getLastColumn();
+  var dataRows  = candSh.getLastRow() - 1;
+
+  // Read full Candidates sheet (header + all data)
+  var allData = candSh.getRange(1, 1, candSh.getLastRow(), totalCols).getValues();
+
+  // Create or clear _Phase1_Certification
+  var archSh = ss.getSheetByName(PHASE1_CERT_SHEET);
+  if (archSh) {
+    // Already exists — verify it has the right content
+    var existingRows = archSh.getLastRow() - 1;
+    if (existingRows === dataRows) {
+      Logger.log('ARCHIVE — _Phase1_Certification already exists with ' + existingRows +
+                 ' rows matching Candidates. Archive confirmed.');
+      return { ok: true, archived: existingRows, status: 'ALREADY_COMPLETE' };
+    }
+    // Row count mismatch — overwrite
+    archSh.clearContents();
+    Logger.log('ARCHIVE — _Phase1_Certification exists but row count mismatch (' +
+               existingRows + ' vs ' + dataRows + '). Overwriting.');
+  } else {
+    archSh = ss.insertSheet(PHASE1_CERT_SHEET);
+  }
+
+  // Write all data (header + rows) in one batch
+  archSh.getRange(1, 1, allData.length, totalCols).setValues(allData);
+
+  // Style: freeze header, mark as read-only reference
+  archSh.setFrozenRows(1);
+  archSh.getRange(1, 1, 1, totalCols)
+        .setBackground('#0d3349')
+        .setFontColor('#ffffff')
+        .setFontWeight('bold');
+
+  // Add a note in cell A1 to prevent confusion
+  archSh.getRange(1, 1).setNote(
+    'CERTIFICATION EVIDENCE — Phase-1 Verdict Engine validation candidates. ' +
+    'Archived on ' + new Date().toISOString() + '. ' +
+    'NOT a production database. DO NOT modify.'
+  );
+
+  var archived = archSh.getLastRow() - 1;
+
+  Logger.log('=== PHASE-1 CERTIFICATION ARCHIVE ===');
+  Logger.log('Sheet           : ' + PHASE1_CERT_SHEET);
+  Logger.log('Columns copied  : ' + totalCols);
+  Logger.log('Candidates rows : ' + dataRows);
+  Logger.log('Archived rows   : ' + archived);
+  Logger.log('Match           : ' + (archived === dataRows ? 'YES — archive complete' : 'NO — MISMATCH'));
+  Logger.log('======================================');
+
+  if (archived !== dataRows) {
+    return { ok: false, error: 'Row count mismatch after archive. Do not proceed.',
+             candidateRows: dataRows, archivedRows: archived };
+  }
+
+  return {
+    ok:           true,
+    archived:     archived,
+    columnsTotal: totalCols,
+    sheetName:    PHASE1_CERT_SHEET,
+    status:       'COMPLETE — confirm then run runPreMigrationCleanup()'
+  };
+}
+
 /**
  * runPreMigrationCleanup — CEO Revised Execution Order Steps 3 + 4.
  *
@@ -704,6 +798,16 @@ function runPreMigrationCleanup() {
     Logger.log('CLEANUP — Candidates sheet already empty. Nothing to delete.');
     return { ok: true, validationDeleted: 0, ghostDeleted: 0, totalDeleted: 0, remaining: 0, cleanSlate: true };
   }
+
+  // ── Safety gate: _Phase1_Certification must exist and match row count ─────
+  var archSh      = ss.getSheetByName(PHASE1_CERT_SHEET);
+  var archiveRows = archSh ? Math.max(0, archSh.getLastRow() - 1) : 0;
+  if (!archSh || archiveRows === 0) {
+    Logger.log('CLEANUP ABORTED — _Phase1_Certification sheet missing or empty. ' +
+               'Run archivePhase1Certification() first.');
+    return { ok: false, error: '_Phase1_Certification not confirmed. Run archivePhase1Certification() first.' };
+  }
+  Logger.log('CLEANUP — Archive confirmed: _Phase1_Certification has ' + archiveRows + ' rows. Proceeding.');
 
   var headers = candSh.getRange(1, 1, 1, candSh.getLastColumn()).getValues()[0];
   var kaiIdx  = headers.indexOf('KAINo');
