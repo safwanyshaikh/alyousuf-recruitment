@@ -36,7 +36,8 @@
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-var MIGRATION_VERSION      = '1.1.0';
+var MIGRATION_VERSION      = '1.2.0';
+var MIGRATION_GS_COMMIT    = '579d461';  // updated each commit
 var MIGRATION_LOG_SHEET    = 'Migration_Log';
 var CONFIG_SHEET           = '_Config';
 var MAINTENANCE_KEY        = 'maintenanceMode';
@@ -363,6 +364,58 @@ function getMigrationProgress() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// 6b. MIGRATION ENVIRONMENT STAMP — permanent audit record in Migration_Log
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * writeMigrationEnvironment_ — stamps engine version and environment into
+ * Migration_Log as a permanent governance record at the start of each batch.
+ *
+ * Uses existing Migration_Log columns. Status = 'MIGRATION_ENV'.
+ * Ignored by generateMigrationAudit_ (not in counts object).
+ *
+ * Columns used:
+ *   MigrationBatchID      → batchId
+ *   MigrationStartTime    → start timestamp
+ *   Operator              → operator email
+ *   SourceSpreadsheetID   → legacy SS ID
+ *   SourceSpreadsheetName → legacy SS name
+ *   SourceRowNumber       → 'ENV:' + batchId  (unique key, preserved by dedup)
+ *   LegacyKAINumber       → target (KAI14) spreadsheet ID
+ *   MigratedKAINumber     → target spreadsheet name
+ *   MigrationStatus       → 'MIGRATION_ENV'
+ *   Reason                → 'historical_migration.gs: <commit>'
+ *   ErrorMessage          → 'verdict.gs: <commit>  |  dryRun: <true/false>'
+ */
+function writeMigrationEnvironment_(logSh, batchId, startTime, operator, legacySsId, legacySs, kaiSs, dryRun) {
+  var verdictCommit = (typeof VERDICT_ENGINE_COMMIT !== 'undefined')
+    ? VERDICT_ENGINE_COMMIT : 'unknown';
+
+  logSh.appendRow([
+    batchId,
+    startTime.toISOString(),
+    '',                               // MigrationEndTime — not yet known
+    operator,
+    legacySsId,
+    legacySs.getName(),
+    'ENV:' + batchId,                // SourceRowNumber — unique key for dedup
+    kaiSs.getId(),                   // LegacyKAINumber col — reused for target SS ID
+    kaiSs.getName(),                 // MigratedKAINumber col — reused for target SS name
+    '',                              // CandidateName
+    'MIGRATION_ENV',                 // MigrationStatus
+    'historical_migration.gs: ' + MIGRATION_GS_COMMIT,
+    'verdict.gs: ' + verdictCommit + '  |  dryRun: ' + dryRun,
+    '',                              // LegacyGulfExpRaw
+    ''                               // ExecutionDurationMs
+  ]);
+
+  Logger.log('KAI MIGRATION — Environment stamped: migration_gs=' + MIGRATION_GS_COMMIT +
+             ', verdict_gs=' + verdictCommit + ', operator=' + operator +
+             ', source=' + legacySsId + ', target=' + kaiSs.getId());
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 7. MIGRATION ENGINE — RESUMABLE MAIN ENTRY POINT
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -417,11 +470,12 @@ function runHistoricalMigration(dryRun) {
   var batchId = savedBatch || ('MIG-' + callStart.getTime());
   var startOffset = savedOffset;  // 0-based index into legacy data array
 
-  // Lock the batch + dryRun mode on first call
+  // Lock the batch + dryRun mode on first call; stamp environment into Migration_Log
   if (!savedBatch) {
     props.setProperty(MIG_BATCH_KEY,  batchId);
     props.setProperty(MIG_DRYRUN_KEY, String(dryRun));
     props.setProperty(MIG_OFFSET_KEY, '0');
+    writeMigrationEnvironment_(ensureMigrationLog_(), batchId, callStart, operator, legacySsId, legacySs, kaiSs, dryRun);
   }
 
   // ── Setup ─────────────────────────────────────────────────────────────────
@@ -799,15 +853,60 @@ function runPreMigrationCleanup() {
     return { ok: true, validationDeleted: 0, ghostDeleted: 0, totalDeleted: 0, remaining: 0, cleanSlate: true };
   }
 
-  // ── Safety gate: _Phase1_Certification must exist and match row count ─────
-  var archSh      = ss.getSheetByName(PHASE1_CERT_SHEET);
-  var archiveRows = archSh ? Math.max(0, archSh.getLastRow() - 1) : 0;
-  if (!archSh || archiveRows === 0) {
-    Logger.log('CLEANUP ABORTED — _Phase1_Certification sheet missing or empty. ' +
+  // ── 5-point archive validation gate ──────────────────────────────────────
+  // All 5 must pass. Any failure aborts — no Candidates rows are deleted.
+  var archSh = ss.getSheetByName(PHASE1_CERT_SHEET);
+
+  // V1: sheet exists
+  if (!archSh) {
+    Logger.log('CLEANUP ABORTED [V1] — _Phase1_Certification sheet does not exist. ' +
                'Run archivePhase1Certification() first.');
-    return { ok: false, error: '_Phase1_Certification not confirmed. Run archivePhase1Certification() first.' };
+    return { ok: false, error: 'V1 FAIL: _Phase1_Certification missing.' };
   }
-  Logger.log('CLEANUP — Archive confirmed: _Phase1_Certification has ' + archiveRows + ' rows. Proceeding.');
+
+  // V2: archive is not empty
+  var archiveRows = Math.max(0, archSh.getLastRow() - 1);
+  if (archiveRows === 0) {
+    Logger.log('CLEANUP ABORTED [V2] — _Phase1_Certification exists but is empty. ' +
+               'Run archivePhase1Certification() first.');
+    return { ok: false, error: 'V2 FAIL: _Phase1_Certification is empty.' };
+  }
+
+  // V3: archive contains all VERDICT_COLS
+  // VERDICT_COLS is defined in verdict.gs — accessible via shared GAS global scope
+  var archHeaders = archSh.getRange(1, 1, 1, archSh.getLastColumn()).getValues()[0]
+                           .map(function(h) { return String(h).trim(); });
+  var missingVerdict = (typeof VERDICT_COLS !== 'undefined' ? VERDICT_COLS : [])
+    .filter(function(v) { return archHeaders.indexOf(v) < 0; });
+  if (missingVerdict.length > 0) {
+    Logger.log('CLEANUP ABORTED [V3] — _Phase1_Certification missing VERDICT_COLS: ' +
+               missingVerdict.join(', '));
+    return { ok: false, error: 'V3 FAIL: Missing VERDICT_COLS: ' + missingVerdict.join(', ') };
+  }
+
+  // V4: archive contains expected certification candidates
+  // Validate by checking a core identity column (FullName) is populated
+  var archData       = archSh.getRange(2, 1, archiveRows, archSh.getLastColumn()).getValues();
+  var archNameCol    = archHeaders.indexOf('FullName');
+  var populatedNames = archData.filter(function(r) {
+    return archNameCol >= 0 && String(r[archNameCol] || '').trim() !== '';
+  }).length;
+  if (populatedNames === 0) {
+    Logger.log('CLEANUP ABORTED [V4] — _Phase1_Certification has no populated FullName values. ' +
+               'Archive may be corrupt.');
+    return { ok: false, error: 'V4 FAIL: No populated candidate names in archive.' };
+  }
+
+  // V5: archive row count matches current Candidates sheet
+  if (archiveRows !== dataRows) {
+    Logger.log('CLEANUP ABORTED [V5] — Row count mismatch. Candidates=' + dataRows +
+               ', Archive=' + archiveRows + '. Re-run archivePhase1Certification().');
+    return { ok: false, error: 'V5 FAIL: Row count mismatch (Candidates=' + dataRows +
+             ', Archive=' + archiveRows + ').' };
+  }
+
+  Logger.log('CLEANUP — Archive validation PASSED (V1–V5). ' +
+             archiveRows + ' Phase-1 rows confirmed. Proceeding with cleanup.');
 
   var headers = candSh.getRange(1, 1, 1, candSh.getLastColumn()).getValues()[0];
   var kaiIdx  = headers.indexOf('KAINo');
