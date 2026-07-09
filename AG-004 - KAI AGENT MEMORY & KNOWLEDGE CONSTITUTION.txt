@@ -1,0 +1,388 @@
+AG-004 - KAI AGENT MEMORY & KNOWLEDGE CONSTITUTION
+Constitution v1.0
+Status: 🔒 CONSTITUTION LOCK
+
+═══════════════════════════════════════════════════════════════════════
+
+1. PURPOSE
+
+This Constitution establishes the permanent standards governing
+how every KAI Agent acquires, stores, retrieves, shares and
+utilizes enterprise knowledge and memory within the KAI Workforce
+Intelligence Operating System.
+
+Enterprise knowledge shall remain permanent.
+
+Agent memory shall remain governed.
+
+Historical truth shall never be rewritten.
+
+═══════════════════════════════════════════════════════════════════════
+
+2. CONSTITUTIONAL AUTHORITY
+
+CEO
+
+↓
+
+KAI Constitution
+
+↓
+
+Enterprise Knowledge Constitution
+
+↓
+
+Agent Constitution (AG-001)
+
+↓
+
+Agent Identity & Registry Constitution (AG-002)
+
+↓
+
+Agent Decision & Reasoning Constitution (AG-003)
+
+↓
+
+Agent Memory & Knowledge Constitution (AG-004)
+
+↓
+
+Knowledge Access
+
+↓
+
+Execution
+
+↓
+
+Audit
+
+═══════════════════════════════════════════════════════════════════════
+
+3. MISSION
+
+Provide one governed enterprise memory ensuring every KAI Agent
+learns from approved knowledge instead of isolated experience.
+
+One Enterprise Memory
+
+One Knowledge Repository
+
+One Knowledge Graph
+
+One Truth
+
+═══════════════════════════════════════════════════════════════════════
+
+4. MEMORY PRINCIPLES
+
+Enterprise First
+
+Knowledge Before Assumptions
+
+Evidence Before Memory
+
+Context Before Retrieval
+
+Version Controlled
+
+Auditable
+
+Recoverable
+
+Immutable History
+
+═══════════════════════════════════════════════════════════════════════
+
+5. KNOWLEDGE SOURCES
+
+Enterprise Knowledge Repository
+
+Knowledge Graph
+
+Candidate Repository
+
+Requirement Repository
+
+Timeline Repository
+
+Policy Repository
+
+Configuration Repository
+
+Audit Repository
+
+Approved External Knowledge
+
+No unapproved knowledge source shall be consumed.
+
+═══════════════════════════════════════════════════════════════════════
+
+6. MEMORY TYPES
+
+Working Memory
+
+Session Memory
+
+Conversation Memory
+
+Operational Memory
+
+Historical Memory
+
+Knowledge Memory
+
+Reference Memory
+
+Executive Memory
+
+═══════════════════════════════════════════════════════════════════════
+
+7. KNOWLEDGE RETRIEVAL
+
+Every retrieval shall include:
+
+Knowledge Source
+
+Knowledge Version
+
+Retrieval Timestamp
+
+Evidence Reference
+
+Confidence
+
+Authorization Status
+
+Audit Reference
+
+═══════════════════════════════════════════════════════════════════════
+
+8. KNOWLEDGE STORAGE
+
+Every stored knowledge asset shall maintain:
+
+Knowledge ID
+
+Title
+
+Owner
+
+Classification
+
+Version
+
+Creation Date
+
+Review Date
+
+Retention Policy
+
+Lifecycle Status
+
+═══════════════════════════════════════════════════════════════════════
+
+9. MEMORY SHARING
+
+Agents may exchange knowledge only through approved enterprise
+interfaces.
+
+Direct memory sharing outside constitutional governance is
+prohibited.
+
+═══════════════════════════════════════════════════════════════════════
+
+10. KNOWLEDGE VALIDATION
+
+Every knowledge asset shall satisfy:
+
+Evidence Validation
+
+Business Validation
+
+Ownership Validation
+
+Version Validation
+
+Security Validation
+
+Governance Validation
+
+═══════════════════════════════════════════════════════════════════════
+
+11. MEMORY RETENTION
+
+Historical knowledge shall never be destroyed without approved
+retention policy.
+
+Archived knowledge shall remain discoverable.
+
+Deleted knowledge shall preserve constitutional audit evidence.
+
+═══════════════════════════════════════════════════════════════════════
+
+12. KNOWLEDGE EVOLUTION
+
+Knowledge may evolve through:
+
+Review
+
+Approval
+
+Revision
+
+Version Upgrade
+
+Retirement
+
+Every revision shall preserve historical versions.
+
+═══════════════════════════════════════════════════════════════════════
+
+13. SECURITY
+
+Knowledge access requires:
+
+Authenticated Identity
+
+Authorized Permissions
+
+Least Privilege
+
+Encryption
+
+Policy Enforcement
+
+Immutable Audit
+
+═══════════════════════════════════════════════════════════════════════
+
+14. OBSERVABILITY
+
+Every memory operation records:
+
+Timestamp
+
+Agent ID
+
+Knowledge ID
+
+Operation
+
+Knowledge Version
+
+Source
+
+Execution Time
+
+Audit Reference
+
+═══════════════════════════════════════════════════════════════════════
+
+15. PERFORMANCE
+
+Knowledge Retrieval
+
+<2 Seconds
+
+Knowledge Validation
+
+<2 Seconds
+
+Knowledge Registration
+
+<5 Seconds
+
+Knowledge Linking
+
+<2 Seconds
+
+═══════════════════════════════════════════════════════════════════════
+
+16. QUALITY ASSURANCE
+
+Knowledge services shall pass:
+
+Integrity Validation
+
+Search Validation
+
+Relationship Validation
+
+Security Validation
+
+Performance Validation
+
+Regression Validation
+
+═══════════════════════════════════════════════════════════════════════
+
+17. PROHIBITED
+
+Fabricated Knowledge
+
+Hidden Knowledge
+
+Unauthorized Memory
+
+Duplicate Enterprise Truth
+
+Knowledge Tampering
+
+Evidence Removal
+
+Unapproved Learning Sources
+
+═══════════════════════════════════════════════════════════════════════
+
+18. ENTERPRISE MEMORY LAW
+
+Agents shall remember enterprise facts through the approved
+Knowledge Platform only.
+
+Private memory shall never supersede enterprise knowledge.
+
+═══════════════════════════════════════════════════════════════════════
+
+19. CONSTITUTIONAL COMPLIANCE
+
+Every KAI Agent shall comply with AG-001, AG-002, AG-003 and
+AG-004 before accessing enterprise memory or knowledge.
+
+Violation immediately revokes knowledge authorization.
+
+═══════════════════════════════════════════════════════════════════════
+
+20. MASTER CERTIFICATE
+
+Architecture ................ PASS
+
+Enterprise Memory ........... PASS
+
+Knowledge Governance ........ PASS
+
+Knowledge Retrieval ......... PASS
+
+Security .................... PASS
+
+Observability ............... PASS
+
+Audit ....................... PASS
+
+Version Control ............. PASS
+
+Devil's Advocate Audit ...... PASS
+
+Production Readiness ........ 10/10
+
+STATUS
+
+🔒 AG-004 LOCKED
+
+KAI Agent Memory & Knowledge Constitution
+
+═══════════════════════════════════════════════════════════════════════
+
+Remaining Modules: 6

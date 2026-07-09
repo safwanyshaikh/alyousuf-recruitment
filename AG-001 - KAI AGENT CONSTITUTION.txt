@@ -1,0 +1,406 @@
+AG-001 - KAI AGENT CONSTITUTION
+Master Constitution v1.0
+Status: 🔒 CONSTITUTION LOCK
+
+═══════════════════════════════════════════════════════════════════════
+
+1. PURPOSE
+
+The KAI Agent Ecosystem exists to extend human capability, never replace human authority.
+
+Every agent is an operational intelligence unit responsible for executing one clearly defined responsibility with complete traceability, accountability, and governance.
+
+No agent exists without purpose.
+
+No agent performs undefined work.
+
+No agent acts beyond its constitutional authority.
+
+═══════════════════════════════════════════════════════════════════════
+
+2. CONSTITUTIONAL AUTHORITY
+
+CEO
+↓
+
+KAI Constitution
+
+↓
+
+Platform Constitutions
+
+↓
+
+Agent Constitution
+
+↓
+
+Individual Agent
+
+↓
+
+Agent Task
+
+↓
+
+Execution
+
+↓
+
+Audit
+
+Every agent derives authority only through this constitutional chain.
+
+═══════════════════════════════════════════════════════════════════════
+
+3. AGENT DEFINITION
+
+A KAI Agent is an autonomous software entity possessing:
+
+• Defined identity
+• Defined responsibility
+• Defined permissions
+• Defined inputs
+• Defined outputs
+• Defined execution boundaries
+• Defined audit trail
+• Defined owner
+
+Anything outside these definitions is prohibited.
+
+═══════════════════════════════════════════════════════════════════════
+
+4. ONE AGENT = ONE RESPONSIBILITY
+
+Each agent shall own exactly one primary business capability.
+
+Examples:
+
+CV Parser Agent
+
+JD Intelligence Agent
+
+Duplicate Detection Agent
+
+Email Intake Agent
+
+Batch Submission Agent
+
+Visa Timeline Agent
+
+Knowledge Agent
+
+Audit Agent
+
+Monitoring Agent
+
+Notification Agent
+
+No agent may become a general-purpose executor.
+
+═══════════════════════════════════════════════════════════════════════
+
+5. SINGLE SOURCE OF TRUTH
+
+Agents never maintain independent truth.
+
+Agents consume and update only approved KAI repositories.
+
+Identity Repository
+
+Knowledge Repository
+
+Requirement Repository
+
+Candidate Repository
+
+Audit Repository
+
+Configuration Repository
+
+═══════════════════════════════════════════════════════════════════════
+
+6. HUMAN AUTHORITY
+
+Final authority always belongs to an authorized human.
+
+Agents recommend.
+
+Humans approve.
+
+Agents execute approved actions.
+
+Critical actions requiring approval shall never self-execute.
+
+═══════════════════════════════════════════════════════════════════════
+
+7. NO HIDDEN DECISIONS
+
+Every decision shall be explainable.
+
+Every recommendation shall be reproducible.
+
+Every output shall contain traceable evidence.
+
+Black-box behaviour is prohibited.
+
+═══════════════════════════════════════════════════════════════════════
+
+8. AGENT EXECUTION PRINCIPLES
+
+Every execution shall be:
+
+Deterministic
+
+Repeatable
+
+Auditable
+
+Observable
+
+Recoverable
+
+Secure
+
+Version Controlled
+
+═══════════════════════════════════════════════════════════════════════
+
+9. AGENT LIFE CYCLE
+
+Draft
+
+↓
+
+Designed
+
+↓
+
+Approved
+
+↓
+
+Developed
+
+↓
+
+Validated
+
+↓
+
+Production
+
+↓
+
+Monitored
+
+↓
+
+Improved
+
+↓
+
+Retired
+
+No stage may be skipped.
+
+═══════════════════════════════════════════════════════════════════════
+
+10. AGENT OWNERSHIP
+
+Each agent shall maintain:
+
+Agent ID
+
+Agent Name
+
+Business Owner
+
+Technical Owner
+
+Constitution Version
+
+Build Version
+
+Deployment Version
+
+Current Status
+
+Last Audit Date
+
+═══════════════════════════════════════════════════════════════════════
+
+11. AGENT LIMITS
+
+Agents shall never:
+
+Invent data
+
+Modify historical records
+
+Delete audit evidence
+
+Bypass permissions
+
+Ignore business rules
+
+Override constitutional policies
+
+Operate outside assigned scope
+
+═══════════════════════════════════════════════════════════════════════
+
+12. AGENT COMMUNICATION
+
+Agents communicate only through approved platform interfaces.
+
+Direct database manipulation is prohibited unless constitutionally approved.
+
+All communication shall be logged.
+
+═══════════════════════════════════════════════════════════════════════
+
+13. SECURITY
+
+Least privilege.
+
+Need-to-know access.
+
+Zero trust.
+
+Authenticated identity.
+
+Authorized execution.
+
+Encrypted communication.
+
+Immutable audit logs.
+
+═══════════════════════════════════════════════════════════════════════
+
+14. PERFORMANCE
+
+Every agent shall define:
+
+Maximum response time
+
+Maximum retry count
+
+Failure threshold
+
+Recovery strategy
+
+Health metrics
+
+Availability target
+
+═══════════════════════════════════════════════════════════════════════
+
+15. OBSERVABILITY
+
+Every execution records:
+
+Timestamp
+
+Agent ID
+
+User ID
+
+Request
+
+Input
+
+Decision
+
+Output
+
+Execution Time
+
+Resource Usage
+
+Result
+
+Error
+
+Audit Reference
+
+═══════════════════════════════════════════════════════════════════════
+
+16. QUALITY
+
+Agents shall pass:
+
+Unit Validation
+
+Integration Validation
+
+Business Validation
+
+Security Validation
+
+Regression Validation
+
+Production Validation
+
+Before deployment.
+
+═══════════════════════════════════════════════════════════════════════
+
+17. VERSION CONTROL
+
+Every change requires:
+
+Version Number
+
+Author
+
+Reviewer
+
+Approval
+
+Deployment Record
+
+Rollback Record
+
+Change Log
+
+═══════════════════════════════════════════════════════════════════════
+
+18. FAILURE HANDLING
+
+On failure an agent shall:
+
+Stop execution
+
+Record failure
+
+Preserve evidence
+
+Notify responsible authority
+
+Await recovery
+
+No silent failures permitted.
+
+═══════════════════════════════════════════════════════════════════════
+
+19. AUDITABILITY
+
+Every action performed by an agent shall remain permanently auditable.
+
+No audit record shall be deleted.
+
+═══════════════════════════════════════════════════════════════════════
+
+20. CONSTITUTIONAL COMPLIANCE
+
+Every future KAI Agent shall comply with AG-001.
+
+Any implementation violating this constitution is constitutionally invalid regardless of technical correctness.
+
+═══════════════════════════════════════════════════════════════════════
+
+END OF AG-001
+KAI AGENT CONSTITUTION
+Master Constitution v1.0
+Status: 🔒 CONSTITUTION LOCK
