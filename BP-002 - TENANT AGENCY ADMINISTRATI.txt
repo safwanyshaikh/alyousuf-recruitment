@@ -1,0 +1,685 @@
+BP-002 - TENANT AGENCY ADMINISTRATION
+Module Build Package v1.0
+Status: 🔒 BUILD LOCK
+
+============================================================
+MODULE
+============================================================
+
+Tenant Agency Administration
+
+Agency Governance Layer
+
+============================================================
+PURPOSE
+============================================================
+
+Govern one recruitment agency inside KAI.
+
+Manage users, departments, permissions, operational settings and organizational structure.
+
+Never perform recruitment operations.
+
+============================================================
+PRIMARY USERS
+============================================================
+
+Agency Administrator
+
+Operations Manager
+
+HR Administrator
+
+IT Administrator
+
+Recruitment Manager
+
+============================================================
+WORKSPACE STRUCTURE
+============================================================
+
+Global Header
+
+↓
+
+Agency Overview
+
+↓
+
+Operational Summary
+
+↓
+
+Action Toolbar
+
+↓
+
+Universal Search
+
+↓
+
+Quick Filters
+
+↓
+
+Recruiter Registry
+
+↓
+
+Organization Workspace
+
+↓
+
+Intelligence Drawer
+
+↓
+
+Timeline
+
+============================================================
+LEFT NAVIGATION
+============================================================
+
+Dashboard
+
+Organization
+
+Departments
+
+Recruiters
+
+Roles
+
+Permissions
+
+Templates
+
+Notifications
+
+Audit
+
+Settings
+
+============================================================
+WORKSPACE TREE
+============================================================
+
+Agency Dashboard
+
+↓
+
+Organization Profile
+
+↓
+
+Departments
+
+↓
+
+Recruiters
+
+↓
+
+Roles
+
+↓
+
+Permissions
+
+↓
+
+Templates
+
+↓
+
+Audit
+
+↓
+
+Timeline
+
+============================================================
+USER JOURNEY
+============================================================
+
+Agency Login
+
+↓
+
+Organization Review
+
+↓
+
+Department Creation
+
+↓
+
+Recruiter Creation
+
+↓
+
+Role Assignment
+
+↓
+
+Permission Assignment
+
+↓
+
+Operational Configuration
+
+↓
+
+Recruitment Ready
+
+============================================================
+COMPONENT TREE
+============================================================
+
+Header
+
+Summary Cards
+
+Toolbar
+
+Universal Search
+
+Filter Bar
+
+Operational Table
+
+Drawer
+
+Timeline
+
+Dialogs
+
+Forms
+
+Notifications
+
+============================================================
+SUMMARY CARDS
+============================================================
+
+Recruiters
+
+Departments
+
+Managers
+
+Active Users
+
+Inactive Users
+
+Pending Invitations
+
+Available Licenses
+
+Organization Health
+
+============================================================
+TABLE
+============================================================
+
+Recruiter
+
+Employee Code
+
+Department
+
+Role
+
+Status
+
+Email
+
+Mobile
+
+Last Login
+
+Actions
+
+============================================================
+DRAWER
+============================================================
+
+Recruiter Profile
+
+Department
+
+Permissions
+
+Assigned Workspaces
+
+Activity
+
+Audit
+
+Timeline
+
+AI Recommendation
+
+Next Action
+
+============================================================
+STATE MANAGEMENT
+============================================================
+
+Session
+
+Selected User
+
+Drawer
+
+Filters
+
+Search
+
+Sorting
+
+Pagination
+
+Notifications
+
+============================================================
+DATABASE
+============================================================
+
+Agency
+
+Department
+
+Recruiter
+
+Role
+
+Permission
+
+Invitation
+
+Template
+
+Settings
+
+Audit
+
+Timeline
+
+Notification
+
+============================================================
+RELATIONSHIPS
+============================================================
+
+Agency
+
+↓
+
+Department
+
+↓
+
+Recruiter
+
+↓
+
+Role
+
+↓
+
+Permission
+
+↓
+
+Audit
+
+============================================================
+SERVICES
+============================================================
+
+Authentication
+
+Recruiter Management
+
+Department Management
+
+Role Management
+
+Permission Management
+
+Notification
+
+Audit
+
+Search
+
+Configuration
+
+============================================================
+API SET
+============================================================
+
+Agency API
+
+Recruiter API
+
+Department API
+
+Role API
+
+Permission API
+
+Invitation API
+
+Settings API
+
+Audit API
+
+Notification API
+
+Search API
+
+============================================================
+AUTOMATION
+============================================================
+
+Generate Recruiter ID
+
+Create Workspace
+
+Assign Default Role
+
+Assign Permissions
+
+Generate Dashboard
+
+Generate Timeline
+
+Generate Audit
+
+Send Invitation
+
+Activate User
+
+============================================================
+AI
+============================================================
+
+Organization Health
+
+Recruiter Capacity
+
+Department Utilization
+
+Permission Anomaly
+
+Inactive User Detection
+
+Configuration Recommendation
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+SEARCH
+============================================================
+
+Universal
+
+Recruiter
+
+Employee Code
+
+Department
+
+Role
+
+Email
+
+Mobile
+
+Status
+
+============================================================
+FILTERS
+============================================================
+
+Department
+
+Role
+
+Status
+
+Manager
+
+Invitation
+
+Last Login
+
+Created Date
+
+============================================================
+QUEUE
+============================================================
+
+Pending Invitation
+
+Pending Activation
+
+Active Users
+
+Inactive Users
+
+Permission Review
+
+Archived
+
+============================================================
+NOTIFICATIONS
+============================================================
+
+Invitation Sent
+
+Invitation Accepted
+
+User Activated
+
+Role Changed
+
+Permission Updated
+
+Password Reset
+
+License Limit
+
+Security Alert
+
+============================================================
+PERMISSIONS
+============================================================
+
+Agency Administrator
+
+Operations Manager
+
+HR Administrator
+
+Recruitment Manager
+
+Read Only
+
+============================================================
+SECURITY
+============================================================
+
+Tenant Isolation
+
+RBAC
+
+MFA
+
+JWT
+
+Encryption
+
+Audit
+
+Device Tracking
+
+Session Management
+
+============================================================
+PERFORMANCE
+============================================================
+
+Workspace <2 Seconds
+
+Search <200 ms
+
+Create Recruiter <2 Seconds
+
+Real-time Updates
+
+============================================================
+TESTING
+============================================================
+
+Create Recruiter
+
+Invite Recruiter
+
+Activate
+
+Suspend
+
+Archive
+
+Role Assignment
+
+Permission Assignment
+
+Search
+
+Automation
+
+Security
+
+Performance
+
+============================================================
+DEPLOYMENT CHECKLIST
+============================================================
+
+Database
+
+Services
+
+APIs
+
+Automation
+
+AI
+
+RBAC
+
+Audit
+
+Notifications
+
+UI
+
+Testing
+
+Monitoring
+
+Production
+
+============================================================
+LOVABLE BUILD PACKAGE
+============================================================
+
+Build complete Tenant Agency Administration workspace exactly as specified.
+
+Follow all KAI Constitutions.
+
+Follow all Design Standards.
+
+Follow all Product Engineering.
+
+Follow all UI Standards.
+
+Do not redesign workflow.
+
+Do not rename modules.
+
+Implement complete enterprise workspace using KAI design language.
+
+============================================================
+CLAUDE BACKEND PACKAGE
+============================================================
+
+Implement complete backend.
+
+Normalized database.
+
+REST APIs.
+
+RBAC.
+
+Automation engine.
+
+AI engine.
+
+Audit engine.
+
+Notification engine.
+
+Timeline engine.
+
+Search engine.
+
+Organization configuration.
+
+Production ready.
+
+============================================================
+BUILD LOCK CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+Feature Register ............. PASS
+
+Implementation ............... PASS
+
+Frontend ..................... PASS
+
+Backend ...................... PASS
+
+Automation ................... PASS
+
+AI ........................... PASS
+
+Security ..................... PASS
+
+Performance .................. PASS
+
+Scalability .................. PASS
+
+Devil's Advocate Audit ....... PASS
+
+Build Readiness .............. 10/10
+
+STATUS
+
+🔒 BP-002 LOCKED
+
+Tenant Agency Administration
+
+Module Build Package v1.0

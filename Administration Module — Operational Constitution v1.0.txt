@@ -1,0 +1,417 @@
+Administration Module — Operational Constitution v1.0
+
+---
+
+# Purpose
+
+Administration is not a CRM.
+
+Administration is not Recruitment.
+
+Administration is the control room of one recruitment agency inside KAI OS.
+
+Its responsibility is only to configure, secure, and manage the agency.
+
+Recruiters should almost never need to open this module.
+
+Everything here exists to support recruiters, not slow them down.
+
+---
+
+# Multi-Tenant Principle
+
+KAI is a multi-agency operating system.
+
+Every recruitment agency operates inside its own secure environment.
+
+Example
+
+KAI Platform
+
+│
+
+├── AL Yousuf Enterprises LLP
+
+├── Jai HR Consultants
+
+├── ABC Overseas
+
+├── XYZ Recruitment
+
+Each agency has complete control only over its own organization.
+
+No agency can access another agency.
+
+KAI Super Admin remains completely independent.
+
+---
+
+# Level 1 — KAI Super Admin (Exclusive Rights)
+
+Reserved only for KAI Platform.
+
+Cannot be delegated.
+
+Owns
+
+• Create Agency
+
+• Activate Agency
+
+• Suspend Agency
+
+• Delete Agency
+
+• Subscription Management
+
+• User Limits
+
+• Feature Licensing
+
+• Storage Limits
+
+• AI Credits
+
+• API Management
+
+• System Maintenance
+
+• Global Intelligence Engine
+
+• Security Policies
+
+• Platform Audit
+
+• Global Backup
+
+• Platform Updates
+
+• Billing
+
+• Compliance
+
+• Multi-tenant Security
+
+Agency Admin never receives these permissions.
+
+---
+
+# Level 2 — Agency Admin
+
+One agency.
+
+One administrator.
+
+Acts only inside that agency.
+
+Example
+
+AL Yousuf Enterprises LLP
+
+↓
+
+Agency Admin
+
+Agency Admin owns the complete operational setup of the agency.
+
+---
+
+## Agency Administration
+
+• Agency Profile
+
+• Office Details
+
+• Branches
+
+• Company Logo
+
+• Time Zone
+
+• Working Days
+
+• Working Hours
+
+• Holiday Calendar
+
+• Default Nationality
+
+• Email Configuration
+
+• WhatsApp Configuration
+
+• Notification Rules
+
+---
+
+## User Management
+
+Agency Admin may
+
+Create Recruiter
+
+Suspend Recruiter
+
+Reset Password
+
+Deactivate Recruiter
+
+Assign Department
+
+Assign Manager
+
+Assign Sourcing Territories
+
+Assign Clients
+
+Assign Projects
+
+Assign Requirements
+
+Assign Campaigns
+
+Transfer Ownership
+
+View Recruiter Workload
+
+View Recruiter Productivity
+
+Set Recruiter Permissions
+
+Maximum users depend on KAI license.
+
+Agency Admin cannot exceed purchased seats.
+
+---
+
+## Master Data
+
+Agency Admin controls
+
+Clients
+
+Projects
+
+Requirements
+
+Countries
+
+Trades
+
+Skills
+
+Industries
+
+Salary Templates
+
+Interview Locations
+
+Office Locations
+
+Recruitment Teams
+
+Departments
+
+Tags
+
+Document Templates
+
+Email Templates
+
+SMS Templates
+
+WhatsApp Templates
+
+Assessment Templates
+
+---
+
+## Recruiter Assignment
+
+Assign Clients
+
+Assign Projects
+
+Assign Requirements
+
+Assign Campaigns
+
+Assign Sourcing Partners
+
+Assign Territories
+
+Assign Trade Specialization
+
+Assign Industries
+
+Assign Daily Capacity
+
+---
+
+## Performance Intelligence
+
+Agency Admin sees
+
+Recruiter Productivity
+
+Campaign Performance
+
+Requirement Status
+
+Submission Ratio
+
+Selection Ratio
+
+Deployment Ratio
+
+Recruiter Response Time
+
+Candidate Conversion
+
+Source Performance
+
+Sourcing Partner Performance
+
+Training Centre Performance
+
+Education Institute Performance
+
+Daily Activities
+
+Weekly Activities
+
+Monthly Activities
+
+---
+
+## Security
+
+Agency Admin may
+
+Reset Recruiter Password
+
+Force Logout
+
+Disable User
+
+Enable User
+
+Control Device Access
+
+Control Browser Sessions
+
+Review Login History
+
+Review Audit Logs
+
+Review Data Changes
+
+---
+
+## Cannot Do
+
+Agency Admin cannot
+
+Create another Agency
+
+View another Agency
+
+Change Subscription
+
+Modify Platform AI
+
+Access KAI Core
+
+Access Global Intelligence
+
+Access KAI Super Admin Features
+
+---
+
+# Level 3 — Recruiter
+
+Recruiters recruit.
+
+Nothing else.
+
+Recruiters should never waste time configuring software.
+
+---
+
+## Recruiter Can
+
+Use Recruitment Flow
+
+Use Candidates
+
+Use Sourcing Partners
+
+Use Submission Workspace
+
+Use Mobilization
+
+Use Visa Workspace
+
+Use Deployment
+
+Update Candidates
+
+Call Candidates
+
+Upload CV
+
+Run Assessments
+
+Create Campaigns
+
+Maintain Communication
+
+Submit Candidates
+
+Track Interviews
+
+Track Offers
+
+Update Progress
+
+---
+
+## Recruiter Cannot
+
+Create Agency
+
+Delete Users
+
+Modify Permissions
+
+View Financial Settings
+
+Change Security
+
+Modify License
+
+Access Platform Settings
+
+Access Other Recruiters' Restricted Data
+
+Access Another Agency
+
+---
+
+# Golden Rule
+
+Administration answers only one question.
+
+> **Who is allowed to access what inside this agency?**
+
+It never becomes part of the recruitment workflow.
+
+---
+
+# Success Criteria
+
+An Agency Admin should be able to configure, secure, manage, monitor, and operate the entire recruitment organization—including users, permissions, master data, recruiter assignments, productivity, security, and organizational settings—without requiring KAI Platform intervention.
+
+At the same time, recruiters should spend their entire working day inside Recruitment Flow, Candidates, Sourcing Partners, and Submission Workspace without ever needing to open Administration.
+
+Administration remains invisible during recruitment and powerful behind the scenes.

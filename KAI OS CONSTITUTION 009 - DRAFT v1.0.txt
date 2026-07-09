@@ -1,0 +1,603 @@
+# KAI OS CONSTITUTION 009
+
+# NAVIGATION CONSTITUTION
+
+## Recruiters Navigate Work, Never Software
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Navigation exists to move work.
+
+Not users.
+
+A recruiter should never think
+
+"Where is that screen?"
+
+The recruiter should think
+
+"What work should I do next?"
+
+KAI is responsible for taking recruiters there.
+
+---
+
+# NAVIGATION PHILOSOPHY
+
+Recruitment flows.
+
+Navigation must therefore flow.
+
+Navigation is not exploration.
+
+Navigation is progression.
+
+Every movement inside KAI should advance recruitment.
+
+Never software.
+
+---
+
+# NAVIGATION HIERARCHY
+
+Every movement follows one hierarchy.
+
+```text
+Dashboard
+
+↓
+
+Operational Module
+
+↓
+
+Working Queue
+
+↓
+
+Operational Workspace
+
+↓
+
+Operational Object
+
+↓
+
+Decision
+
+↓
+
+Completion
+
+↓
+
+Next Queue
+```
+
+Navigation shall never break this chain.
+
+---
+
+# ARTICLE N001
+
+## Navigation Exists To Reach Work
+
+Navigation never exists simply to open pages.
+
+Every navigation event must immediately expose actionable work.
+
+If a destination contains no work,
+
+it should not exist.
+
+---
+
+# ARTICLE N002
+
+## Stable Left Navigation
+
+The left navigation is permanent.
+
+Its position never changes.
+
+Its order never changes.
+
+Recruiters develop muscle memory.
+
+Software must respect it.
+
+---
+
+# ARTICLE N003
+
+## Universal Navigation
+
+Every operational object must be reachable through
+
+Global Search
+
+Recent Items
+
+Assigned Work
+
+Notifications
+
+Relationship Links
+
+Direct URL
+
+No operational object shall become hidden.
+
+---
+
+# ARTICLE N004
+
+## Global Search First
+
+Search is navigation.
+
+Search is not filtering.
+
+Recruiters should reach
+
+Candidates
+
+Projects
+
+Requirements
+
+Clients
+
+Campaigns
+
+Submissions
+
+Partners
+
+Visa Cases
+
+Deployments
+
+from one search.
+
+---
+
+# ARTICLE N005
+
+## Relationships Replace Navigation
+
+Every operational object displays its relationships.
+
+Example
+
+Candidate
+
+↓
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Submission
+
+↓
+
+Client
+
+↓
+
+Project
+
+↓
+
+Recruiter
+
+Users move through relationships.
+
+Not menus.
+
+---
+
+# ARTICLE N006
+
+## Never Restart Navigation
+
+When recruiters return,
+
+KAI remembers
+
+Workspace
+
+Queue
+
+Scroll Position
+
+Filters
+
+Selections
+
+Draft Work
+
+Pinned Records
+
+Navigation resumes where work stopped.
+
+---
+
+# ARTICLE N007
+
+## Notifications Navigate
+
+Notifications never become messages.
+
+Every notification immediately opens
+
+the exact operational object
+
+requiring action.
+
+---
+
+# ARTICLE N008
+
+## Dashboards Navigate
+
+Dashboard widgets never display statistics alone.
+
+Every widget opens
+
+live work.
+
+Dashboards are operational launchpads.
+
+Not reports.
+
+---
+
+# ARTICLE N009
+
+## Breadcrumbs Explain Context
+
+Every workspace displays
+
+Where am I?
+
+Why am I here?
+
+What owns this work?
+
+What happens next?
+
+Breadcrumbs explain ownership.
+
+Not folder hierarchy.
+
+---
+
+# ARTICLE N010
+
+## One Back Rule
+
+Recruiters should never press Back repeatedly.
+
+Returning always restores
+
+exact working context.
+
+---
+
+# ARTICLE N011
+
+## Navigation Never Interrupts Work
+
+Calling
+
+Updating
+
+Assigning
+
+Messaging
+
+Reviewing
+
+should continue naturally.
+
+Navigation never forces users to abandon unfinished work.
+
+---
+
+# ARTICLE N012
+
+## Operational Handover
+
+Navigation changes only when
+
+ownership changes.
+
+Examples
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Submission
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+Navigation follows operational responsibility.
+
+---
+
+# ARTICLE N013
+
+## Quick Navigation
+
+Every frequently used object becomes reachable within seconds.
+
+Recent
+
+Pinned
+
+Favorites
+
+Assigned
+
+Today's Work
+
+Waiting For Me
+
+Urgent
+
+Quick navigation reduces searching.
+
+---
+
+# ARTICLE N014
+
+## Navigation Has Memory
+
+KAI remembers
+
+Recently Opened
+
+Frequently Opened
+
+Most Active Requirements
+
+Most Active Candidates
+
+Most Active Partners
+
+Navigation improves with usage.
+
+---
+
+# ARTICLE N015
+
+## No Navigation Dead Ends
+
+Every operational object answers
+
+What next?
+
+Every screen provides
+
+the next operational destination.
+
+Users never become trapped.
+
+---
+
+# ARTICLE N016
+
+## Queue Before Menu
+
+Recruiters move through queues.
+
+Not through navigation trees.
+
+Queues represent work.
+
+Menus represent software.
+
+Queues always take priority.
+
+---
+
+# ARTICLE N017
+
+## Navigation Scales
+
+Whether managing
+
+100
+
+or
+
+100,000
+
+records,
+
+navigation behaves identically.
+
+Complexity never increases with data volume.
+
+---
+
+# ARTICLE N018
+
+## Cross Module Navigation
+
+Movement between modules shall preserve
+
+Candidate
+
+Requirement
+
+Project
+
+Campaign
+
+Submission
+
+Context.
+
+Users never start over.
+
+---
+
+# ARTICLE N019
+
+## Keyboard Navigation
+
+Every major navigation path shall support
+
+Keyboard Shortcuts
+
+Command Palette
+
+Quick Search
+
+Rapid Switching
+
+Professional recruiters should navigate without depending entirely on a mouse.
+
+---
+
+# ARTICLE N020
+
+## Invisible Navigation
+
+The highest achievement of navigation
+
+is becoming unnoticed.
+
+Recruiters remember work.
+
+Never navigation.
+
+---
+
+# NAVIGATION VALIDATION
+
+Every future navigation feature must answer
+
+1.
+
+Does this reduce searching?
+
+2.
+
+Does this preserve context?
+
+3.
+
+Does this move recruiters toward operational work?
+
+4.
+
+Does this reduce clicks?
+
+5.
+
+Can experienced recruiters navigate instinctively?
+
+6.
+
+Does this strengthen workflow continuity?
+
+7.
+
+Would removing this make recruitment slower?
+
+If any answer is NO,
+
+the navigation shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Navigation exists to move work forward.
+
+Not to move users around software.
+
+Every future module,
+
+workspace,
+
+dashboard,
+
+queue,
+
+drawer,
+
+dialog,
+
+notification,
+
+search result,
+
+and operational object
+
+shall comply with the Navigation Constitution.
+
+The Navigation Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+↓
+
+Navigation Constitution
+
+No future implementation may violate this order.

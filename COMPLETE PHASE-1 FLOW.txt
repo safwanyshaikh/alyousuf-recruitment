@@ -1,0 +1,47 @@
+COMPLETE PHASE-1 FLOW
+
+KAI ADMIN
+
+↓
+
+TENANT (Agency)
+
+↓
+
+Recruiters
+
+↓
+
+Recruiter Dashboard
+
+↓
+
+Client
+
+↓
+
+Project
+
+↓
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Candidates
+
+↓
+
+Sourcing Partners
+
+↓
+
+Submission Workspace
+
+↓
+
+Client Submission

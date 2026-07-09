@@ -1,0 +1,587 @@
+# KAI OS CONSTITUTION 002
+
+# OPERATIONAL CONSTITUTION
+
+## The Movement of Work
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+The Operational Constitution defines how recruitment work flows through KAI.
+
+It establishes ownership.
+
+It establishes responsibility.
+
+It establishes handover.
+
+It establishes continuity.
+
+Every operational activity inside KAI must belong to exactly one module.
+
+No work may exist without ownership.
+
+No ownership may exist twice.
+
+---
+
+# OPERATIONAL CHAIN
+
+The recruitment lifecycle shall always follow one immutable operational chain.
+
+```text
+Agency
+
+↓
+
+Client
+
+↓
+
+Project
+
+↓
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Candidate Supply
+
+↓
+
+Submission
+
+↓
+
+Selection
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+↓
+
+Alumni
+
+↓
+
+Future Opportunity
+```
+
+This chain may never be reordered.
+
+---
+
+# ARTICLE O001
+
+## Every Module Owns One Responsibility
+
+Each module owns one operational responsibility.
+
+When that responsibility is completed,
+
+ownership transfers to the next module.
+
+No module may perform the responsibility of another.
+
+---
+
+# ARTICLE O002
+
+## Agency Owns Operations
+
+Agency owns
+
+People
+
+Processes
+
+Policies
+
+Recruiters
+
+Permissions
+
+Clients
+
+Commercial Operations
+
+Agency never owns candidates.
+
+Candidates belong to the Workforce Intelligence Database.
+
+---
+
+# ARTICLE O003
+
+## Client Owns Business
+
+Client represents commercial ownership.
+
+Client answers only one question.
+
+Who awarded this work?
+
+Client never owns manpower.
+
+Client never owns sourcing.
+
+Client never owns submissions.
+
+---
+
+# ARTICLE O004
+
+## Project Owns Commercial Execution
+
+Projects organise recruitment commercially.
+
+Every Requirement belongs to one Project.
+
+Projects never own Candidates.
+
+Projects never own Campaigns.
+
+Projects organise work.
+
+---
+
+# ARTICLE O005
+
+## Requirement Owns Demand
+
+Requirement owns manpower demand.
+
+Everything downstream exists because of the Requirement.
+
+If a Requirement closes,
+
+Campaigns close.
+
+Submission closes.
+
+Candidate ownership returns to Workforce Intelligence.
+
+---
+
+# ARTICLE O006
+
+## Campaign Owns Sourcing
+
+Campaign exists only to discover manpower.
+
+Campaign may source through
+
+Database
+
+Contact Dictionary
+
+Sourcing Partners
+
+Training Centres
+
+Education Institutes
+
+Advertisements
+
+Walk-ins
+
+Referrals
+
+Campaign never owns candidates.
+
+Campaign contributes candidates.
+
+---
+
+# ARTICLE O007
+
+## Candidate Supply Owns Identity
+
+Every human being exists only once.
+
+Candidates remain permanent.
+
+Requirements change.
+
+Projects change.
+
+Campaigns change.
+
+Clients change.
+
+Candidate identity never changes.
+
+---
+
+# ARTICLE O008
+
+## Submission Owns Client Delivery
+
+Submission begins after sourcing.
+
+Submission owns
+
+Internal Shortlisting
+
+Submission Batches
+
+Client Submission
+
+Client Feedback
+
+Interview Coordination
+
+Offer Tracking
+
+Replacement Tracking
+
+Submission ends when Offer is accepted.
+
+---
+
+# ARTICLE O009
+
+## Mobilization Owns Travel Readiness
+
+Mobilization begins after Offer Acceptance.
+
+Recruitment ownership ends.
+
+Operational deployment ownership begins.
+
+---
+
+# ARTICLE O010
+
+## Visa Owns Government Compliance
+
+Visa Workspace owns
+
+Documentation
+
+Medical
+
+Embassy
+
+Consulate
+
+MOFA
+
+eMigrate
+
+Immigration
+
+Recruiters no longer own these activities.
+
+---
+
+# ARTICLE O011
+
+## Deployment Owns Completion
+
+Deployment begins when candidate joins employer.
+
+Deployment records
+
+Joining
+
+Arrival
+
+Completion
+
+Replacement
+
+Return
+
+Deployment closes operational recruitment.
+
+---
+
+# ARTICLE O012
+
+## Alumni Never Leave KAI
+
+Deployment does not end the relationship.
+
+Candidate becomes Alumni.
+
+Alumni become Future Opportunities.
+
+Every completed deployment strengthens Workforce Intelligence.
+
+---
+
+# ARTICLE O013
+
+## No Operational Duplication
+
+No Candidate
+
+No Requirement
+
+No Campaign
+
+No Submission
+
+No Partner
+
+No Client
+
+may exist twice.
+
+Duplicates weaken intelligence.
+
+Duplicates are operational failures.
+
+---
+
+# ARTICLE O014
+
+## Ownership Transfers Forward
+
+Ownership only moves forward.
+
+Example
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Submission
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+Historical ownership remains visible.
+
+Operational ownership always belongs to one active module.
+
+---
+
+# ARTICLE O015
+
+## Every Action Creates Organisational Knowledge
+
+Every
+
+Call
+
+WhatsApp
+
+Email
+
+Interview
+
+Submission
+
+Selection
+
+Deployment
+
+becomes organisational knowledge.
+
+Knowledge shall never remain with individual recruiters.
+
+---
+
+# ARTICLE O016
+
+## Recruitment Never Starts Twice
+
+A Requirement starts once.
+
+Campaigns expand it.
+
+Submissions fulfil it.
+
+Replacement continues it.
+
+KAI never recreates work that already exists.
+
+---
+
+# ARTICLE O017
+
+## Submission Is Batch Driven
+
+Clients receive manpower in batches.
+
+KAI therefore treats Submission Batch as the operational object.
+
+Each batch owns
+
+Version
+
+Submission Date
+
+Candidate List
+
+Client Feedback
+
+Interview Status
+
+Selection Status
+
+Offer Status
+
+Every batch remains permanently searchable.
+
+---
+
+# ARTICLE O018
+
+## Every Module Produces One Output
+
+Agency
+
+↓
+
+Operational Environment
+
+Client
+
+↓
+
+Business Opportunity
+
+Project
+
+↓
+
+Commercial Scope
+
+Requirement
+
+↓
+
+Manpower Demand
+
+Campaign
+
+↓
+
+Candidate Supply
+
+Candidate Supply
+
+↓
+
+Qualified Workforce
+
+Submission
+
+↓
+
+Client Decision
+
+Selection
+
+↓
+
+Accepted Workforce
+
+Mobilization
+
+↓
+
+Travel Ready Workforce
+
+Visa
+
+↓
+
+Government Cleared Workforce
+
+Deployment
+
+↓
+
+Active Workforce
+
+Alumni
+
+↓
+
+Future Workforce
+
+---
+
+# OPERATIONAL VALIDATION
+
+Every new feature must answer
+
+1.
+
+Which module owns this work?
+
+2.
+
+Which module receives ownership next?
+
+3.
+
+Does this duplicate another module?
+
+4.
+
+Does this strengthen Workforce Intelligence?
+
+5.
+
+Can ownership become ambiguous?
+
+If ambiguity exists,
+
+the feature shall not enter KAI.
+
+---
+
+# LOCK CONDITION
+
+The Operational Constitution governs every workflow inside KAI.
+
+No module,
+
+screen,
+
+automation,
+
+AI,
+
+dashboard,
+
+or future feature
+
+may violate this operational chain.
+
+The Operational Constitution derives from the Human Constitution and becomes the permanent workflow backbone of KAI OS.

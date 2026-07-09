@@ -1,0 +1,615 @@
+# KAI OS CONSTITUTION 004
+
+# INFORMATION CONSTITUTION
+
+## The Right Information. At The Right Time. For The Right Decision.
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Information is not intelligence.
+
+More information does not create better recruitment.
+
+Correct information,
+
+presented at the correct moment,
+
+to the correct person,
+
+creates operational speed.
+
+KAI therefore governs information before interface.
+
+No screen shall display information simply because it exists.
+
+Every piece of information must justify its presence.
+
+---
+
+# INFORMATION HIERARCHY
+
+Every screen shall present information in exactly this order.
+
+```text
+Decision
+
+↓
+
+Next Action
+
+↓
+
+Priority
+
+↓
+
+Risk
+
+↓
+
+Recommendation
+
+↓
+
+Operational Summary
+
+↓
+
+Evidence
+
+↓
+
+Timeline
+
+↓
+
+Reference Information
+
+↓
+
+Historical Information
+
+↓
+
+Raw Data
+```
+
+No module may violate this hierarchy.
+
+---
+
+# ARTICLE I001
+
+## Information Exists Only When Action Exists
+
+If information cannot change an operational decision,
+
+it shall not occupy primary screen space.
+
+---
+
+# ARTICLE I002
+
+## Primary Information
+
+Primary information always answers
+
+What requires my attention now?
+
+Examples
+
+Urgent Requirement
+
+Interview Today
+
+Candidate Waiting
+
+Submission Pending
+
+Offer Expiring
+
+Visa Delay
+
+Mobilization Blocked
+
+---
+
+# ARTICLE I003
+
+## Secondary Information
+
+Secondary information supports the decision.
+
+Examples
+
+Experience
+
+Qualification
+
+Nationality
+
+Current Location
+
+Employer
+
+Trade
+
+Gulf Experience
+
+Certificates
+
+---
+
+# ARTICLE I004
+
+## Reference Information
+
+Reference information remains available
+
+without competing with operational information.
+
+Examples
+
+Passport Number
+
+Email
+
+Address
+
+Previous Salary
+
+Blood Group
+
+Emergency Contact
+
+Old Notes
+
+---
+
+# ARTICLE I005
+
+## Historical Information
+
+History shall never interrupt today's work.
+
+History remains permanently available
+
+through
+
+Timeline
+
+Drawer
+
+Activity History
+
+Audit
+
+Previous Deployments
+
+Communication History
+
+---
+
+# ARTICLE I006
+
+## Information Density
+
+Every screen shall answer the operational question
+
+without overwhelming the recruiter.
+
+More information is not better.
+
+Better organised information is better.
+
+---
+
+# ARTICLE I007
+
+## Progressive Disclosure
+
+KAI reveals information progressively.
+
+Level 1
+
+Immediate Decision
+
+↓
+
+Level 2
+
+Operational Details
+
+↓
+
+Level 3
+
+Evidence
+
+↓
+
+Level 4
+
+History
+
+↓
+
+Level 5
+
+Complete Record
+
+The recruiter decides how deep to explore.
+
+---
+
+# ARTICLE I008
+
+## Operational First
+
+Operational information always appears before master data.
+
+Never display
+
+Address
+
+Gender
+
+Passport
+
+Email
+
+before displaying
+
+Next Action
+
+Risk
+
+Requirement
+
+Priority
+
+---
+
+# ARTICLE I009
+
+## Context Preservation
+
+Information shall always preserve context.
+
+Candidate information shall always remember
+
+Requirement
+
+Campaign
+
+Submission
+
+Recruiter
+
+Client
+
+Project
+
+Conversation
+
+without requiring separate searches.
+
+---
+
+# ARTICLE I010
+
+## Information Never Repeats
+
+The same information shall never appear multiple times on one screen.
+
+One source.
+
+One display.
+
+Many consumers.
+
+---
+
+# ARTICLE I011
+
+## Every Record Has One Truth
+
+Every operational value has one authoritative source.
+
+Examples
+
+Candidate Name
+
+Requirement Quantity
+
+Client Name
+
+Project Name
+
+Submission Status
+
+No duplicate editable values.
+
+---
+
+# ARTICLE I012
+
+## Information Freshness
+
+Operational information must always display
+
+Current
+
+Updated
+
+Waiting
+
+Expired
+
+Outdated
+
+Stale information must become visually distinguishable.
+
+---
+
+# ARTICLE I013
+
+## Time Before Detail
+
+Recruiters think in
+
+Today
+
+Tomorrow
+
+This Week
+
+Overdue
+
+Not timestamps.
+
+Time shall therefore be presented operationally before technically.
+
+---
+
+# ARTICLE I014
+
+## Human Readability
+
+Information shall be written for recruiters,
+
+not databases.
+
+Examples
+
+"Interview Tomorrow"
+
+instead of
+
+"Interview Date : 28/06/2026"
+
+"Offer Awaiting Acceptance"
+
+instead of
+
+"Offer Status = Pending"
+
+Operational language always wins.
+
+---
+
+# ARTICLE I015
+
+## One Scroll Rule
+
+The primary operational decision for every module shall be visible without excessive scrolling.
+
+The recruiter should understand the situation before exploring details.
+
+---
+
+# ARTICLE I016
+
+## Relationship Visibility
+
+Every important record shall immediately expose its relationships.
+
+Candidate
+
+↓
+
+Requirement
+
+↓
+
+Project
+
+↓
+
+Client
+
+↓
+
+Campaign
+
+↓
+
+Submission
+
+↓
+
+Recruiter
+
+No hidden relationships.
+
+---
+
+# ARTICLE I017
+
+## Information Ownership
+
+Each module owns its own information.
+
+Clients own business information.
+
+Projects own commercial information.
+
+Requirements own manpower demand.
+
+Campaigns own sourcing information.
+
+Submission owns client movement.
+
+Mobilization owns travel information.
+
+Visa owns compliance.
+
+Deployment owns employment completion.
+
+No module edits another module's ownership.
+
+---
+
+# ARTICLE I018
+
+## Confidence Visibility
+
+Whenever information is inferred,
+
+calculated,
+
+predicted,
+
+or recommended,
+
+confidence must be visible.
+
+Users must distinguish
+
+Fact
+
+Inference
+
+Recommendation
+
+Prediction
+
+---
+
+# ARTICLE I019
+
+## Noise Elimination
+
+Decorative statistics,
+
+unused counters,
+
+vanity metrics,
+
+duplicate KPIs,
+
+and passive reports
+
+shall never occupy operational space.
+
+Every visible metric must support today's work.
+
+---
+
+# ARTICLE I020
+
+## Information Lifetime
+
+Information moves through three states.
+
+Active
+
+↓
+
+Reference
+
+↓
+
+Archive
+
+Nothing is deleted from organisational intelligence without authorised policy.
+
+---
+
+# INFORMATION VALIDATION
+
+Every future screen must answer
+
+1.
+
+What decision does this information support?
+
+2.
+
+Is this information actionable?
+
+3.
+
+Can it appear later?
+
+4.
+
+Can it appear only on demand?
+
+5.
+
+Is another module already responsible for displaying it?
+
+6.
+
+Will showing this reduce or increase cognitive load?
+
+If uncertainty exists,
+
+the information shall not appear on the primary workspace.
+
+---
+
+# LOCK CONDITION
+
+Information serves decisions.
+
+It never competes with them.
+
+Every interface,
+
+dashboard,
+
+workspace,
+
+drawer,
+
+timeline,
+
+table,
+
+assistant,
+
+and report inside KAI shall comply with the Information Constitution.
+
+The Information Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+No future implementation may violate this order.

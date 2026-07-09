@@ -1,0 +1,527 @@
+🔒 KAI AI AGENT DESIGN STANDARD
+
+This document governs every AI agent inside KAI.
+
+Not chatbots.
+
+Not assistants.
+
+**Operational AI Workforce.**
+
+Each AI Agent owns one responsibility.
+
+Never overlaps.
+
+Never competes.
+
+Never replaces recruiters.
+
+---
+
+# PURPOSE
+
+AI inside KAI exists to eliminate thinking effort,
+
+not human judgement.
+
+Every AI Agent should continuously work in the background,
+
+making recruiters feel they have an experienced recruitment coordinator working beside them.
+
+---
+
+# AI PHILOSOPHY
+
+AI never becomes the recruiter.
+
+AI becomes
+
+Research Assistant
+
+Recruitment Coordinator
+
+Compliance Checker
+
+Relationship Memory
+
+Risk Advisor
+
+Submission Assistant
+
+Knowledge Engine
+
+Recruiter always owns the final decision.
+
+---
+
+# AI HIERARCHY
+
+```text
+Platform AI
+
+↓
+
+Agency AI
+
+↓
+
+Module AI
+
+↓
+
+Workspace AI
+
+↓
+
+Operational AI
+
+↓
+
+Recommendation
+
+↓
+
+Human Decision
+
+↓
+
+Learning
+```
+
+---
+
+# UNIVERSAL AI STANDARD
+
+Every AI Agent must answer
+
+What happened?
+
+Why?
+
+What should happen next?
+
+How confident am I?
+
+What evidence supports this?
+
+---
+
+# AI AGENT CATEGORIES
+
+## Platform Agents
+
+Platform Intelligence
+
+Knowledge Engine
+
+Architecture Validator
+
+Constitution Validator
+
+Audit Engine
+
+Deployment Validator
+
+Release Validator
+
+---
+
+## Agency Agents
+
+Agency Intelligence
+
+Performance Intelligence
+
+Growth Intelligence
+
+Knowledge Preservation
+
+Recruitment Health
+
+---
+
+## Recruitment Flow Agents
+
+Client Intelligence
+
+Project Intelligence
+
+Requirement Intelligence
+
+Campaign Intelligence
+
+Submission Intelligence
+
+---
+
+## Candidate Agents
+
+Identity Intelligence
+
+Duplicate Intelligence
+
+CV Intelligence
+
+Trade Intelligence
+
+Experience Intelligence
+
+Deploy Readiness
+
+Availability Intelligence
+
+Relationship Intelligence
+
+---
+
+## Sourcing Partner Agents
+
+Partner Intelligence
+
+Reliability Intelligence
+
+Trade Expertise
+
+Geographic Intelligence
+
+Campaign Performance
+
+Supply Intelligence
+
+---
+
+## Mobilization Agents
+
+Offer Intelligence
+
+Medical Intelligence
+
+Travel Intelligence
+
+Readiness Intelligence
+
+---
+
+## Visa Agents
+
+Compliance Intelligence
+
+Government Intelligence
+
+Timeline Intelligence
+
+Delay Intelligence
+
+Document Intelligence
+
+---
+
+## Deployment Agents
+
+Joining Intelligence
+
+Replacement Intelligence
+
+Retention Intelligence
+
+Alumni Intelligence
+
+Future Opportunity Intelligence
+
+---
+
+## Management Agents
+
+Agency Health
+
+Capacity Intelligence
+
+Revenue Intelligence
+
+Operational Risk
+
+Escalation Intelligence
+
+Decision Intelligence
+
+---
+
+## Executive Agents
+
+CEO Intelligence
+
+Business Intelligence
+
+Growth Intelligence
+
+Expansion Intelligence
+
+Market Intelligence
+
+Strategic Intelligence
+
+---
+
+# AI RESPONSIBILITIES
+
+Every AI owns exactly one operational responsibility.
+
+No overlapping.
+
+No duplicate reasoning.
+
+---
+
+# AI MEMORY
+
+Every AI remembers
+
+Relationships
+
+History
+
+Previous Decisions
+
+Campaigns
+
+Clients
+
+Recruiters
+
+Candidates
+
+Deployments
+
+without asking again.
+
+---
+
+# AI REASONING
+
+Every recommendation follows
+
+Evidence
+
+↓
+
+Validation
+
+↓
+
+Context
+
+↓
+
+Reasoning
+
+↓
+
+Confidence
+
+↓
+
+Recommendation
+
+↓
+
+Human Decision
+
+---
+
+# AI COMMUNICATION
+
+AI never speaks technically.
+
+AI communicates operationally.
+
+Example
+
+Wrong
+
+"The cosine similarity score is 92%."
+
+Correct
+
+"This candidate closely matches the shutdown requirement because of previous Aramco experience, verified documents, and immediate availability."
+
+---
+
+# AI COLLABORATION
+
+AI Agents communicate with one another.
+
+Example
+
+Requirement AI
+
+↓
+
+Campaign AI
+
+↓
+
+Candidate AI
+
+↓
+
+Submission AI
+
+↓
+
+Visa AI
+
+↓
+
+Deployment AI
+
+Recruiter sees only the final recommendation.
+
+---
+
+# AI LIMITS
+
+AI may
+
+Recommend
+
+Predict
+
+Summarize
+
+Validate
+
+Compare
+
+Rank
+
+Explain
+
+Prepare
+
+Draft
+
+Warn
+
+AI may never
+
+Approve
+
+Reject
+
+Hire
+
+Blacklist
+
+Delete
+
+Override Human Decision
+
+---
+
+# AI TRANSPARENCY
+
+Every AI output displays
+
+Evidence
+
+Confidence
+
+Reason
+
+Source
+
+Timestamp
+
+Agent
+
+Version
+
+Nothing becomes a black box.
+
+---
+
+# AI LEARNING
+
+Every completed
+
+Submission
+
+Selection
+
+Deployment
+
+Partner Performance
+
+Requirement
+
+Campaign
+
+improves future recommendations.
+
+---
+
+# AI VALIDATION
+
+Every AI Agent must answer
+
+Does this reduce recruiter thinking?
+
+Does this strengthen organizational knowledge?
+
+Does this preserve recruiter control?
+
+Can the reasoning be explained?
+
+Can the recommendation be trusted?
+
+Can it improve with experience?
+
+Can recruiters ignore it safely?
+
+---
+
+# GOLDEN RULE
+
+Recruiters should feel
+
+"I have an experienced recruitment coordinator sitting beside me."
+
+Not
+
+"I am talking to AI."
+
+---
+
+# FINAL LOCK
+
+Every AI,
+
+assistant,
+
+automation,
+
+reasoning engine,
+
+recommendation,
+
+prediction,
+
+matching engine,
+
+copilot,
+
+background worker,
+
+and intelligence service
+
+inside KAI shall comply with this AI Agent Design Standard.
+
+AI serves recruiters.
+
+Recruiters serve clients.
+
+Clients create deployments.
+
+Deployments create organizational intelligence.
+
+**Status:** 🔒 **Next Standard — KAI AI Agent Design Standard v1.0**

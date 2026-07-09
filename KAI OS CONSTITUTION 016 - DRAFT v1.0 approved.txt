@@ -1,0 +1,621 @@
+# KAI OS CONSTITUTION 016
+
+# ADMINISTRATION CONSTITUTION
+
+## Administration Exists To Enable Operations, Never To Control Them
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Administration governs the operating environment.
+
+It does not perform recruitment.
+
+It does not interfere with recruitment.
+
+It establishes
+
+Identity
+
+Permissions
+
+Security
+
+Configuration
+
+Governance
+
+Every operational activity inside KAI depends upon Administration,
+
+yet Administration shall remain almost invisible during daily recruitment.
+
+---
+
+# ADMINISTRATION PHILOSOPHY
+
+Administration creates the environment.
+
+Recruiters create recruitment.
+
+Management creates direction.
+
+KAI creates intelligence.
+
+Responsibilities never overlap.
+
+---
+
+# ADMINISTRATION HIERARCHY
+
+Administration follows one governance hierarchy.
+
+```text
+KAI Platform
+
+↓
+
+Tenant Agency
+
+↓
+
+Agency Administrator
+
+↓
+
+Departments
+
+↓
+
+Recruiters
+
+↓
+
+Operational Ownership
+```
+
+No level may bypass another without platform authorization.
+
+---
+
+# ARTICLE A001
+
+## Two Independent Administrations
+
+KAI contains two completely separate administration layers.
+
+### Platform Administration (KAI)
+
+Owned exclusively by KAI.
+
+### Tenant Administration (Agency)
+
+Owned exclusively by the licensed agency.
+
+Neither administration shall interfere with the other.
+
+---
+
+# ARTICLE A002
+
+## Platform Administration (KAI)
+
+Only KAI Platform Administration may
+
+Create Agencies
+
+Activate Agencies
+
+Suspend Agencies
+
+Delete Agencies
+
+Assign Subscription Plans
+
+Allocate Recruiter Capacity
+
+Manage Platform Intelligence
+
+Manage Global AI Models
+
+Platform Configuration
+
+Security Policies
+
+Product Features
+
+Platform administrators never participate in recruitment operations.
+
+---
+
+# ARTICLE A003
+
+## Tenant Administration
+
+Each licensed agency receives one Tenant Administrator.
+
+The Tenant Administrator governs only that agency.
+
+Never another agency.
+
+Examples
+
+Al Yousuf Enterprise LLP
+
+↓
+
+Agency Administrator
+
+↓
+
+Recruiters
+
+↓
+
+Recruitment Operations
+
+Agency isolation is absolute.
+
+---
+
+# ARTICLE A004
+
+## Agency Identity
+
+Each tenant owns
+
+Agency Name
+
+Logo
+
+Users
+
+Departments
+
+Recruiters
+
+Internal Configuration
+
+Partner Network
+
+Operational Data
+
+KAI owns the platform.
+
+The agency owns its operations.
+
+---
+
+# ARTICLE A005
+
+## Recruiter Provisioning
+
+Tenant Administration creates
+
+Recruiters
+
+Managers
+
+Department Heads
+
+Support Users
+
+Permissions
+
+User onboarding shall require minutes,
+
+not days.
+
+---
+
+# ARTICLE A006
+
+## Permission Philosophy
+
+Permissions are responsibility based.
+
+Never title based.
+
+Permissions exist only to support operational ownership.
+
+Users receive the minimum permissions required to perform their work.
+
+---
+
+# ARTICLE A007
+
+## Operational Isolation
+
+Every tenant operates independently.
+
+No recruiter,
+
+manager,
+
+administrator,
+
+or AI
+
+shall access another tenant's operational information.
+
+Agency boundaries are permanent.
+
+---
+
+# ARTICLE A008
+
+## Configuration Before Customisation
+
+Tenant Administration configures
+
+Workflows
+
+Templates
+
+Departments
+
+Recruiters
+
+Communication
+
+Defaults
+
+without changing KAI architecture.
+
+KAI remains one operating system.
+
+Not multiple customised products.
+
+---
+
+# ARTICLE A009
+
+## Audit By Default
+
+Every administrative action automatically records
+
+Who
+
+What
+
+When
+
+Where
+
+Previous Value
+
+New Value
+
+Reason
+
+Administration is always accountable.
+
+---
+
+# ARTICLE A010
+
+## Capacity Governance
+
+Platform Administration controls
+
+Maximum Recruiters
+
+Maximum Users
+
+Storage
+
+AI Capacity
+
+Subscription Rights
+
+Agency Administration operates only within allocated capacity.
+
+---
+
+# ARTICLE A011
+
+## Recruiter Lifecycle
+
+Administration manages
+
+Invitation
+
+Activation
+
+Suspension
+
+Role Change
+
+Transfer
+
+Termination
+
+Historical operational ownership remains preserved permanently.
+
+---
+
+# ARTICLE A012
+
+## Security Before Convenience
+
+Administrative convenience shall never compromise
+
+Agency Isolation
+
+Operational Integrity
+
+Identity
+
+Permissions
+
+Audit
+
+Platform Trust
+
+---
+
+# ARTICLE A013
+
+## Administration Never Owns Recruitment
+
+Administration creates
+
+Users
+
+Permissions
+
+Environment
+
+Recruitment ownership remains entirely operational.
+
+Administrators never become operational bottlenecks.
+
+---
+
+# ARTICLE A014
+
+## Organisational Continuity
+
+When recruiters leave,
+
+their operational history,
+
+relationships,
+
+notes,
+
+campaigns,
+
+communications,
+
+remain organisational assets.
+
+Administration protects continuity.
+
+---
+
+# ARTICLE A015
+
+## Platform Evolution
+
+Only Platform Administration governs
+
+Platform Upgrades
+
+AI Improvements
+
+System Intelligence
+
+Architecture
+
+Agency administrators receive improvements automatically.
+
+---
+
+# ARTICLE A016
+
+## Operational Simplicity
+
+Administration should rarely be used.
+
+Daily recruitment should continue without administrative involvement.
+
+A successful administrator becomes invisible.
+
+---
+
+# ARTICLE A017
+
+## Zero Operational Dependency
+
+Recruitment must continue even if administrators are unavailable.
+
+Administration enables operations.
+
+It never blocks them.
+
+---
+
+# ARTICLE A018
+
+## Administration Creates Trust
+
+Users trust KAI because
+
+Permissions are predictable.
+
+Security is reliable.
+
+Ownership is clear.
+
+History is preserved.
+
+Nothing disappears.
+
+---
+
+# ARTICLE A019
+
+## Administration Strengthens Organisations
+
+Every administrative action should improve
+
+Operational Stability
+
+Knowledge Preservation
+
+Security
+
+Scalability
+
+Governance
+
+Long-term organisational capability.
+
+---
+
+# ARTICLE A020
+
+## Administration Serves The Operating System
+
+Administration exists for one purpose.
+
+To create a secure,
+
+stable,
+
+governed environment
+
+where recruiters,
+
+managers,
+
+and agencies
+
+can perform recruitment without operational interruption.
+
+---
+
+# ADMINISTRATION VALIDATION
+
+Every future administrative feature must answer
+
+1.
+
+Does this strengthen governance?
+
+2.
+
+Does this preserve agency isolation?
+
+3.
+
+Does this improve operational continuity?
+
+4.
+
+Does this reduce administrative complexity?
+
+5.
+
+Does this protect organisational knowledge?
+
+6.
+
+Does this avoid interfering with recruitment?
+
+7.
+
+Can this scale across thousands of agencies?
+
+If any answer is NO,
+
+the feature shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Administration governs the operating environment.
+
+It never governs recruitment.
+
+Every administrative feature inside KAI shall strengthen
+
+Security,
+
+Governance,
+
+Agency Independence,
+
+Operational Continuity,
+
+and Long-term Platform Stability.
+
+The Administration Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+↓
+
+Navigation Constitution
+
+↓
+
+Queue Constitution
+
+↓
+
+Search Constitution
+
+↓
+
+Table Constitution
+
+↓
+
+Dashboard Constitution
+
+↓
+
+Management Constitution
+
+↓
+
+Recruiter Constitution
+
+↓
+
+Administration Constitution
+
+No future administrative capability may violate this constitution.

@@ -1,0 +1,555 @@
+# KAI OS CONSTITUTION 005
+
+# INTERACTION CONSTITUTION
+
+## Every Interaction Must Reduce Operational Effort
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Interaction is the bridge between recruiter thinking and operational execution.
+
+KAI shall never force recruiters to learn software.
+
+KAI shall behave the way experienced recruiters naturally work.
+
+Every interaction shall reduce effort.
+
+Every interaction shall reduce interruption.
+
+Every interaction shall reduce context switching.
+
+---
+
+# INTERACTION PHILOSOPHY
+
+The recruiter should never ask
+
+"Where do I click?"
+
+The recruiter should ask only
+
+"What should I do next?"
+
+KAI is responsible for making the answer obvious.
+
+---
+
+# ARTICLE X001
+
+## One Continuous Workspace
+
+Recruitment is continuous.
+
+The interface shall therefore feel continuous.
+
+Changing screens shall be exceptional.
+
+Working inside the same workspace shall be the default behaviour.
+
+---
+
+# ARTICLE X002
+
+## Context Never Breaks
+
+Changing
+
+Candidate
+
+Requirement
+
+Campaign
+
+Submission
+
+Partner
+
+shall never destroy the recruiter's working context.
+
+Every interaction preserves
+
+Search
+
+Filters
+
+Selection
+
+Queue Position
+
+Scroll Position
+
+Timeline
+
+Notes
+
+Working Memory
+
+---
+
+# ARTICLE X003
+
+## Three Click Rule
+
+Operational work should normally complete within three interactions.
+
+Examples
+
+Open Requirement
+
+↓
+
+Select Candidates
+
+↓
+
+Submit
+
+Not
+
+Open
+
+Back
+
+Open
+
+Search
+
+Open
+
+Edit
+
+Return
+
+Search Again
+
+---
+
+# ARTICLE X004
+
+## One-Hand Rule
+
+The majority of recruiter work should be executable using
+
+Keyboard
+
+Mouse
+
+or
+
+Trackpad
+
+without unnecessary movement.
+
+Primary actions remain consistently positioned throughout KAI.
+
+---
+
+# ARTICLE X005
+
+## Inline First
+
+Whenever operationally safe,
+
+editing occurs inline.
+
+Examples
+
+Status
+
+Priority
+
+Remark
+
+Next Follow-up
+
+Assignment
+
+Stage
+
+Recruiters should not enter edit screens for routine work.
+
+---
+
+# ARTICLE X006
+
+## Bulk Before Individual
+
+Bulk operations are first-class functionality.
+
+Every operational module shall support
+
+Bulk Assignment
+
+Bulk Status Update
+
+Bulk Remarks
+
+Bulk Communication
+
+Bulk Export
+
+Bulk Submission
+
+Bulk Follow-up
+
+Bulk Ownership
+
+Recruiters should never repeat identical actions manually.
+
+---
+
+# ARTICLE X007
+
+## Search Is Always Available
+
+Search is permanent.
+
+Search never disappears.
+
+Search never changes location.
+
+Every recruiter develops muscle memory.
+
+---
+
+# ARTICLE X008
+
+## Zero Navigation Anxiety
+
+Recruiters should always know
+
+Where they are.
+
+Why they are here.
+
+What happened previously.
+
+What happens next.
+
+Software navigation must never become part of the work.
+
+---
+
+# ARTICLE X009
+
+## No Dead Ends
+
+Every operational screen must allow recruiters to continue working.
+
+No page shall become an informational dead end.
+
+Every screen produces an operational next step.
+
+---
+
+# ARTICLE X010
+
+## One Workspace. Many Actions.
+
+Calling
+
+WhatsApp
+
+Email
+
+Notes
+
+Assignment
+
+Stage Update
+
+Submission
+
+History
+
+Timeline
+
+must remain accessible without leaving the workspace.
+
+---
+
+# ARTICLE X011
+
+## Intelligent Defaults
+
+KAI always proposes sensible defaults.
+
+Examples
+
+Nationality
+
+Country
+
+Requirement
+
+Recruiter
+
+Project
+
+Communication Template
+
+Submission Format
+
+Users modify only when necessary.
+
+---
+
+# ARTICLE X012
+
+## Never Ask Twice
+
+Information already known to KAI shall never be requested again.
+
+Examples
+
+Candidate Identity
+
+Requirement
+
+Project
+
+Recruiter
+
+Client
+
+Trade
+
+The operating system remembers.
+
+---
+
+# ARTICLE X013
+
+## Fast Capture
+
+Every important operational event must be recordable within seconds.
+
+Examples
+
+Phone Call
+
+WhatsApp Conversation
+
+Client Feedback
+
+Interview Result
+
+Offer Response
+
+Recruiter Remark
+
+Speed has higher priority than formatting.
+
+---
+
+# ARTICLE X014
+
+## Human Communication First
+
+Communication is part of recruitment.
+
+Every interaction should support
+
+Calling
+
+Messaging
+
+Email
+
+Notes
+
+Scheduling
+
+without forcing recruiters into separate systems whenever possible.
+
+---
+
+# ARTICLE X015
+
+## Immediate Feedback
+
+Every interaction immediately confirms
+
+Completed
+
+Pending
+
+Failed
+
+Waiting
+
+Blocked
+
+Users should never guess system state.
+
+---
+
+# ARTICLE X016
+
+## Recoverability
+
+Operational mistakes must be recoverable.
+
+Undo where appropriate.
+
+Confirmation only for irreversible actions.
+
+Never interrupt productive work with excessive confirmations.
+
+---
+
+# ARTICLE X017
+
+## Keyboard First
+
+Experienced recruiters become faster through repetition.
+
+Keyboard shortcuts,
+
+quick actions,
+
+command search,
+
+and rapid navigation
+
+shall be supported consistently.
+
+---
+
+# ARTICLE X018
+
+## Consistent Behaviour
+
+Every module behaves identically.
+
+If a recruiter learns
+
+Candidates,
+
+they already understand
+
+Projects,
+
+Requirements,
+
+Campaigns,
+
+Submission,
+
+Visa,
+
+Deployment.
+
+Consistency reduces training.
+
+---
+
+# ARTICLE X019
+
+## Continuous Flow
+
+The recruiter should experience uninterrupted operational flow.
+
+The software should disappear.
+
+Only recruitment should remain.
+
+---
+
+# ARTICLE X020
+
+## Interaction Creates Knowledge
+
+Every interaction
+
+Call
+
+Remark
+
+Assignment
+
+Submission
+
+Approval
+
+Communication
+
+becomes permanent organisational intelligence.
+
+Nothing valuable remains only inside the recruiter's memory.
+
+---
+
+# INTERACTION VALIDATION
+
+Every future interaction must answer
+
+1.
+
+Does this reduce recruiter effort?
+
+2.
+
+Does this reduce context switching?
+
+3.
+
+Can this happen without opening another screen?
+
+4.
+
+Can this become an inline action?
+
+5.
+
+Can this become a bulk action?
+
+6.
+
+Will this feel natural to an experienced GCC recruiter?
+
+7.
+
+Does this remove operational friction?
+
+If any answer is NO,
+
+the interaction shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Interaction exists to eliminate operational friction.
+
+The operating system should feel invisible.
+
+Recruiters should feel they are recruiting,
+
+not operating software.
+
+The Interaction Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+Every future workspace inside KAI shall comply with these principles.

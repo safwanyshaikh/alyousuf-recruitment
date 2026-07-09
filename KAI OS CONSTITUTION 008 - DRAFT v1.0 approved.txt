@@ -1,0 +1,573 @@
+# KAI OS CONSTITUTION 008
+
+# WORKSPACE CONSTITUTION
+
+## Every Workspace Exists To Complete Work, Not Display Information
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Every module inside KAI is a workspace.
+
+Not a page.
+
+Not a form.
+
+Not a report.
+
+Not a database.
+
+A workspace is an operational environment where recruiters complete real recruitment work from beginning to end.
+
+If recruiters leave a workspace to finish the same task elsewhere,
+
+the workspace has failed.
+
+---
+
+# WORKSPACE PHILOSOPHY
+
+A recruiter should never think
+
+"I need another screen."
+
+The recruiter should think
+
+"I can finish this here."
+
+Every workspace is designed around completion.
+
+Not navigation.
+
+---
+
+# UNIVERSAL WORKSPACE ARCHITECTURE
+
+Every operational module inside KAI shall follow one identical architecture.
+
+```text
+Global Header
+        │
+        ▼
+Operational Summary
+        │
+        ▼
+Toolbar
+        │
+        ▼
+Working Queue
+        │
+        ▼
+Primary Workspace
+        │
+        ▼
+Intelligence Drawer
+        │
+        ▼
+Activity Timeline
+```
+
+Every module follows this architecture.
+
+No exceptions.
+
+---
+
+# ARTICLE W001
+
+## Every Workspace Has One Mission
+
+A workspace exists to complete one operational responsibility.
+
+Examples
+
+Requirement Workspace
+
+↓
+
+Complete manpower planning
+
+Campaign Workspace
+
+↓
+
+Complete sourcing
+
+Submission Workspace
+
+↓
+
+Complete client submission
+
+Visa Workspace
+
+↓
+
+Complete compliance
+
+Never mix responsibilities.
+
+---
+
+# ARTICLE W002
+
+## Operational Summary
+
+Every workspace begins with
+
+Current Status
+
+Today's Priority
+
+Pending Actions
+
+Blocked Items
+
+Urgent Alerts
+
+Nothing else.
+
+The recruiter understands the operational situation within seconds.
+
+---
+
+# ARTICLE W003
+
+## Toolbar Owns Actions
+
+Toolbar contains
+
+Create
+
+Assign
+
+Bulk Actions
+
+Export
+
+Communication
+
+Search
+
+Filters
+
+Never operational data.
+
+Toolbar performs work.
+
+---
+
+# ARTICLE W004
+
+## Queue Owns Priority
+
+Queue determines
+
+what deserves attention first.
+
+Queue is not alphabetical.
+
+Queue is not chronological.
+
+Queue follows operational urgency.
+
+---
+
+# ARTICLE W005
+
+## Workspace Owns Execution
+
+The center workspace performs work.
+
+Not reporting.
+
+Not analytics.
+
+Real execution.
+
+Calling
+
+Updating
+
+Assigning
+
+Submitting
+
+Scheduling
+
+Approving
+
+Everything operational happens here.
+
+---
+
+# ARTICLE W006
+
+## Intelligence Drawer Owns Thinking
+
+Right drawer always contains
+
+Recommendation
+
+Risk
+
+History
+
+Relationship
+
+Next Action
+
+Reasoning
+
+Never editable master data.
+
+The drawer supports thinking.
+
+The workspace supports execution.
+
+---
+
+# ARTICLE W007
+
+## Timeline Owns Memory
+
+Every activity automatically creates history.
+
+Calls
+
+WhatsApp
+
+Emails
+
+Assignments
+
+Status Changes
+
+Interview Results
+
+Remarks
+
+Offers
+
+Nothing disappears.
+
+---
+
+# ARTICLE W008
+
+## Workspace Never Starts Empty
+
+Every workspace immediately answers
+
+What should I work on?
+
+No blank pages.
+
+No welcome screens.
+
+No decorative illustrations.
+
+---
+
+# ARTICLE W009
+
+## Operational Context Never Changes
+
+Moving between
+
+Candidate
+
+Requirement
+
+Campaign
+
+Submission
+
+Partner
+
+shall never destroy operational context.
+
+Users continue exactly where they stopped.
+
+---
+
+# ARTICLE W010
+
+## Workspace Must Scale
+
+A recruiter managing
+
+20
+
+200
+
+2,000
+
+20,000
+
+records
+
+must experience the same operational behaviour.
+
+Scaling data shall never change workflow.
+
+---
+
+# ARTICLE W011
+
+## Workspace Supports Continuous Work
+
+Recruiters remain inside the same workspace for hours.
+
+The workspace therefore supports
+
+Calling
+
+Messaging
+
+Updating
+
+Filtering
+
+Searching
+
+Reviewing
+
+Assigning
+
+without interruption.
+
+---
+
+# ARTICLE W012
+
+## Workspace Owns Temporary Thinking
+
+Draft Notes
+
+Shortlists
+
+Selections
+
+Filters
+
+Pinned Records
+
+Current Batch
+
+Working Context
+
+remain inside the workspace until completed.
+
+Recruiters never lose ongoing work.
+
+---
+
+# ARTICLE W013
+
+## Workspace Minimises Navigation
+
+Navigation exists only when operational ownership changes.
+
+Example
+
+Campaign
+
+↓
+
+Submission
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+Within one responsibility,
+
+navigation approaches zero.
+
+---
+
+# ARTICLE W014
+
+## Workspace Never Becomes A Report
+
+Reports observe.
+
+Workspaces execute.
+
+Analytics belong elsewhere.
+
+Execution always remains primary.
+
+---
+
+# ARTICLE W015
+
+## Workspace Generates Intelligence
+
+Every completed action strengthens
+
+Candidate Intelligence
+
+Partner Intelligence
+
+Requirement Intelligence
+
+Submission Intelligence
+
+Deployment Intelligence
+
+The workspace is where organisational knowledge grows.
+
+---
+
+# ARTICLE W016
+
+## Workspace Owns Communication
+
+Communication belongs to work.
+
+Phone
+
+WhatsApp
+
+Email
+
+Notes
+
+Mentions
+
+Tasks
+
+must remain directly connected to the operational object.
+
+Communication is never separated.
+
+---
+
+# ARTICLE W017
+
+## Workspace Ends With Completion
+
+Every workspace has one completion state.
+
+Requirement Fulfilled
+
+Campaign Closed
+
+Submission Completed
+
+Visa Approved
+
+Deployment Completed
+
+Completion automatically transfers operational ownership.
+
+---
+
+# ARTICLE W018
+
+## Every Workspace Feels Familiar
+
+Changing modules should never require relearning.
+
+If a recruiter understands one workspace,
+
+the recruiter understands every workspace.
+
+Consistency reduces training.
+
+Consistency increases speed.
+
+---
+
+# WORKSPACE VALIDATION
+
+Every future workspace must answer
+
+1.
+
+Can recruiters remain here for several continuous hours?
+
+2.
+
+Can the operational responsibility be completed without leaving?
+
+3.
+
+Does the workspace preserve context?
+
+4.
+
+Does it reduce navigation?
+
+5.
+
+Does it encourage execution rather than observation?
+
+6.
+
+Does it automatically strengthen organisational intelligence?
+
+7.
+
+Would experienced Gulf recruiters naturally work this way?
+
+If any answer is NO,
+
+the workspace shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+A workspace is not a screen.
+
+A workspace is an operational environment.
+
+Every module inside KAI shall become a complete operational workspace where recruiters perform, complete and preserve recruitment work without relying on external systems.
+
+The Workspace Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+No future module may violate this architecture.

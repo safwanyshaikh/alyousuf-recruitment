@@ -1,0 +1,407 @@
+IS-001 - IMPLEMENTATION SPECIFICATION FRAMEWORK
+Master Implementation Standard v1.0
+Status: 🔒 IMPLEMENTATION LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Transform Product Engineering into production-ready implementation.
+
+One Implementation Specification equals one buildable feature.
+
+No business decisions remain during development.
+
+Lovable builds UI.
+
+Claude/Codex builds backend.
+
+Both produce identical results.
+
+============================================================
+IMPLEMENTATION HIERARCHY
+============================================================
+
+Architecture
+
+↓
+
+Product Engineering
+
+↓
+
+Feature Register
+
+↓
+
+Implementation Specification
+
+↓
+
+Lovable UI
+
+↓
+
+Backend
+
+↓
+
+Integration
+
+↓
+
+Testing
+
+↓
+
+Production
+
+============================================================
+IMPLEMENTATION PACKAGE
+============================================================
+
+Every Implementation Specification contains
+
+01
+
+Feature Summary
+
+02
+
+Business Objective
+
+03
+
+Operational Workflow
+
+04
+
+Screen Ownership
+
+05
+
+Navigation Behaviour
+
+06
+
+UI Layout
+
+07
+
+Component Tree
+
+08
+
+Field Specification
+
+09
+
+Validation Rules
+
+10
+
+Business Rules
+
+11
+
+Automation Logic
+
+12
+
+AI Behaviour
+
+13
+
+Notification Rules
+
+14
+
+Permission Matrix
+
+15
+
+Database Schema
+
+16
+
+Relationships
+
+17
+
+API Contracts
+
+18
+
+Frontend State Management
+
+19
+
+Backend Services
+
+20
+
+Search Behaviour
+
+21
+
+Filter Behaviour
+
+22
+
+Queue Behaviour
+
+23
+
+Timeline Behaviour
+
+24
+
+Audit Behaviour
+
+25
+
+Error Handling
+
+26
+
+Loading Behaviour
+
+27
+
+Performance Targets
+
+28
+
+Acceptance Tests
+
+29
+
+Production Checklist
+
+30
+
+Lovable Prompt
+
+31
+
+Claude Backend Prompt
+
+============================================================
+DELIVERY ORDER
+============================================================
+
+IS-001
+
+Platform Administration
+
+↓
+
+IS-002
+
+Tenant Administration
+
+↓
+
+IS-003
+
+Management Dashboard
+
+↓
+
+IS-004
+
+Recruiter Dashboard
+
+↓
+
+IS-005
+
+Recruitment Flow
+
+↓
+
+IS-006
+
+Candidates
+
+↓
+
+IS-007
+
+Sourcing Partners
+
+↓
+
+IS-008
+
+Mobilization
+
+↓
+
+IS-009
+
+Visa
+
+↓
+
+IS-010
+
+Deployment
+
+============================================================
+LOVABLE DELIVERABLE
+============================================================
+
+Complete Screen Layout
+
+Component Hierarchy
+
+Navigation
+
+Responsive Behaviour
+
+Design Tokens
+
+Drawer Behaviour
+
+Table Behaviour
+
+Forms
+
+Interactions
+
+Animations
+
+Accessibility
+
+============================================================
+BACKEND DELIVERABLE
+============================================================
+
+Database
+
+Services
+
+Business Logic
+
+API
+
+Automation
+
+AI
+
+Permissions
+
+Search
+
+Audit
+
+Caching
+
+Performance
+
+============================================================
+QUALITY GATE
+============================================================
+
+Constitution .............. PASS
+
+Blueprint ................. PASS
+
+Product Engineering ....... PASS
+
+Feature Register .......... PASS
+
+Workflow .................. PASS
+
+Business Rules ............ PASS
+
+Identity .................. PASS
+
+Automation ................ PASS
+
+AI ......................... PASS
+
+Permissions ............... PASS
+
+Database .................. PASS
+
+API ....................... PASS
+
+UI ........................ PASS
+
+Backend ................... PASS
+
+Testing ................... PASS
+
+Performance ............... PASS
+
+Security .................. PASS
+
+Scalability ............... PASS
+
+Devil's Advocate .......... PASS
+
+============================================================
+SUCCESS CRITERIA
+============================================================
+
+One Implementation Specification
+
+↓
+
+One Development Cycle
+
+↓
+
+One QA Cycle
+
+↓
+
+One Production Release
+
+No clarification required.
+
+No undocumented behaviour.
+
+No hidden business logic.
+
+============================================================
+MASTER IMPLEMENTATION RULE
+============================================================
+
+Every future KAI module shall be implemented only after an
+Implementation Specification has been approved.
+
+Implementation begins only from IS documents.
+
+Never directly from Product Engineering.
+
+============================================================
+ENGINEERING LOCK CERTIFICATE
+============================================================
+
+Architecture Validation ............ PASS
+
+Product Engineering Validation ..... PASS
+
+Implementation Readiness ........... PASS
+
+Developer Readiness ................ PASS
+
+AI Coding Readiness ................ PASS
+
+Production Readiness ............... PASS
+
+Engineering Completeness ........... 10/10
+
+STATUS
+
+🔒 IS-001 FRAMEWORK LOCKED
+
+NEXT
+
+IS-001.1
+
+Platform Administration
+Complete Build Specification

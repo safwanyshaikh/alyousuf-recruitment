@@ -1,0 +1,599 @@
+# KAI OS CONSTITUTION 010
+
+# QUEUE CONSTITUTION
+
+## Work Flows Through Queues. Never Through Lists.
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Recruiters do not manage records.
+
+Recruiters manage work.
+
+Lists become databases.
+
+Queues become operations.
+
+KAI therefore replaces static lists with operational queues.
+
+Every operational object inside KAI shall belong to an active queue.
+
+Nothing waits without visibility.
+
+Nothing moves without ownership.
+
+---
+
+# QUEUE PHILOSOPHY
+
+Recruiters never ask
+
+"Which record should I open?"
+
+Recruiters ask
+
+"What should I do next?"
+
+The queue answers.
+
+---
+
+# QUEUE HIERARCHY
+
+Every operational object follows one universal queue lifecycle.
+
+```text
+Incoming
+
+↓
+
+Assigned
+
+↓
+
+Working
+
+↓
+
+Waiting
+
+↓
+
+Blocked
+
+↓
+
+Completed
+
+↓
+
+Archived
+```
+
+Every module inherits this lifecycle.
+
+---
+
+# ARTICLE Q001
+
+## Queues Own Work
+
+Lists store records.
+
+Queues own operational responsibility.
+
+Candidates,
+
+Requirements,
+
+Campaigns,
+
+Submissions,
+
+Partners,
+
+Visa Cases,
+
+Deployments
+
+must always belong to an operational queue.
+
+---
+
+# ARTICLE Q002
+
+## Queue Before Status
+
+Status describes.
+
+Queue prioritises.
+
+Example
+
+Status
+
+Interview Scheduled
+
+Queue
+
+Waiting For Client Interview
+
+Recruiters work from queues.
+
+Not statuses.
+
+---
+
+# ARTICLE Q003
+
+## Every Queue Has An Owner
+
+No queue exists without ownership.
+
+Ownership belongs to
+
+Recruiter
+
+Team
+
+Department
+
+Automation
+
+Management
+
+or
+
+System.
+
+Unowned work is operational risk.
+
+---
+
+# ARTICLE Q004
+
+## Queue Priority
+
+Every queue automatically orders work by
+
+Critical
+
+Urgent
+
+High
+
+Normal
+
+Low
+
+Priority changes automatically with operational reality.
+
+Never manually sort work every morning.
+
+---
+
+# ARTICLE Q005
+
+## Incoming Queue
+
+New operational work enters only through Incoming.
+
+Examples
+
+New Candidate
+
+New Requirement
+
+New Partner
+
+New Campaign
+
+New Submission Request
+
+Incoming is triage.
+
+Not execution.
+
+---
+
+# ARTICLE Q006
+
+## Assigned Queue
+
+Assigned work belongs to one owner.
+
+Assignment immediately creates accountability.
+
+Nothing remains "floating."
+
+---
+
+# ARTICLE Q007
+
+## Working Queue
+
+Working Queue contains active execution.
+
+Calling
+
+Screening
+
+Updating
+
+Interview Coordination
+
+Submission
+
+Communication
+
+Everything currently in progress belongs here.
+
+---
+
+# ARTICLE Q008
+
+## Waiting Queue
+
+Waiting Queue contains work dependent on external response.
+
+Examples
+
+Candidate Reply
+
+Client Feedback
+
+Offer Acceptance
+
+Visa Approval
+
+Document Submission
+
+Medical
+
+Recruiters should not repeatedly search for waiting work.
+
+---
+
+# ARTICLE Q009
+
+## Blocked Queue
+
+Blocked Queue contains work that cannot progress.
+
+Every blocked item must display
+
+Reason
+
+Owner
+
+Dependency
+
+Expected Resolution
+
+Blocked work is immediately visible to management.
+
+---
+
+# ARTICLE Q010
+
+## Completed Queue
+
+Completed Queue confirms operational completion.
+
+Completed work remains searchable.
+
+It immediately strengthens organisational intelligence.
+
+---
+
+# ARTICLE Q011
+
+## Archived Queue
+
+Archive never means deleted.
+
+Archive means
+
+Operationally complete
+
+Historically valuable
+
+Every archived object remains part of Workforce Intelligence.
+
+---
+
+# ARTICLE Q012
+
+## Queue Movement Is Automatic
+
+Whenever possible,
+
+KAI moves work automatically.
+
+Example
+
+Interview Scheduled
+
+↓
+
+Waiting Queue
+
+Interview Completed
+
+↓
+
+Working Queue
+
+Offer Signed
+
+↓
+
+Mobilization Queue
+
+Recruiters should not spend time moving records manually.
+
+---
+
+# ARTICLE Q013
+
+## Queue Visibility
+
+Every queue displays
+
+Volume
+
+Age
+
+Priority
+
+Owner
+
+Oldest Pending
+
+Blocked Count
+
+Nothing hidden.
+
+---
+
+# ARTICLE Q014
+
+## Queue Aging
+
+Every operational object continuously ages.
+
+Waiting too long increases operational visibility.
+
+Silence becomes visible.
+
+---
+
+# ARTICLE Q015
+
+## Queue Capacity
+
+Every recruiter,
+
+team,
+
+partner,
+
+department
+
+has visible queue capacity.
+
+Management balances work before overload occurs.
+
+---
+
+# ARTICLE Q016
+
+## Queue Intelligence
+
+Every queue answers
+
+What should move now?
+
+What is blocked?
+
+What is overdue?
+
+Who owns it?
+
+What happens next?
+
+Queues become operational intelligence.
+
+---
+
+# ARTICLE Q017
+
+## Queue Consistency
+
+Every module uses identical queue behaviour.
+
+Candidates
+
+Partners
+
+Requirements
+
+Campaigns
+
+Submission
+
+Mobilization
+
+Visa
+
+Deployment
+
+behave identically.
+
+Learning one queue teaches every queue.
+
+---
+
+# ARTICLE Q018
+
+## Queue Continuity
+
+Recruiters never restart work.
+
+Queues remember
+
+Filters
+
+Sorting
+
+Selections
+
+Scroll Position
+
+Pinned Objects
+
+Draft Work
+
+Users resume instantly.
+
+---
+
+# ARTICLE Q019
+
+## Queue Completion
+
+Every completed queue action immediately generates
+
+History
+
+Timeline
+
+Audit
+
+Intelligence
+
+Ownership Transfer
+
+Nothing disappears.
+
+Everything contributes to organisational memory.
+
+---
+
+# ARTICLE Q020
+
+## Queue Is The Heart Of KAI
+
+Recruiters never manage software.
+
+Recruiters manage queues.
+
+Queues represent today's work.
+
+Today's work creates tomorrow's intelligence.
+
+---
+
+# QUEUE VALIDATION
+
+Every future queue must answer
+
+1.
+
+Does this represent operational work?
+
+2.
+
+Who owns this queue?
+
+3.
+
+Can recruiters immediately understand priority?
+
+4.
+
+Does movement happen automatically whenever possible?
+
+5.
+
+Does this reduce searching?
+
+6.
+
+Does this preserve accountability?
+
+7.
+
+Will this reduce Excel tracking?
+
+If any answer is NO,
+
+the queue shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Queues are the operational heartbeat of KAI.
+
+Every recruiter,
+
+manager,
+
+automation,
+
+assistant,
+
+dashboard,
+
+workspace,
+
+and module
+
+shall operate through queues rather than static record lists.
+
+The Queue Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+↓
+
+Navigation Constitution
+
+↓
+
+Queue Constitution
+
+No future implementation may violate this architecture.

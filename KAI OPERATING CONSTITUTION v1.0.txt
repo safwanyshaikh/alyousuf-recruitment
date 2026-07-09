@@ -1,0 +1,515 @@
+# KAI OPERATING CONSTITUTION v1.0
+
+## The Constitution of the Workforce Intelligence Operating System
+
+**Status:** 🔒 PHASE-1 FOUNDATION LOCK
+
+---
+
+# MISSION
+
+KAI exists for one purpose.
+
+To become the fastest, simplest and most trusted operating system for international workforce recruitment.
+
+KAI is not built to manage data.
+
+KAI is built to move people from opportunity to deployment with the least operational effort.
+
+Every workflow, interaction and decision must reduce recruiter workload while increasing recruitment quality.
+
+---
+
+# THE SEVEN CONSTITUTIONS
+
+The operating system shall always be designed in this order.
+
+```
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+```
+
+Visual design is the expression.
+
+Human workflow is the foundation.
+
+No implementation may violate this order.
+
+---
+
+# CONSTITUTION I
+
+## HUMAN CONSTITUTION
+
+KAI follows recruiter behaviour.
+
+Recruiters never follow software behaviour.
+
+The system shall recognise the realities of overseas recruitment.
+
+### Human Principles
+
+Work starts with urgency.
+
+Recruiters remember people before reference numbers.
+
+Calling is continuous.
+
+WhatsApp is continuous.
+
+Projects overlap.
+
+Candidates belong to opportunities, not static folders.
+
+Candidates may move between requirements without duplication.
+
+Information changes every hour.
+
+Priorities change every hour.
+
+Recruiters think in commitments, interviews, deadlines and manpower.
+
+Recruiters should never remember software navigation.
+
+The operating system must remember everything for them.
+
+---
+
+# CONSTITUTION II
+
+## OPERATIONAL CONSTITUTION
+
+Every manpower movement follows one immutable chain.
+
+```
+Agency
+
+↓
+
+Client
+
+↓
+
+Project
+
+↓
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Candidate Supply
+
+↓
+
+Submission
+
+↓
+
+Selection
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+↓
+
+Alumni
+
+↓
+
+Future Opportunity
+```
+
+Every module exists because it owns one stage of this chain.
+
+No module may duplicate another.
+
+Ownership transfers only forward.
+
+Historical records remain permanent.
+
+---
+
+# CONSTITUTION III
+
+## DECISION CONSTITUTION
+
+Every screen exists to answer exactly one operational question.
+
+### KAI Administration
+
+Which agencies may operate?
+
+### Tenant Administration
+
+Who may access what?
+
+### Management Dashboard
+
+Where does management intervention create the highest impact?
+
+### Recruiter Dashboard
+
+What should I work on next?
+
+### Clients
+
+Who awarded the work?
+
+### Projects
+
+Which project requires manpower?
+
+### Requirements
+
+What manpower is required?
+
+### Campaigns
+
+How will manpower be sourced?
+
+### Candidates
+
+Who can fulfil the requirement?
+
+### Sourcing Partners
+
+Who can supply manpower fastest?
+
+### Submission Workspace
+
+Which candidates move next and what blocks deployment?
+
+### Mobilization
+
+What remains before travel?
+
+### Visa
+
+What remains before visa issuance?
+
+### Deployment
+
+Who has successfully joined?
+
+If a screen cannot answer one question clearly, it shall be redesigned.
+
+---
+
+# CONSTITUTION IV
+
+## INFORMATION CONSTITUTION
+
+Information appears only when it becomes actionable.
+
+Decision information always precedes raw information.
+
+Every screen follows this order.
+
+Priority
+
+↓
+
+Next Action
+
+↓
+
+Risk
+
+↓
+
+Recommendation
+
+↓
+
+Evidence
+
+↓
+
+Historical Data
+
+Recruiters never search for critical information.
+
+Critical information reaches recruiters.
+
+The operating system removes memory dependency.
+
+The operating system removes search dependency.
+
+The operating system removes administrative dependency.
+
+---
+
+# CONSTITUTION V
+
+## INTERACTION CONSTITUTION
+
+Every interaction exists to reduce operational effort.
+
+### Principles
+
+Three-click maximum.
+
+No duplicate typing.
+
+No duplicate candidates.
+
+No duplicate submissions.
+
+No duplicate searching.
+
+Bulk-first operations.
+
+Inline editing wherever operationally safe.
+
+Keyboard-first navigation.
+
+Persistent filters.
+
+Persistent context.
+
+Search everywhere.
+
+Every screen must allow recruiters to continue working without losing context.
+
+The recruiter should complete an entire working session without opening external trackers.
+
+---
+
+# CONSTITUTION VI
+
+## INTELLIGENCE CONSTITUTION
+
+KAI explains.
+
+Recruiters decide.
+
+Every operational recommendation must answer three questions.
+
+What happened?
+
+Why did it happen?
+
+What should happen next?
+
+Recommendations must be evidence based.
+
+Confidence must be visible.
+
+Exceptions must be visible.
+
+Risks must be visible.
+
+Human approval always remains with the recruiter.
+
+Automation never replaces accountability.
+
+---
+
+# CONSTITUTION VII
+
+## VISUAL CONSTITUTION
+
+Visual design exists to support operational thinking.
+
+Visual design shall never dominate operational workflow.
+
+### Layout
+
+Consistent workspace architecture.
+
+### Navigation
+
+Stable.
+
+Predictable.
+
+Never hidden.
+
+### Typography
+
+Readable.
+
+Scannable.
+
+Hierarchy before decoration.
+
+### Tables
+
+Operational.
+
+Not reporting.
+
+### Drawers
+
+Decision support.
+
+Not data storage.
+
+### Cards
+
+Actionable.
+
+Not decorative.
+
+### Colour
+
+Meaning.
+
+Not branding.
+
+### Motion
+
+Functional.
+
+Not entertainment.
+
+### Density
+
+Maximum information.
+
+Minimum cognitive load.
+
+Every screen must feel calm even while managing thousands of candidates.
+
+---
+
+# OPERATING PRINCIPLES
+
+KAI remembers.
+
+Recruiters recruit.
+
+KAI organises.
+
+Recruiters communicate.
+
+KAI recommends.
+
+Recruiters approve.
+
+KAI tracks.
+
+Recruiters deliver.
+
+KAI never becomes the work.
+
+KAI enables the work.
+
+---
+
+# EXCEL REPLACEMENT PRINCIPLE
+
+Excel remains supported only where external organisations require spreadsheet exchange.
+
+Examples
+
+Client submission sheets.
+
+Government templates.
+
+Visa authority formats.
+
+Payroll exports.
+
+Outside these scenarios, KAI becomes the operational workspace.
+
+Recruiters should never maintain parallel Excel trackers.
+
+---
+
+# SUCCESS STANDARD
+
+KAI succeeds when the operating system produces measurable operational improvement.
+
+Within normal agency operations:
+
+Recruiters locate information faster.
+
+Candidate response time decreases.
+
+Requirement fulfilment accelerates.
+
+Submission preparation time decreases.
+
+Duplicate work decreases.
+
+Missed follow-ups decrease.
+
+Context switching decreases.
+
+Manual tracking decreases.
+
+Recruiters remain inside KAI for the majority of their working day.
+
+Managers obtain operational awareness within seconds rather than reviewing multiple reports.
+
+Knowledge remains institutional rather than personal.
+
+Every completed recruitment cycle strengthens the intelligence available for the next one.
+
+---
+
+# FINAL OPERATING RULE
+
+Every future feature shall answer three questions before implementation.
+
+Does it reduce recruiter effort?
+
+Does it improve recruiter decisions?
+
+Does it strengthen long-term workforce intelligence?
+
+If the answer to any question is no, the feature shall not become part of KAI.
+
+---
+
+# PHASE-1 DECLARATION
+
+Phase-1 establishes KAI as a Workforce Intelligence Operating System.
+
+It is not an ATS.
+
+It is not a CRM.
+
+It is not a database.
+
+It is an operational environment where recruiters, managers and agencies execute the complete overseas recruitment lifecycle through one continuously connected workflow while preserving organisational intelligence for every future recruitment campaign.
+
+**Status:** 🔒 LOCKED

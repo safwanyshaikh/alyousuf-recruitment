@@ -1,0 +1,627 @@
+# KAI OS CONSTITUTION 011
+
+# SEARCH CONSTITUTION
+
+## Recruiters Search For People. KAI Finds Everything.
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Search is not a feature.
+
+Search is the primary operating system inside KAI.
+
+A recruiter should never remember
+
+where information is stored.
+
+The recruiter only remembers
+
+what they know.
+
+KAI is responsible for finding everything else.
+
+---
+
+# SEARCH PHILOSOPHY
+
+Recruiters search naturally.
+
+Examples
+
+"Rigger from Kerala"
+
+"Ahmed"
+
+"Shutdown Pipe Fitter"
+
+"Aramco"
+
+"Qatar"
+
+"Candidate I called yesterday"
+
+"Passport expiring"
+
+"Partner from Kochi"
+
+KAI translates human thinking into operational intelligence.
+
+---
+
+# UNIVERSAL SEARCH
+
+One search box.
+
+Everything searchable.
+
+No module-specific search.
+
+No separate search engines.
+
+---
+
+# ARTICLE S001
+
+## Search Before Navigation
+
+Recruiters should reach work through search before navigating menus.
+
+Search is the fastest route.
+
+Navigation is the second route.
+
+---
+
+# ARTICLE S002
+
+## Search Everything
+
+Every searchable object belongs to one unified index.
+
+Agency
+
+Recruiter
+
+Client
+
+Project
+
+Requirement
+
+Campaign
+
+Candidate Contact
+
+Candidate Profile
+
+Submission
+
+Mobilization
+
+Visa
+
+Deployment
+
+Sourcing Partner
+
+Training Centre
+
+Education Institute
+
+Documents
+
+Notes
+
+Activities
+
+Communication
+
+Nothing remains isolated.
+
+---
+
+# ARTICLE S003
+
+## Human Search
+
+Recruiters search the way humans remember.
+
+Examples
+
+Name
+
+Phone
+
+Email
+
+Trade
+
+Village
+
+State
+
+Nationality
+
+Previous Employer
+
+Current Company
+
+Project
+
+Salary
+
+Language
+
+Partner
+
+Client
+
+Requirement
+
+Reference Number
+
+KAI Number
+
+Passport
+
+Everything should return meaningful results.
+
+---
+
+# ARTICLE S004
+
+## Natural Language Search
+
+Recruiters should search naturally.
+
+Examples
+
+Pipe Fitters in Qatar with shutdown experience
+
+Electricians available immediately
+
+Candidates called this morning
+
+Interview tomorrow
+
+Partners from Kerala
+
+Rejected by Client ABC
+
+KAI interprets intent.
+
+Not keywords alone.
+
+---
+
+# ARTICLE S005
+
+## Relationship Search
+
+Search understands relationships.
+
+Example
+
+Searching
+
+Saudi Shutdown
+
+returns
+
+Project
+
+Requirements
+
+Campaigns
+
+Candidates
+
+Partners
+
+Submissions
+
+Client
+
+Interview Schedule
+
+Everything related.
+
+---
+
+# ARTICLE S006
+
+## Search Never Ends
+
+Results continuously refine.
+
+Typing improves intelligence.
+
+Recruiters should rarely press Enter.
+
+---
+
+# ARTICLE S007
+
+## Operational Search
+
+Search prioritises active operational work.
+
+Urgent
+
+Working
+
+Waiting
+
+Blocked
+
+appear before
+
+Historical
+
+Archived
+
+Reference
+
+---
+
+# ARTICLE S008
+
+## Search Explains Results
+
+Every result answers
+
+Why was this returned?
+
+Example
+
+Matched by
+
+Phone
+
+Trade
+
+Partner
+
+Requirement
+
+Project
+
+Email
+
+Remark
+
+Recruiters understand the match instantly.
+
+---
+
+# ARTICLE S009
+
+## Instant Action
+
+Search results are operational.
+
+Users should
+
+Call
+
+WhatsApp
+
+Open
+
+Assign
+
+Submit
+
+Update
+
+without opening additional pages.
+
+---
+
+# ARTICLE S010
+
+## Search Learns Behaviour
+
+Frequently searched
+
+Requirements
+
+Trades
+
+Clients
+
+Partners
+
+Candidates
+
+appear earlier.
+
+The operating system continuously improves retrieval.
+
+---
+
+# ARTICLE S011
+
+## Saved Search
+
+Recruiters may save operational searches.
+
+Examples
+
+Shutdown Welders
+
+Interview Tomorrow
+
+Waiting Visa
+
+Blocked Submission
+
+Every saved search becomes a live operational queue.
+
+---
+
+# ARTICLE S012
+
+## Search Across Time
+
+Search understands
+
+Today
+
+Yesterday
+
+This Week
+
+Last Month
+
+Previous Campaign
+
+Previous Deployment
+
+Time becomes searchable.
+
+---
+
+# ARTICLE S013
+
+## Search Across Communication
+
+Search includes
+
+Notes
+
+Calls
+
+Emails
+
+WhatsApp Logs
+
+Interview Remarks
+
+Client Feedback
+
+Communication becomes organisational knowledge.
+
+---
+
+# ARTICLE S014
+
+## Search Across Intelligence
+
+Search returns
+
+Risk
+
+Recommendation
+
+Readiness
+
+Confidence
+
+Next Action
+
+Search never returns raw records alone.
+
+---
+
+# ARTICLE S015
+
+## Search Never Duplicates
+
+Duplicate candidates appear as one identity.
+
+Duplicate partners appear once.
+
+Duplicate requirements become linked.
+
+Search strengthens the single source of truth.
+
+---
+
+# ARTICLE S016
+
+## Search Supports Scale
+
+Searching
+
+100
+
+or
+
+1,000,000
+
+records
+
+should feel identical.
+
+Performance is non-negotiable.
+
+---
+
+# ARTICLE S017
+
+## Search Protects Permissions
+
+Users only search information they are authorised to access.
+
+Agency boundaries remain absolute.
+
+Search never leaks organisational information.
+
+---
+
+# ARTICLE S018
+
+## Search Creates Work
+
+Every result offers
+
+Next Action
+
+Not just
+
+View Record.
+
+Search immediately becomes execution.
+
+---
+
+# ARTICLE S019
+
+## Search Never Fails Silently
+
+If nothing matches,
+
+KAI explains
+
+No Result
+
+Possible Alternatives
+
+Closest Match
+
+Suggested Searches
+
+Never blank screens.
+
+---
+
+# ARTICLE S020
+
+## Search Becomes Organisational Memory
+
+Recruiters stop remembering
+
+where information lives.
+
+KAI becomes organisational memory.
+
+People remember work.
+
+KAI remembers everything else.
+
+---
+
+# SEARCH VALIDATION
+
+Every future search capability must answer
+
+1.
+
+Can recruiters search naturally?
+
+2.
+
+Can one search reach every operational object?
+
+3.
+
+Can search immediately create action?
+
+4.
+
+Does search understand relationships?
+
+5.
+
+Does search reduce navigation?
+
+6.
+
+Does search strengthen Workforce Intelligence?
+
+7.
+
+Would recruiters stop maintaining personal lists because of this search?
+
+If any answer is NO,
+
+the search architecture shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Search is the front door of KAI.
+
+Recruiters should think in people,
+
+projects,
+
+requirements,
+
+relationships,
+
+and conversations—
+
+never in database locations.
+
+The Search Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+↓
+
+Navigation Constitution
+
+↓
+
+Queue Constitution
+
+↓
+
+Search Constitution
+
+Every future feature inside KAI shall be discoverable through one unified search architecture.

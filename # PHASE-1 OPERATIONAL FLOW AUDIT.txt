@@ -1,0 +1,233 @@
+# PHASE-1 OPERATIONAL FLOW AUDIT
+
+## Corrected Architecture
+
+```text
+KAI Administration
+        │
+        ▼
+Tenant Administration (Agency)
+        │
+        ▼
+Recruiters & Roles
+        │
+        ├─────────────────────────────┐
+        │                             │
+        ▼                             ▼
+Management Dashboard          Recruiter Dashboard
+        │                             │
+        │                             │
+        └──────────────┬──────────────┘
+                       │
+                       ▼
+                    Clients
+                       │
+                       ▼
+                    Projects
+                       │
+                       ▼
+                  Requirements
+                       │
+                       ▼
+                   Campaigns
+                       │
+        ┌──────────────┴──────────────┐
+        │                             │
+        ▼                             ▼
+   Candidates                 Sourcing Partners
+        │                             │
+        └──────────────┬──────────────┘
+                       │
+                       ▼
+              Submission Workspace
+                       │
+                       ▼
+              Client Submission
+```
+
+---
+
+# Responsibility of Each Layer
+
+## KAI Administration
+
+Creates and governs agencies.
+
+Output
+
+Agency becomes operational.
+
+↓
+
+## Tenant Administration
+
+Configures the agency.
+
+Creates recruiters.
+
+Assigns permissions.
+
+Creates master data.
+
+Assigns work.
+
+Output
+
+Recruiters receive operational access.
+
+↓
+
+## Recruiters & Roles
+
+Authentication layer.
+
+Determines user role.
+
+Output
+
+Routes user to the correct dashboard.
+
+↓
+
+## Management Dashboard
+
+Purpose
+
+Decision making.
+
+Questions answered
+
+* Which requirement is critical?
+* Which campaign needs intervention?
+* Which recruiter needs support?
+* Which client is waiting?
+* Which project is delayed?
+* Which sourcing partner should receive more work?
+* Which submission requires escalation?
+
+Management never recruits from this screen.
+
+It directs operations.
+
+↓
+
+## Recruiter Dashboard
+
+Purpose
+
+Execution.
+
+Questions answered
+
+* What do I work on first?
+* Which candidate do I call?
+* Which submission is pending?
+* Which interview is today?
+* Which campaign needs sourcing?
+* Which requirement needs manpower?
+
+Recruiters execute from here.
+
+↓
+
+## Clients
+
+Business relationship.
+
+↓
+
+## Projects
+
+Commercial scope.
+
+↓
+
+## Requirements
+
+Manpower demand.
+
+↓
+
+## Campaigns
+
+Sourcing execution.
+
+↓
+
+## Candidates
+
+Internal workforce intelligence.
+
+↓
+
+## Sourcing Partners
+
+External workforce intelligence.
+
+Both continuously feed manpower into the same Requirement.
+
+Neither owns the candidate.
+
+↓
+
+## Submission Workspace
+
+Operational desk.
+
+Creates submission batches.
+
+Tracks client responses.
+
+Tracks interviews.
+
+Tracks offers.
+
+Tracks replacements.
+
+↓
+
+## Client Submission
+
+Client receives the submission batch.
+
+Client reviews.
+
+Client shortlists.
+
+Client interviews.
+
+Client selects.
+
+Offer released.
+
+Phase-1 ends here.
+
+Mobilization begins in Phase-2.
+
+---
+
+# Phase-1 Validation
+
+| Module                | Status              |
+| --------------------- | ------------------- |
+| KAI Administration    | 🔒                  |
+| Tenant Administration | 🔒                  |
+| Recruiters & Roles    | 🔒                  |
+| Management Dashboard  | 🔒                  |
+| Recruiter Dashboard   | 🔒                  |
+| Clients               | 🔒                  |
+| Projects              | 🔒                  |
+| Requirements          | 🔒                  |
+| Campaigns             | 🔒                  |
+| Candidates            | 🔒                  |
+| Sourcing Partners     | 🔒                  |
+| Submission Workspace  | 🔒                  |
+| Client Submission     | 🔒 (End of Phase-1) |
+
+---
+
+# Phase-1 End Boundary
+
+Phase-1 officially ends when the client has received the submission and completed the recruitment decision (shortlist, interview, selection, and offer release).
+
+Once the candidate accepts the offer, ownership transfers to the Mobilization Workspace, which is the beginning of Phase-2.

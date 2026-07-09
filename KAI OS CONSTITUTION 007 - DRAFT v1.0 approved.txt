@@ -1,0 +1,583 @@
+# KAI OS CONSTITUTION 007
+
+# VISUAL CONSTITUTION
+
+## The Interface Must Disappear. The Work Must Remain.
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+The purpose of KAI's visual system is not beauty.
+
+The purpose is operational clarity.
+
+A recruiter should remember
+
+Candidates
+
+Requirements
+
+Clients
+
+Projects
+
+Conversations
+
+—not—
+
+Buttons
+
+Menus
+
+Colours
+
+Layouts
+
+If recruiters remember the interface,
+
+the interface has failed.
+
+The interface must become invisible.
+
+Only recruitment remains visible.
+
+---
+
+# VISUAL PHILOSOPHY
+
+Every visual element must answer one question.
+
+**Does this reduce recruiter thinking?**
+
+If not,
+
+it shall not exist.
+
+---
+
+# VISUAL HIERARCHY
+
+Every screen follows exactly one visual hierarchy.
+
+```text
+Urgency
+
+↓
+
+Current Work
+
+↓
+
+Recommended Action
+
+↓
+
+Operational Queue
+
+↓
+
+Supporting Intelligence
+
+↓
+
+Operational History
+
+↓
+
+Reference Data
+```
+
+Nothing may interrupt this hierarchy.
+
+---
+
+# ARTICLE V001
+
+## Calm Before Complexity
+
+International recruitment is operationally complex.
+
+The interface must never feel complex.
+
+KAI absorbs operational complexity.
+
+Recruiters experience operational calm.
+
+---
+
+# ARTICLE V002
+
+## One Operating Language
+
+Every module speaks the same visual language.
+
+Candidates
+
+Projects
+
+Requirements
+
+Campaigns
+
+Submission
+
+Mobilization
+
+Visa
+
+Deployment
+
+must all feel like one operating system.
+
+Learning one module means understanding all.
+
+---
+
+# ARTICLE V003
+
+## Recognition Before Reading
+
+Recruiters should recognise information before reading it.
+
+Examples
+
+Status
+
+Priority
+
+Risk
+
+Urgency
+
+Stage
+
+Ownership
+
+must become instantly recognisable.
+
+Visual recognition is faster than text.
+
+---
+
+# ARTICLE V004
+
+## Stable Interface
+
+Buttons do not move.
+
+Menus do not move.
+
+Search never moves.
+
+Filters never move.
+
+Primary actions never change position.
+
+Consistency builds muscle memory.
+
+---
+
+# ARTICLE V005
+
+## One Visual Rhythm
+
+Spacing
+
+Typography
+
+Icons
+
+Tables
+
+Cards
+
+Drawers
+
+Dialogs
+
+must follow one rhythm.
+
+No module shall invent its own design language.
+
+---
+
+# ARTICLE V006
+
+## White Space Has Purpose
+
+White space exists only to improve readability.
+
+Never for decoration.
+
+Every empty area must improve focus.
+
+---
+
+# ARTICLE V007
+
+## Colour Means Something
+
+Colours communicate operational meaning.
+
+Never branding alone.
+
+Green
+
+Completed
+
+Blue
+
+Working
+
+Amber
+
+Needs Attention
+
+Red
+
+Immediate Action
+
+Grey
+
+Reference
+
+Purple or Indigo
+
+KAI Intelligence
+
+Colours never decorate.
+
+Colours communicate.
+
+---
+
+# ARTICLE V008
+
+## Typography Is Hierarchy
+
+Typography exists only to establish importance.
+
+Primary Decision
+
+↓
+
+Action
+
+↓
+
+Supporting Information
+
+↓
+
+Reference Information
+
+↓
+
+Metadata
+
+Never use typography for decoration.
+
+---
+
+# ARTICLE V009
+
+## Icons Replace Repetition
+
+Icons support recognition.
+
+They never replace understanding.
+
+Every icon must reduce reading effort.
+
+---
+
+# ARTICLE V010
+
+## Tables Are Operational
+
+Tables are workspaces.
+
+Not reports.
+
+Every table supports
+
+Filtering
+
+Sorting
+
+Bulk Actions
+
+Quick Edit
+
+Selection
+
+Navigation
+
+Without opening additional pages.
+
+---
+
+# ARTICLE V011
+
+## Cards Represent Work
+
+Cards never represent statistics.
+
+Cards represent operational objects.
+
+Requirement
+
+Candidate
+
+Submission
+
+Campaign
+
+Partner
+
+Client
+
+Cards must invite action.
+
+---
+
+# ARTICLE V012
+
+## Drawers Preserve Context
+
+Drawers exist to avoid navigation.
+
+Details appear beside work.
+
+Never replace the working screen.
+
+Never interrupt flow.
+
+---
+
+# ARTICLE V013
+
+## Dashboards Never Become Reports
+
+Dashboards answer
+
+"What requires attention?"
+
+They never become reporting centres.
+
+Every dashboard tile opens work.
+
+Never static numbers.
+
+---
+
+# ARTICLE V014
+
+## Motion Has Meaning
+
+Animation exists only when it communicates
+
+Loading
+
+Completion
+
+Transition
+
+Confirmation
+
+Movement
+
+Never for entertainment.
+
+---
+
+# ARTICLE V015
+
+## Density Without Chaos
+
+A recruiter managing
+
+100
+
+1,000
+
+or
+
+100,000
+
+candidates
+
+should experience the same visual clarity.
+
+The interface scales.
+
+The mind remains calm.
+
+---
+
+# ARTICLE V016
+
+## One Screen Rule
+
+The recruiter should understand
+
+the current operational situation
+
+within five seconds of opening any workspace.
+
+---
+
+# ARTICLE V017
+
+## The Interface Never Competes
+
+The interface never competes for attention.
+
+Operational work always receives visual priority.
+
+Design serves work.
+
+Never the opposite.
+
+---
+
+# ARTICLE V018
+
+## Every Pixel Must Earn Its Place
+
+Before adding anything,
+
+ask
+
+Does this help recruiters recruit faster?
+
+If not,
+
+remove it.
+
+---
+
+# ARTICLE V019
+
+## Beauty Is Operational
+
+KAI shall never pursue beauty through decoration.
+
+Beauty emerges from
+
+Consistency
+
+Clarity
+
+Speed
+
+Confidence
+
+Predictability
+
+Operational beauty outlives visual trends.
+
+---
+
+# ARTICLE V020
+
+## Invisible Software
+
+The highest achievement of the visual system is invisibility.
+
+Recruiters should finish an entire day remembering
+
+people,
+
+projects,
+
+placements,
+
+and results—
+
+never remembering the software itself.
+
+---
+
+# VISUAL VALIDATION
+
+Every future visual component must answer
+
+1.
+
+Does this reduce cognitive load?
+
+2.
+
+Does this improve recognition?
+
+3.
+
+Does this preserve operational flow?
+
+4.
+
+Can recruiters understand this within five seconds?
+
+5.
+
+Will this remain consistent across every module?
+
+6.
+
+Does this encourage action rather than observation?
+
+7.
+
+Would removing this make recruitment harder?
+
+If any answer is NO,
+
+the component shall not become part of KAI.
+
+---
+
+# LOCK CONDITION
+
+The Visual Constitution exists to make KAI disappear.
+
+The recruiter experiences only recruitment.
+
+The operating system becomes an extension of professional thinking rather than software requiring attention.
+
+The Visual Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+Every future interface, component, animation, layout, table, drawer, dashboard and workspace shall comply with this constitution.
+
+**Visual excellence is not measured by appearance.**
+
+**Visual excellence is measured by how little attention the interface demands while enabling exceptional recruitment performance.**

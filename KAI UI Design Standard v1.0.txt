@@ -1,0 +1,923 @@
+KAI UI DESIGN STANDARD
+Workforce Intelligence Operating System
+Version 1.0
+Status: 🔒 LOCKED
+
+============================================================
+PURPOSE
+============================================================
+
+This document is the single implementation standard for every
+screen, module, workspace, dashboard, table, drawer, component,
+interaction and workflow inside KAI.
+
+The Constitutions define WHY.
+
+The UI Design Standard defines HOW.
+
+Every future implementation inside Lovable, Claude Code,
+Codex, Cursor or any development team shall follow this
+document.
+
+============================================================
+KAI UI PHILOSOPHY
+============================================================
+
+KAI is NOT
+
+• ATS
+• CRM
+• ERP
+• HRMS
+• Candidate Database
+• Dashboard Software
+
+KAI IS
+
+A Workforce Intelligence Operating System.
+
+Recruiters should comfortably spend an entire working day
+inside KAI without depending on
+
+• Excel
+• Personal Notes
+• WhatsApp Lists
+• Separate Follow-up Diaries
+• Manual Registers
+• Personal Candidate Lists
+
+Except where external clients or government authorities require
+their own formats.
+
+============================================================
+DESIGN PRINCIPLES
+============================================================
+
+1.
+Recruitment before Software
+
+2.
+Decision before Data
+
+3.
+Workflow before Screens
+
+4.
+Human before Automation
+
+5.
+Speed before Complexity
+
+6.
+Context before Navigation
+
+7.
+Execution before Reporting
+
+8.
+Intelligence before Information
+
+9.
+Organization before Individual
+
+10.
+One Operating System
+
+============================================================
+WORKSPACE HIERARCHY
+============================================================
+
+Every module follows one identical structure.
+
+Header
+
+↓
+
+Operational Summary
+
+↓
+
+Toolbar
+
+↓
+
+Working Queue
+
+↓
+
+Workspace
+
+↓
+
+Intelligence Drawer
+
+↓
+
+Timeline
+
+No module may violate this hierarchy.
+
+============================================================
+PRIMARY MODULES
+============================================================
+
+KAI Administration
+Platform Governance
+
+↓
+
+Tenant Administration
+Agency Governance
+
+↓
+
+Management Dashboard
+
+↓
+
+Recruiter Dashboard
+
+↓
+
+Recruitment Flow
+
+↓
+
+Candidates
+
+↓
+
+Sourcing Partners
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+============================================================
+RECRUITMENT FLOW
+============================================================
+
+Purpose
+
+Complete recruitment lifecycle.
+
+Contains
+
+Clients
+
+Projects
+
+Requirements
+
+Campaigns
+
+Submission Workspace
+
+Golden Rule
+
+Every module answers only one operational question.
+
+CLIENT
+
+Who gave us work?
+
+PROJECT
+
+Which project requires manpower?
+
+REQUIREMENT
+
+What manpower is required?
+
+CAMPAIGN
+
+How will manpower be sourced?
+
+SUBMISSION
+
+Which candidate moves next and why?
+
+============================================================
+CANDIDATES
+============================================================
+
+Contains
+
+Contact Module
+
+Table Workspace
+
+--------------------------------------------
+CONTACT MODULE
+--------------------------------------------
+
+Purpose
+
+Universal Contact Dictionary
+
+Unknown Person
+
+↓
+
+Quick Contact
+
+↓
+
+Contact Dictionary
+
+↓
+
+Recruiter Calling
+
+↓
+
+Recruiter Notes
+
+↓
+
+Contact Updated
+
+↓
+
+Interested
+
+↓
+
+Assigned Requirement
+
+↓
+
+Foundation
+
+↓
+
+Assessment
+
+↓
+
+K14 Verdict
+
+↓
+
+Shortlist
+
+↓
+
+Submission
+
+↓
+
+Interview
+
+↓
+
+Selection
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+↓
+
+Alumni
+
+↓
+
+Future Opportunity
+
+Minimum Contact Fields
+
+Name
+
+Phone Number
+
+Nationality
+
+Highest Qualification
+
+Current Location
+
+Current Designation
+
+Position Applied
+
+Recruiter Notes
+
+Advertisement Source
+
+Campaign
+
+Recruiter
+
+Date Created
+
+Purpose
+
+Capture immediately.
+
+No CV required.
+
+When CV arrives
+
+↓
+
+KAI detects Contact
+
+↓
+
+Automatically creates Candidate Profile
+
+↓
+
+Relationship preserved.
+
+--------------------------------------------
+TABLE VIEW
+--------------------------------------------
+
+Purpose
+
+Operational Workspace
+
+Recruiters should remain inside this table for hours.
+
+Supports
+
+Calling
+
+WhatsApp
+
+Email
+
+Bulk Updates
+
+Bulk Assignment
+
+Filtering
+
+Searching
+
+Submission
+
+Remarks
+
+Timeline
+
+Intelligence
+
+Inline Editing
+
+Bulk Actions
+
+Queue Working
+
+Never becomes a database.
+
+============================================================
+SOURCING PARTNERS
+============================================================
+
+Purpose
+
+Permanent sourcing intelligence.
+
+Internal organizational strength.
+
+Never publicly visible.
+
+Categories
+
+Freelancer
+
+Sub Agency
+
+Associate Agency
+
+Training Centre
+
+Educational Institute
+
+Modules
+
+Contact
+
+List
+
+Purpose
+
+Relationship Intelligence
+
+Performance History
+
+Trade Expertise
+
+Campaign Participation
+
+Geographical Strength
+
+Deployment History
+
+Response Quality
+
+Reliability
+
+Communication
+
+Candidate Pipeline
+
+Never treated as CRM.
+
+============================================================
+MOBILIZATION
+============================================================
+
+Purpose
+
+Selected Candidate
+
+↓
+
+Offer
+
+↓
+
+Documents
+
+↓
+
+Medical
+
+↓
+
+Travel
+
+↓
+
+Joining
+
+Operational readiness only.
+
+============================================================
+VISA
+============================================================
+
+Purpose
+
+Compliance Workspace.
+
+Visa lifecycle.
+
+Government compliance.
+
+Employer documentation.
+
+Tracking.
+
+============================================================
+DEPLOYMENT
+============================================================
+
+Purpose
+
+Deployment completion.
+
+Employer joining.
+
+Arrival.
+
+Project completion.
+
+Alumni.
+
+Future opportunity.
+
+============================================================
+RECRUITER DASHBOARD
+============================================================
+
+Answers
+
+What should I work on today?
+
+Displays
+
+Urgent Calls
+
+Today's Interviews
+
+Pending Follow-ups
+
+Waiting Candidates
+
+Pending Submission
+
+Today's Campaign
+
+Today's Requirement
+
+Blocked Items
+
+Notifications
+
+Never reports.
+
+Only operational work.
+
+============================================================
+MANAGEMENT DASHBOARD
+============================================================
+
+Answers
+
+Where should management intervene?
+
+Displays
+
+Critical Requirements
+
+Campaign Health
+
+Submission Bottlenecks
+
+Recruiter Capacity
+
+Partner Performance
+
+Visa Delays
+
+Mobilization Risks
+
+Client Escalations
+
+Operational Health
+
+Never employee surveillance.
+
+============================================================
+TABLE STANDARD
+============================================================
+
+Every table supports
+
+Search
+
+Filter
+
+Bulk Actions
+
+Inline Edit
+
+Pinned Columns
+
+Quick Preview
+
+Intelligence Drawer
+
+Timeline
+
+Relationships
+
+Operational Context
+
+Tables replace Excel.
+
+============================================================
+DRAWER STANDARD
+============================================================
+
+Right Drawer always contains
+
+Identity
+
+Recommendation
+
+Risk
+
+Relationships
+
+Timeline
+
+History
+
+Next Action
+
+Never full forms.
+
+Never separate screens.
+
+============================================================
+QUEUE STANDARD
+============================================================
+
+Incoming
+
+↓
+
+Assigned
+
+↓
+
+Working
+
+↓
+
+Waiting
+
+↓
+
+Blocked
+
+↓
+
+Completed
+
+↓
+
+Archived
+
+Recruiters work through queues.
+
+Never databases.
+
+============================================================
+SEARCH STANDARD
+============================================================
+
+Single Universal Search.
+
+Searches
+
+Clients
+
+Projects
+
+Requirements
+
+Campaigns
+
+Candidates
+
+Contacts
+
+Partners
+
+Submission
+
+Visa
+
+Deployment
+
+Documents
+
+Timeline
+
+Communication
+
+Natural Language Supported.
+
+============================================================
+FILTER STANDARD
+============================================================
+
+Operational Filters
+
+Today
+
+Tomorrow
+
+Overdue
+
+Urgent
+
+Waiting
+
+Blocked
+
+Recruiter
+
+Campaign
+
+Requirement
+
+Project
+
+Trade
+
+Partner
+
+Availability
+
+Nationality
+
+Never technical filters.
+
+============================================================
+INTELLIGENCE PANEL
+============================================================
+
+Always answers
+
+What happened?
+
+Why?
+
+What should happen next?
+
+Displays
+
+Recommendation
+
+Confidence
+
+Risk
+
+Deploy Readiness
+
+Identity Confidence
+
+Experience Credibility
+
+Requirement Match
+
+Next Action
+
+============================================================
+TIMELINE
+============================================================
+
+Permanent history.
+
+Calls
+
+WhatsApp
+
+Emails
+
+Remarks
+
+Submission
+
+Interview
+
+Offer
+
+Visa
+
+Deployment
+
+Nothing deleted.
+
+============================================================
+NOTIFICATION STANDARD
+============================================================
+
+Notifications always create work.
+
+Never information.
+
+Every notification opens
+
+Live Queue
+
+Live Workspace
+
+Live Record
+
+============================================================
+FORMS
+============================================================
+
+Short.
+
+Minimal.
+
+Progressive.
+
+Only request information when operationally required.
+
+Never duplicate existing information.
+
+============================================================
+VISUAL STANDARD
+============================================================
+
+Operational Calm.
+
+Large whitespace.
+
+Clear typography.
+
+Consistent spacing.
+
+No decorative UI.
+
+Recognition before reading.
+
+============================================================
+COLOR SYSTEM
+============================================================
+
+Red
+
+Immediate Action
+
+Amber
+
+Needs Attention
+
+Blue
+
+Working
+
+Green
+
+Completed
+
+Grey
+
+Reference
+
+Indigo
+
+KAI Intelligence
+
+============================================================
+DESIGN RULES
+============================================================
+
+Every screen answers one question.
+
+Every button performs work.
+
+Every card opens work.
+
+Every widget creates action.
+
+Every table replaces Excel.
+
+Every drawer preserves context.
+
+Every search finds organizational knowledge.
+
+Every dashboard creates decisions.
+
+Every module owns one responsibility.
+
+============================================================
+SUCCESS STANDARD
+============================================================
+
+A recruiter should comfortably remain inside KAI
+for an entire working day.
+
+No external tracking.
+
+No duplicate typing.
+
+No searching for information.
+
+No remembering follow-ups.
+
+No Excel except client-mandated sheets.
+
+Management understands operations within 30 seconds.
+
+Recruiters understand today's work within 10 seconds.
+
+New recruiters become productive rapidly.
+
+Every deployment permanently strengthens organizational intelligence.
+
+============================================================
+FINAL DECLARATION
+============================================================
+
+KAI UI is not designed to look beautiful.
+
+It is designed to eliminate recruiter friction.
+
+The interface disappears.
+
+Recruitment remains.
+
+This document is the permanent implementation standard for
+every KAI interface.
+
+Status
+
+🔒 LOCKED
+
+KAI UI Design Standard v1.0
+Workforce Intelligence Operating System

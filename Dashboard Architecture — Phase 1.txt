@@ -1,0 +1,504 @@
+# 🔒 KAI UI LOCK
+
+# Dashboard Architecture — Phase 1
+
+---
+
+# Principle
+
+Dashboards are not reports.
+
+Dashboards exist to help people make decisions within seconds.
+
+Every widget must answer one operational question.
+
+If a widget cannot change today's decision, it does not belong on the dashboard.
+
+---
+
+# Dashboard Types
+
+```
+Management Dashboard
+
+Recruiter Dashboard
+```
+
+Both use the same data.
+
+Both answer different questions.
+
+---
+
+# 1. MANAGEMENT DASHBOARD
+
+## Purpose
+
+Understand the health of the recruitment business.
+
+Detect bottlenecks.
+
+Identify risks.
+
+Allocate resources.
+
+Support recruiters.
+
+Not monitor employees.
+
+---
+
+## SECTION 1
+
+### Business Health
+
+Displays
+
+* Active Clients
+* Active Projects
+* Active Requirements
+* Active Campaigns
+* Active Recruiters
+* Active Sourcing Partners
+
+---
+
+## SECTION 2
+
+### Recruitment Pipeline
+
+Requirement Received
+
+↓
+
+Campaign Running
+
+↓
+
+Candidates Sourced
+
+↓
+
+Internal Shortlisted
+
+↓
+
+Submitted
+
+↓
+
+Client Shortlisted
+
+↓
+
+Interview
+
+↓
+
+Selected
+
+↓
+
+Offer Released
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+Every stage displays
+
+Current Count
+
+Movement Today
+
+Delayed
+
+Blocked
+
+---
+
+## SECTION 3
+
+### Urgent Action Board
+
+Displays only
+
+Requirements nearing deadline
+
+Campaigns without candidate flow
+
+Projects with no recruiter activity
+
+Client feedback pending
+
+Interview pending
+
+Offer pending
+
+Visa delay
+
+Mobilization delay
+
+No unnecessary statistics.
+
+Only operational risks.
+
+---
+
+## SECTION 4
+
+### Client Health
+
+Clients needing attention
+
+Projects at risk
+
+Pending approvals
+
+Delayed responses
+
+Inactive projects
+
+Upcoming interviews
+
+---
+
+## SECTION 5
+
+### Recruiter Support
+
+Recruiters requiring assistance
+
+High workload
+
+Low workload
+
+Requirements without owner
+
+Campaigns needing manpower
+
+This is resource balancing.
+
+Not surveillance.
+
+---
+
+## SECTION 6
+
+### Sourcing Intelligence
+
+Top Sourcing Partners
+
+Inactive Partners
+
+Campaign Performance
+
+Trade Availability
+
+Candidate Supply
+
+Training Centre Output
+
+Education Institute Output
+
+---
+
+## SECTION 7
+
+### Deployment Forecast
+
+Expected Deployment Today
+
+This Week
+
+This Month
+
+Offer Pipeline
+
+Visa Pipeline
+
+Mobilization Pipeline
+
+---
+
+## SECTION 8
+
+### Executive Alerts
+
+Only critical events
+
+Visa expiry
+
+Project deadline
+
+Large manpower shortage
+
+Client escalation
+
+Interview cancelled
+
+Mass withdrawal
+
+Offer expiry
+
+No notifications that do not require action.
+
+---
+
+# MANAGEMENT SUCCESS
+
+CEO should answer within 30 seconds
+
+Where is the bottleneck?
+
+Which project is at risk?
+
+Who needs help?
+
+What requires my decision?
+
+---
+
+# 2. RECRUITER DASHBOARD
+
+## Purpose
+
+Begin work immediately.
+
+Never wonder what to do next.
+
+---
+
+## SECTION 1
+
+### Today's Work
+
+My Requirements
+
+My Campaigns
+
+My Interviews
+
+My Calls
+
+My Follow-ups
+
+My Client Responses
+
+My Pending Submission
+
+---
+
+## SECTION 2
+
+### My Pipeline
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Candidates
+
+↓
+
+Submission
+
+↓
+
+Interview
+
+↓
+
+Offer
+
+↓
+
+Mobilization
+
+Shows only recruiter's work.
+
+---
+
+## SECTION 3
+
+### Immediate Actions
+
+Candidates to Call
+
+Candidates Awaiting CV
+
+Candidates Ready for Assessment
+
+Candidates Ready for Submission
+
+Client Feedback Pending
+
+Interview Confirmation Pending
+
+Offer Acceptance Pending
+
+Every item is clickable.
+
+---
+
+## SECTION 4
+
+### My Requirements
+
+Requirement
+
+Required
+
+Received
+
+Shortlisted
+
+Submitted
+
+Balance
+
+Urgency
+
+Next Action
+
+---
+
+## SECTION 5
+
+### Campaigns
+
+Campaign Progress
+
+Advertisement
+
+Associate Response
+
+Database Response
+
+Walk-in Response
+
+Today's Candidate Count
+
+---
+
+## SECTION 6
+
+### Candidate Queue
+
+Ready for Submission
+
+Interview Today
+
+Offer Pending
+
+Document Pending
+
+Duplicate Found
+
+High Match
+
+Immediate Availability
+
+---
+
+## SECTION 7
+
+### Communication
+
+Today's Calls
+
+Today's WhatsApp
+
+Today's Email
+
+Pending Follow-up
+
+Overdue Follow-up
+
+---
+
+## SECTION 8
+
+### My Performance
+
+Requirements Closed
+
+Submissions
+
+Selections
+
+Deployments
+
+Follow-up Completion
+
+Response Time
+
+Displayed privately.
+
+No comparison with other recruiters.
+
+---
+
+## SECTION 9
+
+### KAI Assistant
+
+Always visible.
+
+Examples
+
+Requirement requires 12 Pipe Fitters.
+
+Only 8 sourced.
+
+4 more required.
+
+Suggested Source:
+
+Kochi Associate Agency
+
+Database Search
+
+Previous Shutdown Campaign
+
+---
+
+# Recruiter Success
+
+Recruiter logs in and immediately knows
+
+What should I do first?
+
+What should I do next?
+
+What is waiting for me?
+
+What is blocking deployment?
+
+---
+
+# Phase-1 Dashboard Lock
+
+Two dashboards only.
+
+Management Dashboard
+
+Decision Support.
+
+Recruiter Dashboard
+
+Execution Support.
+
+Everything else belongs inside operational modules, not on the dashboard.

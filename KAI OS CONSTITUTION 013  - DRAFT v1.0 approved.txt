@@ -1,0 +1,605 @@
+# KAI OS CONSTITUTION 013
+
+# DASHBOARD CONSTITUTION
+
+## Dashboards Exist To Direct Decisions, Never To Display Reports
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Dashboards are the front door of KAI.
+
+They do not exist to impress users.
+
+They do not exist to display statistics.
+
+They exist to answer one question immediately.
+
+**"What requires my attention right now?"**
+
+If a dashboard cannot answer that question within 30 seconds,
+
+it has failed.
+
+---
+
+# DASHBOARD PHILOSOPHY
+
+Dashboards never become reporting systems.
+
+Dashboards become operational command centres.
+
+Every card,
+
+every widget,
+
+every alert,
+
+every graph,
+
+must immediately lead to operational work.
+
+Observation without action has no value.
+
+---
+
+# DASHBOARD HIERARCHY
+
+Every dashboard shall follow one universal hierarchy.
+
+```text
+Critical Alerts
+
+↓
+
+Today's Priorities
+
+↓
+
+Operational Queues
+
+↓
+
+Bottlenecks
+
+↓
+
+Upcoming Commitments
+
+↓
+
+Performance Snapshot
+
+↓
+
+Recent Activity
+
+↓
+
+Executive Trends
+```
+
+No dashboard may violate this order.
+
+---
+
+# ARTICLE DB001
+
+## One Dashboard. One Audience.
+
+Every dashboard serves one operational role only.
+
+KAI Administration Dashboard
+
+↓
+
+Platform Governance
+
+Tenant Agency Dashboard
+
+↓
+
+Agency Operations
+
+Management Dashboard
+
+↓
+
+Business Decisions
+
+Recruiter Dashboard
+
+↓
+
+Daily Execution
+
+Dashboards never mix audiences.
+
+---
+
+# ARTICLE DB002
+
+## Dashboards Never Replace Workspaces
+
+Dashboards answer
+
+"What needs attention?"
+
+Workspaces answer
+
+"Complete the work."
+
+Dashboards launch work.
+
+Workspaces complete work.
+
+---
+
+# ARTICLE DB003
+
+## Every Card Leads Somewhere
+
+Every dashboard card shall open
+
+Live Queue
+
+Live Workspace
+
+Live Record
+
+Live Exception
+
+Static cards are prohibited.
+
+---
+
+# ARTICLE DB004
+
+## Operational Time Horizon
+
+Dashboards think in operational time.
+
+Now
+
+Today
+
+Tomorrow
+
+This Week
+
+Overdue
+
+Never financial quarters.
+
+Never calendar reports.
+
+---
+
+# ARTICLE DB005
+
+## Critical Always First
+
+Critical operational issues always appear before success metrics.
+
+Examples
+
+Interview Today
+
+Offer Expiring
+
+Visa Delayed
+
+Requirement At Risk
+
+Client Waiting
+
+Candidate Waiting
+
+Only afterwards
+
+Completed Deployments
+
+Monthly Statistics
+
+Historic Performance
+
+---
+
+# ARTICLE DB006
+
+## Management Dashboard
+
+Management answers
+
+Where should intervention create the highest business impact?
+
+Never
+
+Who clicked more?
+
+Who logged in longer?
+
+Who opened more screens?
+
+KAI manages operations.
+
+Not surveillance.
+
+---
+
+# ARTICLE DB007
+
+## Recruiter Dashboard
+
+Recruiter Dashboard answers
+
+What should I complete first?
+
+The recruiter begins work immediately.
+
+No searching.
+
+No planning.
+
+No navigation.
+
+---
+
+# ARTICLE DB008
+
+## Bottlenecks Become Visible
+
+Dashboards continuously expose
+
+Blocked Work
+
+Waiting Client
+
+Waiting Candidate
+
+Waiting Visa
+
+Waiting Partner
+
+Waiting Approval
+
+Silence becomes visible.
+
+---
+
+# ARTICLE DB009
+
+## Dashboards Own Escalation
+
+Dashboards identify
+
+Work requiring management
+
+before failure occurs.
+
+Escalation is proactive.
+
+Never reactive.
+
+---
+
+# ARTICLE DB010
+
+## Live Operational Metrics
+
+Every metric shall represent
+
+live operational work.
+
+Not historical reporting.
+
+Examples
+
+Candidates Waiting Today
+
+Requirements Closing Today
+
+Campaigns Without Progress
+
+Pending Submissions
+
+Visa Cases Delayed
+
+Offers Awaiting Signature
+
+---
+
+# ARTICLE DB011
+
+## Organisational Awareness
+
+Dashboards answer
+
+What is happening?
+
+Why is it happening?
+
+What requires action?
+
+Who owns it?
+
+What happens next?
+
+Every dashboard increases organisational awareness.
+
+---
+
+# ARTICLE DB012
+
+## No Decorative Analytics
+
+Pie charts,
+
+gauges,
+
+complex graphs,
+
+and decorative analytics
+
+shall not occupy operational space unless they directly improve decision quality.
+
+---
+
+# ARTICLE DB013
+
+## Dashboard Memory
+
+Dashboards remember
+
+Favourite Widgets
+
+Preferred Layout
+
+Pinned Projects
+
+Pinned Requirements
+
+Saved Views
+
+The operating environment adapts to the user.
+
+---
+
+# ARTICLE DB014
+
+## Dashboard Intelligence
+
+Every dashboard continuously highlights
+
+Risk
+
+Opportunity
+
+Urgency
+
+Prediction
+
+Recommendation
+
+Confidence
+
+Management should never assemble this manually.
+
+---
+
+# ARTICLE DB015
+
+## Executive Summary
+
+Every dashboard provides a
+
+30-second operational summary.
+
+The user should understand
+
+today's situation,
+
+today's priorities,
+
+today's risks,
+
+within thirty seconds.
+
+---
+
+# ARTICLE DB016
+
+## Dashboards Scale
+
+Whether the organisation has
+
+2 recruiters
+
+or
+
+2,000 recruiters,
+
+the dashboard architecture remains identical.
+
+Only operational scope changes.
+
+---
+
+# ARTICLE DB017
+
+## Dashboards Preserve Context
+
+Opening work from a dashboard
+
+must preserve
+
+Queue
+
+Filters
+
+Selections
+
+Current Workspace
+
+No operational context is lost.
+
+---
+
+# ARTICLE DB018
+
+## Dashboards Never Become BI Software
+
+Business Intelligence reports belong to analytics.
+
+Operational dashboards belong to execution.
+
+KAI separates observation
+
+from execution.
+
+---
+
+# ARTICLE DB019
+
+## Dashboards Create Action
+
+Every dashboard session should produce
+
+Calls
+
+Assignments
+
+Submissions
+
+Approvals
+
+Escalations
+
+Progress
+
+Dashboards create momentum.
+
+---
+
+# ARTICLE DB020
+
+## Dashboards Become Organisational Pulse
+
+The dashboard becomes the heartbeat of the agency.
+
+Management understands the organisation.
+
+Recruiters understand today's work.
+
+Neither spends time searching for information.
+
+---
+
+# DASHBOARD VALIDATION
+
+Every future dashboard must answer
+
+1.
+
+Can users understand today's priorities within 30 seconds?
+
+2.
+
+Does every visible element support an operational decision?
+
+3.
+
+Does every widget lead directly to work?
+
+4.
+
+Are bottlenecks immediately visible?
+
+5.
+
+Would removing this widget make operations harder?
+
+6.
+
+Does the dashboard reduce meetings?
+
+7.
+
+Does the dashboard reduce manual reporting?
+
+If any answer is NO,
+
+the dashboard shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Dashboards are command centres.
+
+They never become reporting centres.
+
+Every dashboard inside KAI shall direct decisions,
+
+launch operational work,
+
+surface organisational risk,
+
+and maintain continuous awareness across the entire overseas recruitment lifecycle.
+
+The Dashboard Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+↓
+
+Navigation Constitution
+
+↓
+
+Queue Constitution
+
+↓
+
+Search Constitution
+
+↓
+
+Table Constitution
+
+↓
+
+Dashboard Constitution
+
+No future dashboard may violate this architecture.

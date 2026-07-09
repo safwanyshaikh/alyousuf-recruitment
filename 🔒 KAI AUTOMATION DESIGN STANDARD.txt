@@ -1,0 +1,623 @@
+🔒 KAI AUTOMATION DESIGN STANDARD
+
+This document governs every automation inside KAI.
+
+Not technical automation.
+
+**Operational automation.**
+
+Automation exists to eliminate repetitive recruiter work while preserving human control.
+
+---
+
+# PURPOSE
+
+Recruiters should never spend time on work that software can safely perform.
+
+KAI automates
+
+Remembering
+
+Tracking
+
+Monitoring
+
+Following
+
+Calculating
+
+Validating
+
+Linking
+
+Not
+
+Recruitment judgement.
+
+---
+
+# AUTOMATION HIERARCHY
+
+```text
+Human Action
+
+↓
+
+Event
+
+↓
+
+Trigger
+
+↓
+
+Validation
+
+↓
+
+Automation
+
+↓
+
+Notification
+
+↓
+
+Human Approval
+
+↓
+
+Completion
+
+↓
+
+Learning
+```
+
+---
+
+# AUTOMATION TYPES
+
+## Level 1
+
+Passive Automation
+
+Examples
+
+Timeline
+
+Audit
+
+Activity
+
+History
+
+Auto Logging
+
+---
+
+## Level 2
+
+Operational Automation
+
+Examples
+
+Status Update
+
+Queue Movement
+
+Reminder
+
+Assignment
+
+Relationship Linking
+
+Duplicate Detection
+
+---
+
+## Level 3
+
+Intelligence Automation
+
+Examples
+
+Recommendations
+
+Risk Detection
+
+Priority
+
+Predictions
+
+Matching
+
+Readiness
+
+---
+
+## Level 4
+
+Executive Automation
+
+Examples
+
+Escalation
+
+Capacity Warning
+
+Deadline Risk
+
+Requirement Risk
+
+Management Notification
+
+---
+
+# UNIVERSAL AUTOMATION RULE
+
+Every automation must answer
+
+What happened?
+
+Why?
+
+What changed?
+
+Who owns it?
+
+What happens next?
+
+---
+
+# AUTOMATION OWNERSHIP
+
+Automation never owns work.
+
+Automation assists owners.
+
+Every automation always has
+
+Owner
+
+Reason
+
+Timestamp
+
+Evidence
+
+Rollback
+
+---
+
+# EVENT ENGINE
+
+Every operational event becomes a trigger.
+
+Examples
+
+Candidate Created
+
+CV Uploaded
+
+Duplicate Found
+
+Requirement Created
+
+Campaign Started
+
+Submission Sent
+
+Interview Scheduled
+
+Interview Completed
+
+Offer Accepted
+
+Medical Passed
+
+Visa Approved
+
+Deployment Completed
+
+---
+
+# AUTOMATION ENGINE
+
+Every trigger passes through
+
+Validation
+
+↓
+
+Business Rules
+
+↓
+
+Permission
+
+↓
+
+Constitution Validation
+
+↓
+
+Execution
+
+↓
+
+Audit
+
+↓
+
+Notification
+
+↓
+
+Timeline
+
+---
+
+# AUTOMATION PRIORITY
+
+Critical
+
+↓
+
+High
+
+↓
+
+Normal
+
+↓
+
+Background
+
+Recruitment work always has priority over automation.
+
+---
+
+# UNIVERSAL AUTOMATIONS
+
+## Candidate
+
+CV arrives
+
+↓
+
+Identity Match
+
+↓
+
+Duplicate Check
+
+↓
+
+Contact Merge
+
+↓
+
+Create Profile
+
+↓
+
+Generate Timeline
+
+↓
+
+Assign Queue
+
+---
+
+## Requirement
+
+Requirement Created
+
+↓
+
+Campaign Suggested
+
+↓
+
+Supply Prediction
+
+↓
+
+Partner Recommendation
+
+↓
+
+Recruiter Assignment
+
+---
+
+## Campaign
+
+Campaign Created
+
+↓
+
+Advertisement
+
+↓
+
+Partner Notification
+
+↓
+
+Candidate Recommendation
+
+↓
+
+Supply Tracking
+
+---
+
+## Submission
+
+Batch Ready
+
+↓
+
+Validate
+
+↓
+
+Create Client Sheet
+
+↓
+
+Attach Documents
+
+↓
+
+Timeline
+
+↓
+
+Client Notification
+
+---
+
+## Mobilization
+
+Offer Signed
+
+↓
+
+Medical Reminder
+
+↓
+
+Passport Validation
+
+↓
+
+Travel Checklist
+
+↓
+
+Mobilization Queue
+
+---
+
+## Visa
+
+Medical Complete
+
+↓
+
+Visa Checklist
+
+↓
+
+Employer Documents
+
+↓
+
+Embassy Tracking
+
+↓
+
+Compliance Monitor
+
+---
+
+## Deployment
+
+Visa Approved
+
+↓
+
+Flight
+
+↓
+
+Joining
+
+↓
+
+Arrival
+
+↓
+
+Alumni
+
+↓
+
+Future Opportunity
+
+---
+
+# AUTOMATION SAFETY
+
+Automation may
+
+Suggest
+
+Prepare
+
+Calculate
+
+Move Queues
+
+Create Drafts
+
+Never
+
+Approve
+
+Reject
+
+Hire
+
+Blacklist
+
+Delete
+
+Without human authorization.
+
+---
+
+# NOTIFICATION STANDARD
+
+Every automation generates
+
+Only actionable notifications.
+
+Never noise.
+
+---
+
+# FAILURE STANDARD
+
+Automation failure must show
+
+Reason
+
+Impact
+
+Recovery
+
+Retry
+
+Responsible Owner
+
+---
+
+# RETRY STANDARD
+
+Safe retry
+
+Idempotent
+
+Never duplicate work.
+
+---
+
+# AUDIT STANDARD
+
+Every automation records
+
+Trigger
+
+Input
+
+Output
+
+Duration
+
+Owner
+
+Version
+
+AI Version
+
+Evidence
+
+---
+
+# LEARNING STANDARD
+
+Every completed automation strengthens
+
+Organizational Intelligence
+
+Workflow Intelligence
+
+Operational Intelligence
+
+AI Recommendations
+
+---
+
+# PERFORMANCE STANDARD
+
+Automation must never interrupt recruiter workflow.
+
+Heavy automation runs
+
+Background
+
+Asynchronous
+
+Queue Based
+
+---
+
+# VALIDATION
+
+Every automation must answer
+
+Does it remove repetitive work?
+
+Does it preserve human control?
+
+Can recruiters trust it?
+
+Can it fail safely?
+
+Can it be audited?
+
+Can it be rolled back?
+
+Does it strengthen organizational intelligence?
+
+---
+
+# GOLDEN RULE
+
+Automation exists to eliminate repetitive operational effort.
+
+Not human responsibility.
+
+---
+
+# FINAL LOCK
+
+Every automation,
+
+workflow,
+
+background process,
+
+AI trigger,
+
+integration,
+
+notification,
+
+queue movement,
+
+validation,
+
+and synchronization
+
+inside KAI shall comply with this Automation Design Standard.
+
+Automation serves recruiters.
+
+Never replaces them.
+
+**Status:** 🔒 **Next Standard — KAI Automation Design Standard v1.0**

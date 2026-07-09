@@ -1,0 +1,661 @@
+# KAI OS CONSTITUTION 015
+
+# RECRUITER CONSTITUTION
+
+## Recruiters Recruit. KAI Handles Everything Else.
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+The Recruiter Constitution defines how recruiters work inside KAI.
+
+It protects recruiters from administration.
+
+It protects recruiters from duplicate work.
+
+It protects recruiters from remembering information that software should remember.
+
+Recruiters are employed to recruit.
+
+Not to maintain systems.
+
+---
+
+# RECRUITER PHILOSOPHY
+
+Recruiters create
+
+Relationships
+
+Trust
+
+Communication
+
+Evaluation
+
+Negotiation
+
+Placements
+
+Software creates
+
+Memory
+
+Structure
+
+Tracking
+
+Reminders
+
+Consistency
+
+Organisation
+
+KAI exists so recruiters spend maximum time speaking to people.
+
+Not typing.
+
+---
+
+# RECRUITER OPERATING MODEL
+
+Every recruiter follows one operational cycle.
+
+```text
+Open Dashboard
+
+↓
+
+Review Today's Priorities
+
+↓
+
+Open Queue
+
+↓
+
+Execute Work
+
+↓
+
+Communicate
+
+↓
+
+Update Outcome
+
+↓
+
+Move Queue
+
+↓
+
+Complete Objective
+
+↓
+
+Repeat
+```
+
+Recruiters never restart planning.
+
+They continue working.
+
+---
+
+# ARTICLE R001
+
+## Recruiters Own Execution
+
+Recruiters execute operational work.
+
+Examples
+
+Calling
+
+Screening
+
+Shortlisting
+
+Follow-up
+
+Interview Coordination
+
+Submission Preparation
+
+Relationship Building
+
+Recruiters never become data entry operators.
+
+---
+
+# ARTICLE R002
+
+## Communication Is Primary
+
+Recruitment is communication.
+
+Every recruiter should spend the majority of the working day communicating with
+
+Candidates
+
+Clients
+
+Partners
+
+Training Centres
+
+Educational Institutes
+
+KAI minimises administrative effort to maximise communication.
+
+---
+
+# ARTICLE R003
+
+## One Working Environment
+
+Recruiters shall never maintain
+
+Personal Excel Files
+
+Personal Follow-up Diaries
+
+Personal Candidate Lists
+
+Personal Partner Registers
+
+Personal Reminder Systems
+
+KAI becomes the single operational environment.
+
+---
+
+# ARTICLE R004
+
+## Recruiters Never Lose Work
+
+KAI continuously remembers
+
+Pending Calls
+
+Follow-ups
+
+Client Commitments
+
+Interview Schedules
+
+Submission Batches
+
+Offer Status
+
+Document Requests
+
+Recruiters resume work exactly where they stopped.
+
+---
+
+# ARTICLE R005
+
+## Every Call Strengthens Intelligence
+
+Every
+
+Call
+
+WhatsApp
+
+Email
+
+Remark
+
+Submission
+
+Interview
+
+Client Feedback
+
+automatically strengthens organisational intelligence.
+
+Recruiters never repeat history.
+
+---
+
+# ARTICLE R006
+
+## Recruiters Work Through Queues
+
+Recruiters never work from static databases.
+
+They work from
+
+Today's Queue
+
+Urgent Queue
+
+Waiting Queue
+
+Blocked Queue
+
+Assigned Queue
+
+Completion Queue
+
+Queues replace personal planning.
+
+---
+
+# ARTICLE R007
+
+## Recruiters Own Relationships
+
+Every recruiter continuously strengthens
+
+Candidate Relationships
+
+Partner Relationships
+
+Client Relationships
+
+Recruitment is built upon trust.
+
+Relationship history belongs permanently to the organisation.
+
+---
+
+# ARTICLE R008
+
+## Recruiters Never Search Twice
+
+Once information has been located,
+
+KAI remembers.
+
+Searches,
+
+Filters,
+
+Pinned Objects,
+
+Recent Work,
+
+Current Requirement,
+
+Current Campaign,
+
+remain immediately available.
+
+---
+
+# ARTICLE R009
+
+## Recruiters Never Enter The Same Information Twice
+
+Information already known to KAI shall automatically populate
+
+Submissions
+
+Communication
+
+Assignments
+
+Projects
+
+Requirements
+
+Candidate Records
+
+Operational duplication is prohibited.
+
+---
+
+# ARTICLE R010
+
+## Recruiters Own Judgement
+
+KAI recommends.
+
+Recruiters approve.
+
+Recruiters remain responsible for
+
+Suitability
+
+Communication
+
+Client Confidence
+
+Relationship Management
+
+Professional Judgement
+
+---
+
+# ARTICLE R011
+
+## Recruiters Work In Context
+
+Whenever recruiters open
+
+Candidate
+
+Requirement
+
+Campaign
+
+Submission
+
+Partner
+
+Client
+
+KAI immediately restores complete operational context.
+
+No separate searching.
+
+---
+
+# ARTICLE R012
+
+## Recruiters Should Finish Faster
+
+Every future feature shall reduce
+
+Recruitment Time
+
+Searching
+
+Typing
+
+Navigation
+
+Follow-up Effort
+
+Administrative Work
+
+If not,
+
+the feature shall not be implemented.
+
+---
+
+# ARTICLE R013
+
+## Recruiters Build Organisational Knowledge
+
+Every completed activity becomes
+
+Agency Knowledge
+
+Not Personal Knowledge.
+
+Recruiters strengthen the organisation with every action.
+
+---
+
+# ARTICLE R014
+
+## Recruiters Never Lose Ownership
+
+Every operational object clearly displays
+
+Owner
+
+Next Action
+
+Priority
+
+Deadline
+
+No recruiter should wonder
+
+"Who is handling this?"
+
+---
+
+# ARTICLE R015
+
+## Recruiters Stay In Flow
+
+Recruiters should comfortably remain inside KAI for an entire working day.
+
+The operating system continuously supports
+
+Calling
+
+Messaging
+
+Updating
+
+Reviewing
+
+Submitting
+
+Following Up
+
+without interruption.
+
+---
+
+# ARTICLE R016
+
+## Recruiters Never Prepare Reports
+
+Recruiters perform work.
+
+KAI prepares
+
+Dashboards
+
+Management Views
+
+Performance Views
+
+Operational Reports
+
+Recruiters should never manually compile operational reports.
+
+---
+
+# ARTICLE R017
+
+## Recruiters Improve Continuously
+
+Every recruitment cycle improves
+
+Personal Knowledge
+
+Agency Knowledge
+
+KAI Intelligence
+
+Partner Intelligence
+
+Candidate Intelligence
+
+The organisation continuously becomes stronger.
+
+---
+
+# ARTICLE R018
+
+## Recruiters Share One Operating Language
+
+Every recruiter,
+
+regardless of experience,
+
+should understand every KAI workspace.
+
+Training focuses on recruitment.
+
+Not software.
+
+---
+
+# ARTICLE R019
+
+## Recruiters Are Measured By Outcomes
+
+Success is measured through
+
+Successful Submissions
+
+Successful Selections
+
+Successful Deployments
+
+Relationship Quality
+
+Client Satisfaction
+
+Operational Reliability
+
+—not—
+
+Software activity.
+
+---
+
+# ARTICLE R020
+
+## Recruiters Remain Human
+
+Recruitment remains
+
+Human.
+
+Professional.
+
+Relationship Driven.
+
+KAI accelerates recruiters.
+
+It never attempts to replace them.
+
+---
+
+# RECRUITER VALIDATION
+
+Every future recruiter feature must answer
+
+1.
+
+Does this reduce recruiter workload?
+
+2.
+
+Does this increase communication time?
+
+3.
+
+Does this reduce administration?
+
+4.
+
+Does this preserve organisational intelligence?
+
+5.
+
+Can recruiters complete the work without leaving KAI?
+
+6.
+
+Does this reduce dependency on Excel?
+
+7.
+
+Would an experienced GCC recruiter naturally adopt this workflow?
+
+If any answer is NO,
+
+the feature shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Recruiters are the operational engine of KAI.
+
+Every future recruiter feature,
+
+workspace,
+
+queue,
+
+assistant,
+
+automation,
+
+and workflow
+
+shall strengthen recruiter productivity,
+
+protect recruiter focus,
+
+and maximise time spent recruiting rather than operating software.
+
+The Recruiter Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+↓
+
+Navigation Constitution
+
+↓
+
+Queue Constitution
+
+↓
+
+Search Constitution
+
+↓
+
+Table Constitution
+
+↓
+
+Dashboard Constitution
+
+↓
+
+Management Constitution
+
+↓
+
+Recruiter Constitution
+
+No future recruiter feature may violate this constitution.

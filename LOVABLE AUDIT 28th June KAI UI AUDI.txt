@@ -1,0 +1,410 @@
+LOVABLE AUDIT 28th June KAI UI AUDIT VAULT
+
+## Module: Candidates — Contact View
+
+### KAI14 Human Intelligence Workspace Audit
+
+**Status:** Planning Document (No Implementation)
+
+---
+
+# Overall Rating
+
+| Category                    | Rating     |
+| --------------------------- | ---------- |
+| Visual Design               | **10/10**  |
+| Recruiter Productivity      | **10/10**  |
+| Enterprise Feel             | **9.5/10** |
+| Information Architecture    | **10/10**  |
+| KAI Intelligence Visibility | **9.8/10** |
+| Workflow Efficiency         | **10/10**  |
+| Human Decision Support      | **9.8/10** |
+| Mobile/Desktop Consistency  | **10/10**  |
+
+## Overall
+
+# **9.9 / 10**
+
+This is already operating as a Recruitment Workspace rather than an ATS.
+
+---
+
+# Current Contact View Architecture
+
+```
+Candidate Queue
+        │
+        ▼
+Candidate Workspace
+        │
+        ▼
+Candidate Intelligence
+```
+
+---
+
+# Section 1
+
+## Candidate Queue (Left Panel)
+
+### Current Features
+
+* Candidate Cards
+* Candidate Photo
+* Candidate Name
+* Trade
+* Nationality
+* Experience
+* Passport Status
+* Mobile
+* Candidate Stage
+* Last Updated
+* Active Candidate Highlight
+* Scrollable Queue
+
+---
+
+## Purpose
+
+Fast recruiter switching between candidates without leaving the workspace.
+
+---
+
+# Section 2
+
+## Candidate Header
+
+Current Information
+
+* Candidate Name
+* KAI Number
+* Trade
+* Nationality
+* Experience
+* Passport Status
+
+---
+
+## Stage Timeline
+
+```
+New
+
+↓
+
+Review
+
+↓
+
+Shortlist
+
+↓
+
+Assigned
+
+↓
+
+Submitted
+
+↓
+
+Selected
+
+↓
+
+Visa
+
+↓
+
+Deployed
+```
+
+---
+
+# Section 3
+
+## Recruiter Actions
+
+Current Actions
+
+* Call
+* WhatsApp
+* Email
+* Shortlist
+* Submit
+* Actions Menu
+
+---
+
+# Section 4
+
+## Candidate Navigation
+
+Current Sections
+
+* Profile
+* Experience
+* Documents
+* Assessment
+* Submission History
+* Notes
+
+---
+
+# Section 5
+
+## Candidate Information
+
+Current Information
+
+### Availability
+
+* Immediate
+* Notice Period
+
+### GCC
+
+* GCC Experience
+* Previous GCC
+* Current Location
+
+### Passport
+
+* Passport Status
+
+### Background
+
+* Employer
+* Education
+* Languages
+* Certificates
+
+---
+
+# Current Workflow
+
+```
+Select Candidate
+
+↓
+
+Review
+
+↓
+
+Contact
+
+↓
+
+Shortlist
+
+↓
+
+Submit
+
+↓
+
+Deployment
+```
+
+---
+
+# Existing Strengths
+
+## Excellent
+
+* Three-panel recruiter workspace
+* Extremely low navigation
+* One-click recruiter actions
+* Stage visibility
+* Clear information hierarchy
+* Excellent typography
+* Fast recruiter workflow
+* Modern enterprise appearance
+* Good spacing
+* Clean interaction model
+
+---
+
+# Intelligence Already Visible
+
+Current intelligence includes
+
+* Candidate Stage
+* Passport Status
+* Experience
+* GCC Experience
+* Previous GCC
+* Notice Period
+* Current Location
+* Assessment
+* Submission History
+
+---
+
+# Missing K14 Intelligence Layer
+
+Current screen still primarily presents candidate data.
+
+The following K14 intelligence outputs are not currently surfaced.
+
+## Identity Intelligence
+
+* Identity Confidence
+* Duplicate Detection
+* Identity Verification
+
+---
+
+## Experience Intelligence
+
+* Experience Credibility
+* Timeline Credibility
+* Capability Level
+* Capability Clarity
+
+---
+
+## Deployment Intelligence
+
+* Deploy Readiness
+* Deployment Risk
+* Overall Workforce Score
+
+---
+
+## Matching Intelligence
+
+* Match Confidence
+* Requirement Ranking
+* Candidate Rank
+* Best Requirement
+* Alternate Requirements
+
+---
+
+## Documentation Intelligence
+
+* Document Completeness
+* Missing Documents
+* Visa Readiness
+
+---
+
+## Recommendation Intelligence
+
+* Next Best Action
+* Why Recommendation Exists
+* Recruiter Guidance
+
+---
+
+# Requirement Context
+
+Currently absent.
+
+No active requirement context is visible.
+
+Missing items include
+
+* Current Requirement
+* Client
+* Quantity
+* Submitted Count
+* Selected Count
+* Candidate Rank
+* Requirement Status
+
+---
+
+# KAI Recommendation Panel
+
+Currently absent.
+
+No dedicated recruiter recommendation workspace exists.
+
+---
+
+# KAI DNA Panel
+
+Currently absent.
+
+Dedicated K14 outputs are not visible.
+
+Potential K14 intelligence already available from backend includes
+
+* Identity Confidence
+* Experience Credibility
+* Capability Intelligence
+* Timeline Credibility
+* Deploy Readiness
+* Match Confidence
+* Risk
+* Next Action
+
+---
+
+# Workflow Rating
+
+| Area                   | Rating |
+| ---------------------- | ------ |
+| Recruiter Speed        | 10/10  |
+| Navigation             | 10/10  |
+| Candidate Review       | 10/10  |
+| Communication Workflow | 10/10  |
+| Submission Workflow    | 10/10  |
+| Visual Hierarchy       | 10/10  |
+| Enterprise Experience  | 9.5/10 |
+
+---
+
+# Items Confirmed Required
+
+* Candidate Queue
+* Candidate Workspace
+* Candidate Header
+* Timeline
+* Recruiter Action Buttons
+* Candidate Tabs
+* Candidate Summary
+* Background Information
+* GCC Information
+* Documents
+* Assessments
+* Submission History
+* Notes
+* K14 Intelligence Surface
+* Requirement Context
+* Next Best Action
+* Deployment Readiness
+* Match Intelligence
+
+---
+
+# Items Confirmed Not Required
+
+* CRM-style data entry layout
+* Spreadsheet-style profile pages
+* Multi-page navigation for candidate review
+* Hidden recruiter actions
+* Separate intelligence screens
+* Generic ATS presentation
+* Duplicate candidate navigation
+* Information repeated without intelligence value
+
+---
+
+# Final Contact View Audit
+
+The Contact View is confirmed as the primary Human Intelligence Workspace for recruiters.
+
+Its architecture is strong and recruiter-centric.
+
+The remaining work is not structural replacement. It is the controlled surfacing of K14 intelligence, deployment context, and recruiter guidance using the intelligence already generated by the backend, so that the interface consistently answers:
+
+* What is this candidate's current state?
+* What is the best deployment opportunity?
+* Why is that recommendation being made?
+* What should the recruiter do next?
+
+**Status:** Saved as **KAI UI AUDIT → Candidates → Contact View**.

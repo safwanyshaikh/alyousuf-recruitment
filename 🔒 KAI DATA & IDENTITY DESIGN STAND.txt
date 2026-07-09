@@ -1,0 +1,557 @@
+🔒 KAI DATA & IDENTITY DESIGN STANDARD
+
+This becomes one of the most critical standards because **everything inside KAI revolves around Identity**, not records.
+
+---
+
+# PURPOSE
+
+KAI does not manage records.
+
+KAI manages identities.
+
+Every person,
+
+organization,
+
+project,
+
+requirement,
+
+campaign,
+
+submission,
+
+visa,
+
+deployment,
+
+becomes a permanent organizational identity.
+
+Data changes.
+
+Identity never changes.
+
+---
+
+# IDENTITY PHILOSOPHY
+
+Everything exists only once.
+
+Everything relates.
+
+Nothing duplicates.
+
+Identity survives forever.
+
+---
+
+# UNIVERSAL IDENTITY HIERARCHY
+
+```text id="wd3a2f"
+Organization
+
+↓
+
+Agency
+
+↓
+
+User
+
+↓
+
+Client
+
+↓
+
+Project
+
+↓
+
+Requirement
+
+↓
+
+Campaign
+
+↓
+
+Contact
+
+↓
+
+Candidate Identity
+
+↓
+
+Submission
+
+↓
+
+Selection
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+↓
+
+Alumni
+
+↓
+
+Future Opportunity
+```
+
+---
+
+# GOLDEN RULE
+
+Everything inside KAI owns
+
+One Identity
+
+One Timeline
+
+One Relationship Graph
+
+One Audit History
+
+One Intelligence History
+
+---
+
+# MASTER ENTITIES
+
+Platform
+
+Tenant Agency
+
+Recruiter
+
+Manager
+
+Client
+
+Project
+
+Requirement
+
+Campaign
+
+Contact
+
+Candidate
+
+Sourcing Partner
+
+Submission
+
+Offer
+
+Mobilization
+
+Visa
+
+Deployment
+
+Alumni
+
+Notification
+
+Task
+
+Communication
+
+Document
+
+Timeline
+
+Audit
+
+Every entity exists once.
+
+---
+
+# CONTACT → CANDIDATE RULE
+
+Unknown Person
+
+↓
+
+Quick Contact
+
+↓
+
+Contact Dictionary
+
+↓
+
+CV Received
+
+↓
+
+Identity Match
+
+↓
+
+Candidate Profile Created
+
+↓
+
+Relationship Preserved
+
+Contact never disappears.
+
+Candidate grows from Contact.
+
+---
+
+# SINGLE SOURCE OF TRUTH
+
+Candidate Name
+
+One Source
+
+Requirement
+
+One Source
+
+Project
+
+One Source
+
+Client
+
+One Source
+
+Submission
+
+One Source
+
+Visa
+
+One Source
+
+Deployment
+
+One Source
+
+No duplicate ownership.
+
+---
+
+# RELATIONSHIP GRAPH
+
+Every identity knows its relationships.
+
+Candidate
+
+↔ Contact
+
+↔ Recruiter
+
+↔ Requirement
+
+↔ Campaign
+
+↔ Project
+
+↔ Client
+
+↔ Submission
+
+↔ Visa
+
+↔ Deployment
+
+↔ Alumni
+
+Nothing exists in isolation.
+
+---
+
+# IDENTITY TIMELINE
+
+Every identity owns one permanent timeline.
+
+Creation
+
+↓
+
+Communication
+
+↓
+
+Updates
+
+↓
+
+Assignments
+
+↓
+
+Submissions
+
+↓
+
+Selections
+
+↓
+
+Deployments
+
+↓
+
+Future Opportunities
+
+Timeline never resets.
+
+---
+
+# DATA OWNERSHIP
+
+Client
+
+owns commercial information.
+
+Project
+
+owns execution information.
+
+Requirement
+
+owns manpower demand.
+
+Campaign
+
+owns sourcing.
+
+Contact
+
+owns communication.
+
+Candidate
+
+owns professional identity.
+
+Submission
+
+owns client presentation.
+
+Visa
+
+owns compliance.
+
+Deployment
+
+owns completion.
+
+No module edits another module's ownership.
+
+---
+
+# DUPLICATE RULE
+
+Duplicate identities never exist.
+
+Duplicates become
+
+Merged
+
+Linked
+
+Flagged
+
+Resolved
+
+Identity always wins.
+
+---
+
+# DOCUMENT RULE
+
+Documents belong to identities.
+
+Not modules.
+
+Passport
+
+Medical
+
+Resume
+
+Certificates
+
+Offer
+
+Visa
+
+Tickets
+
+always remain connected to the candidate identity.
+
+---
+
+# AI RULE
+
+Artificial Intelligence never creates identity.
+
+AI strengthens identity.
+
+Examples
+
+Identity Confidence
+
+Duplicate Detection
+
+Experience Credibility
+
+Document Intelligence
+
+Relationship Intelligence
+
+---
+
+# HISTORY RULE
+
+Nothing is overwritten.
+
+Everything versions.
+
+Everything remains auditable.
+
+---
+
+# IMPORT RULE
+
+Every import
+
+validates
+
+identity,
+
+relationships,
+
+duplicates,
+
+history,
+
+ownership
+
+before creating data.
+
+---
+
+# EXPORT RULE
+
+Exports are views.
+
+Never sources of truth.
+
+---
+
+# DELETION RULE
+
+Operational identities are never permanently deleted.
+
+Archive
+
+Deactivate
+
+Merge
+
+Close
+
+Replace
+
+Delete only under constitutional governance.
+
+---
+
+# PERMISSION RULE
+
+Users access
+
+identities
+
+through permissions.
+
+Permissions never redefine identity.
+
+---
+
+# SCALABILITY RULE
+
+The same identity architecture must support
+
+100
+
+1,000
+
+100,000
+
+10,000,000
+
+identities
+
+without redesign.
+
+---
+
+# VALIDATION
+
+Every new entity must answer
+
+Does it deserve its own identity?
+
+Who owns it?
+
+What relationships exist?
+
+What timeline exists?
+
+What intelligence exists?
+
+Can it become duplicate?
+
+Can it survive ten years?
+
+---
+
+# FINAL LOCK
+
+Everything inside KAI begins with identity.
+
+Everything ends with organizational intelligence.
+
+Identity is the foundation upon which every module,
+
+workspace,
+
+automation,
+
+AI,
+
+dashboard,
+
+queue,
+
+table,
+
+search,
+
+and workflow is built.
+
+No future implementation may violate the Identity Design Standard.
+
+**Status:** 🔒 **Next Standard — KAI Data & Identity Design Standard v1.0**

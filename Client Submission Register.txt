@@ -1,0 +1,59 @@
+Client Submission Register
+
+
+Replace the **"Excel Sheets"** bullet with the following.
+
+### Client Submission Register
+
+KAI does not eliminate client submission sheets.
+
+Instead, KAI automatically generates them.
+
+Many overseas clients request candidates in:
+
+* Excel
+* Client Template
+* Submission Sheet
+* Company Format
+
+Recruiters normally submit candidates in batches.
+
+Examples:
+
+* Batch 1 of 5 Candidates
+* Batch 2 of 8 Candidates
+* Batch 3 of 10 Candidates
+
+Every submission batch becomes a permanent Submission Register inside KAI.
+
+If the client has **no prescribed format**, KAI automatically generates the default submission sheet.
+
+### Default KAI Submission Format
+
+| Sr. No | Ref No (KAI No) | Candidate Name | Nationality | Highest Qualification | Total Experience | Position Applied | Gulf Experience | Salary Expectation | Recruiter Remarks | Client Remarks |
+| ------ | --------------- | -------------- | ----------- | --------------------- | ---------------- | ---------------- | --------------- | ------------------ | ----------------- | -------------- |
+
+**Ref No** shall always be the KAI Number.
+
+The recruiter only selects candidates.
+
+KAI automatically populates all available information from the candidate profile.
+
+If a client provides its own submission template, KAI maps the required fields and auto-populates the client format, minimizing manual typing.
+
+Every submission batch is permanently stored inside the Submission Workspace with:
+
+* Batch Number
+* Submission Date & Time
+* Requirement
+* Client
+* Recruiter
+* Candidate List
+* Client Submission Format Used
+* Submission Version History
+* Client Feedback
+* Interview Outcome
+
+No recruiter should recreate the same Excel twice.
+
+KAI generates every submission register automatically while maintaining complete submission history for future reference, replacements, audits, and repeat projects.

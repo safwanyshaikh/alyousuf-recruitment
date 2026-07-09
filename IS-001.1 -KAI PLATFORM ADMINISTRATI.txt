@@ -1,0 +1,680 @@
+IS-001.1 -KAI PLATFORM ADMINISTRATION
+Complete Build Specification v1.0
+Status: 🔒 IMPLEMENTATION LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Build the Platform Administration Workspace.
+
+This workspace governs KAI Platform.
+
+It never manages recruitment.
+
+It provisions and governs Tenant Agencies.
+
+============================================================
+SCREEN OWNERSHIP
+============================================================
+
+Owner
+
+Platform Super Admin
+
+Visible To
+
+Platform Administrators Only
+
+Hidden From
+
+Tenant Agencies
+
+Recruiters
+
+Managers
+
+Clients
+
+============================================================
+NAVIGATION
+============================================================
+
+Platform Dashboard
+
+↓
+
+Tenant Registry
+
+↓
+
+Tenant Workspace
+
+↓
+
+Subscription
+
+↓
+
+Licenses
+
+↓
+
+Platform Health
+
+↓
+
+Audit Center
+
+↓
+
+Support
+
+↓
+
+Configuration
+
+↓
+
+Release Center
+
+============================================================
+WORKSPACE LAYOUT
+============================================================
+
+Global Header
+
+↓
+
+Platform Summary
+
+↓
+
+Action Toolbar
+
+↓
+
+Universal Search
+
+↓
+
+Quick Filters
+
+↓
+
+Tenant Table
+
+↓
+
+Right Intelligence Drawer
+
+↓
+
+Timeline
+
+============================================================
+HEADER
+============================================================
+
+Platform Logo
+
+Global Search
+
+Notifications
+
+Platform Health
+
+Current User
+
+Profile
+
+Logout
+
+============================================================
+SUMMARY CARDS
+============================================================
+
+Total Agencies
+
+Active Agencies
+
+Trial Agencies
+
+Expired Licenses
+
+Platform Health
+
+Storage
+
+Users
+
+API Requests
+
+AI Requests
+
+Security Alerts
+
+============================================================
+TOOLBAR
+============================================================
+
+Create Agency
+
+Suspend Agency
+
+Archive Agency
+
+Assign Plan
+
+Allocate License
+
+Export
+
+Refresh
+
+============================================================
+SEARCH
+============================================================
+
+Agency
+
+Admin
+
+Email
+
+Domain
+
+License
+
+Subscription
+
+Country
+
+TenantID
+
+Natural Language
+
+============================================================
+FILTERS
+============================================================
+
+Status
+
+Country
+
+Plan
+
+Industry
+
+Users
+
+Renewal
+
+Created Date
+
+Storage
+
+============================================================
+TABLE
+============================================================
+
+Agency
+
+Status
+
+Plan
+
+Users
+
+Storage
+
+Country
+
+Created
+
+Renewal
+
+Health
+
+Actions
+
+============================================================
+ROW ACTIONS
+============================================================
+
+Open
+
+Edit
+
+Activate
+
+Suspend
+
+Archive
+
+Audit
+
+Subscription
+
+License
+
+Support
+
+============================================================
+RIGHT DRAWER
+============================================================
+
+Agency Summary
+
+License
+
+Subscription
+
+Storage
+
+Health
+
+Security
+
+Timeline
+
+Audit
+
+AI Recommendation
+
+Next Action
+
+============================================================
+FORMS
+============================================================
+
+Create Agency
+
+Edit Agency
+
+Assign Plan
+
+Allocate License
+
+Suspend
+
+Archive
+
+Configuration
+
+============================================================
+VALIDATION
+============================================================
+
+Unique Agency
+
+Unique Domain
+
+Unique Admin
+
+Valid Email
+
+Valid Plan
+
+License Available
+
+Tenant Available
+
+============================================================
+BUSINESS LOGIC
+============================================================
+
+Create Tenant
+
+↓
+
+Generate IDs
+
+↓
+
+Allocate Storage
+
+↓
+
+Assign License
+
+↓
+
+Create Agency Admin
+
+↓
+
+Initialize Workspace
+
+↓
+
+Activate Tenant
+
+============================================================
+AUTOMATION
+============================================================
+
+Tenant Provisioning
+
+Workspace Initialization
+
+Role Creation
+
+Permission Assignment
+
+Audit Creation
+
+Timeline Creation
+
+Dashboard Creation
+
+Notification Setup
+
+============================================================
+AI
+============================================================
+
+Platform Health
+
+Capacity Forecast
+
+License Forecast
+
+Growth Forecast
+
+Security Recommendation
+
+Infrastructure Recommendation
+
+Platform Risk
+
+Every recommendation shows
+
+Reason
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+NOTIFICATIONS
+============================================================
+
+Agency Created
+
+Activation Pending
+
+License Expiring
+
+Storage Full
+
+Security Alert
+
+Payment Failed
+
+Platform Incident
+
+============================================================
+PERMISSIONS
+============================================================
+
+Platform Super Admin
+
+Platform Admin
+
+Support
+
+Billing
+
+Audit
+
+Read Only
+
+============================================================
+DATABASE
+============================================================
+
+Platform
+
+Tenant
+
+Agency
+
+Plan
+
+Subscription
+
+License
+
+Role
+
+Permission
+
+Audit
+
+Timeline
+
+Notification
+
+============================================================
+API
+============================================================
+
+Create Agency
+
+Update Agency
+
+Suspend Agency
+
+Archive Agency
+
+Allocate License
+
+Assign Plan
+
+Search
+
+Audit
+
+Health
+
+============================================================
+STATE MANAGEMENT
+============================================================
+
+Selected Agency
+
+Filters
+
+Search
+
+Drawer
+
+Pagination
+
+Sorting
+
+Session
+
+============================================================
+ERRORS
+============================================================
+
+Duplicate Agency
+
+Duplicate Domain
+
+License Limit
+
+Validation Error
+
+Permission Denied
+
+Server Error
+
+============================================================
+LOADING
+============================================================
+
+Skeleton Cards
+
+Skeleton Table
+
+Drawer Loader
+
+Progress Indicator
+
+============================================================
+PERFORMANCE
+============================================================
+
+Workspace
+
+<2 Seconds
+
+Search
+
+<200 ms
+
+Create Agency
+
+<3 Seconds
+
+============================================================
+RESPONSIVE
+============================================================
+
+Desktop
+
+Laptop
+
+Tablet
+
+Mobile Read Only
+
+============================================================
+TESTS
+============================================================
+
+Create Agency
+
+Activate
+
+Suspend
+
+Archive
+
+Assign Plan
+
+Allocate License
+
+Audit
+
+Permissions
+
+Search
+
+Performance
+
+============================================================
+PRODUCTION CHECKLIST
+============================================================
+
+UI Complete
+
+Backend Complete
+
+Database Complete
+
+API Complete
+
+Automation Complete
+
+AI Complete
+
+Audit Complete
+
+Permissions Complete
+
+Testing Passed
+
+Deployment Approved
+
+============================================================
+LOVABLE BUILD PACKAGE
+============================================================
+
+Build complete Platform Administration workspace exactly as specified.
+
+Use KAI UI Design Standard, Component Standard, Workspace Standard and Intelligence Standard.
+
+Do not redesign workflows.
+
+Do not rename modules.
+
+Implement responsive enterprise workspace with Header, Summary Cards, Toolbar, Search, Filters, Operational Table, Intelligence Drawer and Timeline.
+
+============================================================
+CLAUDE BACKEND PACKAGE
+============================================================
+
+Implement complete Platform Administration backend.
+
+Create normalized database schema.
+
+Implement services.
+
+Implement APIs.
+
+Implement RBAC.
+
+Implement audit.
+
+Implement automation.
+
+Implement AI recommendation engine.
+
+Implement search.
+
+Implement timeline.
+
+Implement notification engine.
+
+Maintain complete tenant isolation.
+
+============================================================
+IMPLEMENTATION LOCK CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+Feature Register ............. PASS
+
+Implementation Audit ......... PASS
+
+Frontend Readiness ........... PASS
+
+Backend Readiness ............ PASS
+
+AI Readiness ................. PASS
+
+Automation Readiness ......... PASS
+
+Production Readiness ......... PASS
+
+Devil's Advocate Audit ....... PASS
+
+Implementation Completeness .. 10/10
+
+STATUS
+
+🔒 IS-001.1 LOCKED
+
+Platform Administration
+
+Complete Build Specification v1.0
+```

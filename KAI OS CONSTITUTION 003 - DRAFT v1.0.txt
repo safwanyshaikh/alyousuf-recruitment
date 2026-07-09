@@ -1,0 +1,493 @@
+# KAI OS CONSTITUTION 003
+
+# DECISION CONSTITUTION
+
+## Every Screen Exists To Make One Decision
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+Software should never become another decision.
+
+Software should reduce decisions.
+
+Every screen inside KAI exists to help the user make exactly one operational decision.
+
+If a screen requires users to think about the software itself,
+
+the screen has failed.
+
+---
+
+# DECISION HIERARCHY
+
+Every decision belongs to one of three levels.
+
+```text
+Strategic Decision
+
+↓
+
+Operational Decision
+
+↓
+
+Execution Decision
+```
+
+No screen shall mix all three.
+
+---
+
+# ARTICLE D001
+
+## One Screen. One Decision.
+
+Every workspace answers one primary operational question.
+
+Nothing else.
+
+Secondary information exists only to support that decision.
+
+---
+
+# ARTICLE D002
+
+## KAI Administration
+
+Decision
+
+Which agencies may operate inside KAI?
+
+Output
+
+Agency created
+
+Agency suspended
+
+Agency licensed
+
+Agency activated
+
+---
+
+# ARTICLE D003
+
+## Tenant Administration
+
+Decision
+
+Who should have access to what?
+
+Output
+
+User
+
+Permission
+
+Assignment
+
+Security
+
+Capacity
+
+---
+
+# ARTICLE D004
+
+## Management Dashboard
+
+Decision
+
+Where should management intervene today?
+
+Never answer
+
+Who worked harder?
+
+Never become an attendance system.
+
+Never become employee surveillance.
+
+Management Dashboard exists only to remove operational bottlenecks.
+
+---
+
+# ARTICLE D005
+
+## Recruiter Dashboard
+
+Decision
+
+What should I work on now?
+
+Every widget must reduce uncertainty.
+
+The recruiter should begin working within seconds.
+
+---
+
+# ARTICLE D006
+
+## Clients
+
+Decision
+
+Should this business opportunity become an active recruitment project?
+
+Output
+
+Project
+
+Not recruitment.
+
+---
+
+# ARTICLE D007
+
+## Projects
+
+Decision
+
+Is this commercial opportunity ready for manpower execution?
+
+Output
+
+Requirements.
+
+---
+
+# ARTICLE D008
+
+## Requirements
+
+Decision
+
+What manpower must be delivered?
+
+Everything inside Requirements exists to answer
+
+Trade
+
+Quantity
+
+Salary
+
+Timeline
+
+Priority
+
+Client Expectations
+
+Nothing more.
+
+---
+
+# ARTICLE D009
+
+## Campaigns
+
+Decision
+
+Where can the required manpower be sourced fastest with acceptable quality?
+
+Campaign never measures recruiter activity.
+
+Campaign measures manpower availability.
+
+---
+
+# ARTICLE D010
+
+## Candidates
+
+Decision
+
+Is this person suitable for the current opportunity?
+
+The screen must answer
+
+Availability
+
+Suitability
+
+Readiness
+
+Risk
+
+Next Action
+
+Recruiters should never assemble this mentally.
+
+---
+
+# ARTICLE D011
+
+## Contact Dictionary
+
+Decision
+
+Should this contact remain a contact,
+
+or become a candidate?
+
+The system shall never force profile creation before sufficient information exists.
+
+---
+
+# ARTICLE D012
+
+## Sourcing Partners
+
+Decision
+
+Which sourcing partner should receive this requirement?
+
+Decision based upon
+
+Speed
+
+Quality
+
+Reliability
+
+Trade
+
+Location
+
+Historical Performance
+
+Relationship
+
+Not personal preference.
+
+---
+
+# ARTICLE D013
+
+## Submission Workspace
+
+Decision
+
+Which candidate should move to the client today?
+
+Submission ends when
+
+Client Decision
+
+Interview
+
+Selection
+
+Offer
+
+Ownership then transfers.
+
+---
+
+# ARTICLE D014
+
+## Mobilization
+
+Decision
+
+Is this worker ready to travel?
+
+---
+
+# ARTICLE D015
+
+## Visa
+
+Decision
+
+Can government clearance proceed?
+
+---
+
+# ARTICLE D016
+
+## Deployment
+
+Decision
+
+Has recruitment successfully become employment?
+
+---
+
+# ARTICLE D017
+
+## Dashboards Never Execute Work
+
+Dashboards answer questions.
+
+Workspaces execute work.
+
+This separation is mandatory.
+
+---
+
+# ARTICLE D018
+
+## Decision Before Data
+
+Every screen shall always display
+
+Decision
+
+↓
+
+Recommendation
+
+↓
+
+Evidence
+
+↓
+
+History
+
+↓
+
+Raw Data
+
+Never reverse this order.
+
+---
+
+# ARTICLE D019
+
+## Every Decision Produces Work
+
+A decision without action has no operational value.
+
+Every approved decision must immediately create
+
+Assignment
+
+Queue
+
+Reminder
+
+Timeline
+
+Ownership
+
+or Workflow Progress.
+
+---
+
+# ARTICLE D020
+
+## No Duplicate Decisions
+
+The same operational decision shall never be requested twice.
+
+Example
+
+Once suitability has been approved,
+
+future screens consume that decision.
+
+They do not ask the recruiter again.
+
+---
+
+# ARTICLE D021
+
+## Explain Before Approval
+
+Whenever KAI recommends something,
+
+it shall explain
+
+Why
+
+Evidence
+
+Confidence
+
+Risk
+
+Human approval remains mandatory.
+
+---
+
+# ARTICLE D022
+
+## Escalation
+
+If no operational decision can be made safely,
+
+KAI escalates.
+
+It never guesses.
+
+Escalation becomes visible to the responsible owner.
+
+---
+
+# DECISION VALIDATION
+
+Every future screen must pass.
+
+1.
+
+What single decision does this screen exist to support?
+
+2.
+
+Who owns that decision?
+
+3.
+
+What information is essential?
+
+4.
+
+What information is distracting?
+
+5.
+
+What action follows immediately after the decision?
+
+If these cannot be answered,
+
+the screen shall not be implemented.
+
+---
+
+# LOCK CONDITION
+
+Every module,
+
+dashboard,
+
+drawer,
+
+dialog,
+
+popup,
+
+table,
+
+assistant,
+
+and automation inside KAI shall exist to improve decision quality.
+
+The Decision Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+No future implementation may violate this order.

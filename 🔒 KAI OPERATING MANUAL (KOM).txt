@@ -1,0 +1,324 @@
+At this point, the architectural standards are effectively complete. The next layer is no longer about UI or engineering standards—it's about **operating manuals** that tell KAI *how to behave* in production.
+
+The next document should be:
+
+🔒 KAI OPERATING MANUAL (KOM)
+
+## The Recruiter's Operating Handbook
+
+This is **not** a design document.
+
+It defines the real-world operating procedures that every recruiter, manager, and AI agent follows.
+
+---
+
+It includes:
+
+### 01. Daily Recruiter Operating Cycle
+
+* Start of Day
+* Queue Review
+* Campaign Work
+* Calling Cycle
+* Follow-up Cycle
+* Submission Cycle
+* End of Day
+
+---
+
+### 02. Requirement Operating Manual
+
+From
+
+Requirement Received
+
+↓
+
+Requirement Validation
+
+↓
+
+Campaign Planning
+
+↓
+
+Source Allocation
+
+↓
+
+Candidate Supply
+
+↓
+
+Submission
+
+↓
+
+Selection
+
+↓
+
+Closure
+
+---
+
+### 03. Candidate Operating Manual
+
+Unknown Contact
+
+↓
+
+Contact Dictionary
+
+↓
+
+Candidate Identity
+
+↓
+
+Assessment
+
+↓
+
+Submission
+
+↓
+
+Deployment
+
+↓
+
+Alumni
+
+↓
+
+Future Opportunity
+
+---
+
+### 04. Sourcing Partner Operating Manual
+
+Partner Creation
+
+↓
+
+Verification
+
+↓
+
+Campaign Assignment
+
+↓
+
+Performance Review
+
+↓
+
+Relationship Growth
+
+↓
+
+Knowledge Preservation
+
+---
+
+### 05. Client Operating Manual
+
+Lead
+
+↓
+
+Client
+
+↓
+
+Project
+
+↓
+
+Requirement
+
+↓
+
+Relationship History
+
+↓
+
+Repeat Business
+
+---
+
+### 06. Submission Operating Manual
+
+Requirement
+
+↓
+
+Candidate Selection
+
+↓
+
+Submission Sheet
+
+↓
+
+Client Review
+
+↓
+
+Interview
+
+↓
+
+Offer
+
+↓
+
+Mobilization
+
+---
+
+### 07. Mobilization Operating Manual
+
+Offer
+
+↓
+
+Documents
+
+↓
+
+Medical
+
+↓
+
+Visa
+
+↓
+
+Travel
+
+↓
+
+Joining
+
+↓
+
+Deployment
+
+---
+
+### 08. Management Operating Manual
+
+Morning Review
+
+↓
+
+Operational Risks
+
+↓
+
+Interventions
+
+↓
+
+Capacity Planning
+
+↓
+
+Client Escalations
+
+↓
+
+Daily Closure
+
+---
+
+### 09. Agency Administration Manual
+
+Recruiter Creation
+
+↓
+
+Permission
+
+↓
+
+Departments
+
+↓
+
+Configuration
+
+↓
+
+Operational Governance
+
+---
+
+### 10. Executive Operating Manual
+
+30-Second Morning Review
+
+↓
+
+Revenue Pipeline
+
+↓
+
+Critical Risks
+
+↓
+
+Capacity
+
+↓
+
+Expansion
+
+↓
+
+Decision Queue
+
+---
+
+### 11. AI Agent Operating Manual
+
+What every AI agent does,
+
+when,
+
+why,
+
+what it can recommend,
+
+what it cannot do,
+
+and how it learns.
+
+---
+
+### 12. Constitutional Compliance Manual
+
+Every operational decision validates against
+
+* Constitutions
+* Design Standards
+* Business Rules
+* Operational Workflow
+
+before execution.
+
+---
+
+## FINAL PURPOSE
+
+The Constitutions define **principles**.
+
+The Design Standards define **implementation**.
+
+The **Operating Manual** defines **daily execution**.
+
+This becomes the final document that completes the KAI architecture before implementation begins.
+
+**Status:** 🔒 **Next Document — KAI Operating Manual (KOM) v1.0**

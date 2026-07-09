@@ -1,0 +1,572 @@
+KAI UI DESIGN CONSTITUTION v1.0
+
+## Workforce Intelligence Operating System
+
+### Phase-1 Master UI Architecture
+
+---
+
+# CORE PHILOSOPHY
+
+KAI is not designed to impress.
+
+KAI is designed to recruit faster.
+
+Every pixel must either
+
+• Save recruiter time
+
+• Improve recruiter decisions
+
+• Reduce recruiter memory
+
+Otherwise it does not exist.
+
+---
+
+# DESIGN PRINCIPLES
+
+1. Recruiter First
+2. Intelligence Before Data
+3. One Screen = One Purpose
+4. Maximum Work. Minimum Clicks.
+5. Everything Searchable
+6. Bulk First
+7. Keyboard Friendly
+8. Never Lose Context
+9. Apple Simplicity
+10. Enterprise Reliability
+
+---
+
+# INFORMATION HIERARCHY
+
+```
+Global Navigation
+
+↓
+
+Dashboard
+
+↓
+
+Operational Module
+
+↓
+
+Working Queue
+
+↓
+
+Working Area
+
+↓
+
+Intelligence Drawer
+```
+
+---
+
+# GLOBAL LAYOUT
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Global Header                                                │
+├───────┬──────────────────────────────┬────────────────────────┤
+│ Left  │                              │                        │
+│ Rail  │     Main Working Area        │ Intelligence Drawer    │
+│       │                              │                        │
+└───────┴──────────────────────────────┴────────────────────────┘
+```
+
+---
+
+# LEFT NAVIGATION
+
+Fixed
+
+Collapsed
+
+Icon + Text
+
+Maximum 10 Items
+
+Never Scroll
+
+Always Visible
+
+---
+
+# HEADER
+
+Fixed
+
+Contains
+
+Agency
+
+Search
+
+Notifications
+
+Quick Add
+
+Profile
+
+Theme
+
+Never more than 72px
+
+---
+
+# SCREEN ANATOMY
+
+Every module follows exactly one structure.
+
+```
+Dashboard
+
+↓
+
+Toolbar
+
+↓
+
+Filters
+
+↓
+
+Workspace
+
+↓
+
+Details
+
+↓
+
+Intelligence
+
+↓
+
+Quick Actions
+```
+
+No exceptions.
+
+---
+
+# DASHBOARD DESIGN
+
+Dashboard never exceeds one screen.
+
+Scrolling begins only after entering workspaces.
+
+CEO reads dashboard within 30 seconds.
+
+Recruiter reads dashboard within 15 seconds.
+
+---
+
+# CARDS
+
+No decorative cards.
+
+Every card answers one question.
+
+Every card is clickable.
+
+Every card drills into work.
+
+---
+
+# TABLES
+
+Tables are operational.
+
+Not reporting.
+
+Requirements
+
+Sticky Header
+
+Sticky First Column
+
+Column Personalization
+
+Quick Filter
+
+Inline Edit
+
+Bulk Actions
+
+Keyboard Navigation
+
+Infinite Scroll
+
+Saved Views
+
+---
+
+# SEARCH
+
+Global
+
+Instant
+
+Searches
+
+Candidate
+
+Requirement
+
+Project
+
+Client
+
+Campaign
+
+Partner
+
+Phone
+
+Email
+
+Passport
+
+KAI Number
+
+Everything.
+
+---
+
+# FILTERS
+
+Always visible.
+
+Never hidden.
+
+Saved Filters.
+
+One-click Reset.
+
+---
+
+# DRAWERS
+
+Right Drawer
+
+Always Intelligence.
+
+Never raw data.
+
+Shows
+
+Recommendations
+
+History
+
+Risk
+
+Timeline
+
+Related Records
+
+Next Action
+
+---
+
+# BULK OPERATIONS
+
+Every operational module supports
+
+Bulk Assign
+
+Bulk Update
+
+Bulk Status
+
+Bulk Export
+
+Bulk WhatsApp
+
+Bulk Email
+
+Bulk Notes
+
+Bulk Submission
+
+---
+
+# COLOR SYSTEM
+
+Primary
+
+Indigo
+
+Neutral
+
+White
+
+Grey
+
+Success
+
+Green
+
+Warning
+
+Amber
+
+Critical
+
+Red
+
+Information
+
+Blue
+
+No gradients.
+
+No glassmorphism.
+
+No visual noise.
+
+---
+
+# TYPOGRAPHY
+
+Maximum three sizes.
+
+Large
+
+Section Titles
+
+Medium
+
+Working Content
+
+Small
+
+Metadata
+
+Nothing smaller.
+
+---
+
+# ICONOGRAPHY
+
+Only meaningful icons.
+
+Phone
+
+WhatsApp
+
+Email
+
+Passport
+
+Visa
+
+Interview
+
+Deployment
+
+Never decorative icons.
+
+---
+
+# ANIMATION
+
+Fast
+
+150ms
+
+Functional
+
+No animation for decoration.
+
+---
+
+# EMPTY STATES
+
+Every empty screen teaches the recruiter what to do next.
+
+---
+
+# LOADING
+
+Skeletons.
+
+Never spinning wheels.
+
+---
+
+# MOBILE
+
+Same architecture.
+
+Different layout.
+
+---
+
+# INTELLIGENCE RULE
+
+Never display intelligence below raw data.
+
+Always display intelligence first.
+
+Then evidence.
+
+---
+
+# WORKSPACE ORDER
+
+Recruiter must always see
+
+1
+
+Next Action
+
+2
+
+Priority
+
+3
+
+Risk
+
+4
+
+History
+
+5
+
+Raw Data
+
+---
+
+# OPERATIONAL PRIORITY
+
+Every workspace begins with
+
+URGENT
+
+TODAY
+
+THIS WEEK
+
+LATER
+
+Never alphabetical.
+
+---
+
+# CLICK RULE
+
+No task should require more than
+
+Three Clicks
+
+---
+
+# RECRUITER MEMORY RULE
+
+Recruiters should remember people.
+
+Never remember software.
+
+---
+
+# CEO MEMORY RULE
+
+CEO should remember business.
+
+Never remember reports.
+
+---
+
+# KAI INTELLIGENCE
+
+Always visible.
+
+Never hidden.
+
+Every screen asks
+
+"What should happen next?"
+
+KAI answers before recruiter thinks.
+
+---
+
+# CONSISTENCY
+
+Candidates
+
+Sourcing Partners
+
+Requirements
+
+Campaigns
+
+Submission
+
+Mobilization
+
+Visa
+
+Deployment
+
+All follow identical interaction patterns.
+
+Learning one module means learning all.
+
+---
+
+# DESIGN LANGUAGE
+
+Apple Simplicity
+
+Linear Productivity
+
+Notion Cleanliness
+
+Superhuman Speed
+
+Google Reliability
+
+KAI Intelligence
+
+---
+
+# SUCCESS CRITERIA
+
+A recruiter should comfortably spend 10–12 continuous working hours inside KAI without opening:
+
+Excel
+
+CRM
+
+ATS
+
+WhatsApp Lists
+
+Sticky Notes
+
+Personal Diaries
+
+Manual Trackers
+
+Everything required to execute international recruitment must exist naturally inside KAI.
+
+KAI should feel less like software and more like an experienced Recruitment Coordinator sitting beside every recruiter.
+
+---
+
+# DESIGN CONSTITUTION STATUS
+
+🔒 LOCKED
+
+All future UI implementations must comply with this constitution.
+
+Deviation is not permitted unless approved through a new architecture revision.

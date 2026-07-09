@@ -1,0 +1,643 @@
+# KAI OS CONSTITUTION 012
+
+# TABLE CONSTITUTION
+
+## Tables Are Operational Workspaces, Never Databases
+
+**Status:** DRAFT v1.0
+
+---
+
+# PURPOSE
+
+In every ATS and CRM,
+
+tables become databases.
+
+In KAI,
+
+tables become operational workspaces.
+
+A recruiter should comfortably spend an entire working day inside a table
+
+calling,
+
+filtering,
+
+assigning,
+
+updating,
+
+submitting,
+
+reviewing,
+
+and completing work
+
+without opening Excel.
+
+---
+
+# TABLE PHILOSOPHY
+
+Tables do not store work.
+
+Tables execute work.
+
+Every row represents an operational responsibility.
+
+Every column supports a decision.
+
+Every interaction reduces recruiter effort.
+
+---
+
+# TABLE HIERARCHY
+
+Every operational table follows one identical structure.
+
+```text
+Operational Summary
+
+↓
+
+Working Filters
+
+↓
+
+Bulk Action Bar
+
+↓
+
+Operational Table
+
+↓
+
+Quick Preview
+
+↓
+
+Intelligence Drawer
+
+↓
+
+Timeline
+```
+
+No module may violate this structure.
+
+---
+
+# ARTICLE T001
+
+## Every Table Has One Purpose
+
+One table.
+
+One operational responsibility.
+
+Examples
+
+Candidates
+
+↓
+
+Candidate Operations
+
+Requirements
+
+↓
+
+Requirement Fulfilment
+
+Campaigns
+
+↓
+
+Candidate Supply
+
+Submission
+
+↓
+
+Client Delivery
+
+Partners
+
+↓
+
+Supply Network
+
+Never mix responsibilities.
+
+---
+
+# ARTICLE T002
+
+## Every Row Represents Work
+
+Rows never represent records.
+
+Rows represent operational work.
+
+Examples
+
+Candidate waiting for call.
+
+Requirement needing sourcing.
+
+Partner awaiting assignment.
+
+Submission awaiting feedback.
+
+---
+
+# ARTICLE T003
+
+## Every Column Must Justify Its Existence
+
+Columns exist only when they improve operational decisions.
+
+Columns never exist because data is available.
+
+Every column answers
+
+"Will this help recruiters recruit faster?"
+
+If not,
+
+remove it.
+
+---
+
+# ARTICLE T004
+
+## Tables Support Continuous Work
+
+Without leaving the table,
+
+recruiters shall be able to
+
+Call
+
+WhatsApp
+
+Email
+
+Assign
+
+Change Stage
+
+Add Remark
+
+Schedule Follow-up
+
+Create Submission
+
+Open Intelligence
+
+Everything operational.
+
+---
+
+# ARTICLE T005
+
+## Inline First
+
+Everything operationally safe
+
+shall be editable inside the table.
+
+No edit pages.
+
+No popup dependency.
+
+No unnecessary navigation.
+
+---
+
+# ARTICLE T006
+
+## Bulk First
+
+Every table supports
+
+Bulk Select
+
+Bulk Assign
+
+Bulk Status
+
+Bulk Notes
+
+Bulk Communication
+
+Bulk Submission
+
+Bulk Export
+
+Bulk Archive
+
+Recruiters never repeat identical work.
+
+---
+
+# ARTICLE T007
+
+## Tables Remember Work
+
+Every table remembers
+
+Filters
+
+Sorting
+
+Pinned Columns
+
+Hidden Columns
+
+Selected Rows
+
+Current Queue
+
+Scroll Position
+
+Recruiters always return exactly where they stopped.
+
+---
+
+# ARTICLE T008
+
+## Operational Filters
+
+Filters represent recruitment work.
+
+Examples
+
+Today's Calls
+
+Interview Tomorrow
+
+Waiting Offer
+
+Blocked Visa
+
+Shutdown Campaign
+
+Immediate Availability
+
+Not generic database filters.
+
+---
+
+# ARTICLE T009
+
+## Smart Columns
+
+Columns adapt to the module.
+
+Candidates
+
+Deploy Readiness
+
+Requirements
+
+Fulfilment %
+
+Campaigns
+
+Supply Progress
+
+Submission
+
+Client Status
+
+Visa
+
+Government Status
+
+Deployment
+
+Joining Status
+
+Tables display operational intelligence.
+
+---
+
+# ARTICLE T010
+
+## Frozen Identity
+
+Every table permanently freezes
+
+Primary Identity
+
+Examples
+
+Candidate Name
+
+Requirement
+
+Partner
+
+Submission Batch
+
+Recruiters never lose orientation while scrolling.
+
+---
+
+# ARTICLE T011
+
+## Fast Navigation
+
+Arrow Keys
+
+Enter
+
+Tab
+
+Space
+
+Multi Select
+
+Quick Search
+
+must work consistently.
+
+Professional recruiters should operate tables at speed.
+
+---
+
+# ARTICLE T012
+
+## Table Intelligence
+
+Every row immediately exposes
+
+Next Action
+
+Risk
+
+Priority
+
+Recommendation
+
+Age
+
+Owner
+
+Recruiters never calculate priority mentally.
+
+---
+
+# ARTICLE T013
+
+## Operational Colours
+
+Colour communicates
+
+Priority
+
+Urgency
+
+Risk
+
+Completion
+
+Never decoration.
+
+Never branding.
+
+---
+
+# ARTICLE T014
+
+## Relationship Visibility
+
+Without opening another page,
+
+tables reveal
+
+Requirement
+
+Project
+
+Client
+
+Partner
+
+Submission
+
+Campaign
+
+History
+
+Recruiters always understand context.
+
+---
+
+# ARTICLE T015
+
+## One Scroll Rule
+
+Horizontal scrolling should be exceptional.
+
+Primary operational information always remains visible.
+
+Important columns remain frozen.
+
+---
+
+# ARTICLE T016
+
+## Tables Scale
+
+The same table must operate comfortably with
+
+100
+
+1,000
+
+10,000
+
+100,000
+
+records.
+
+Performance is part of the design.
+
+---
+
+# ARTICLE T017
+
+## Every Table Ends With Action
+
+No recruiter should leave a table
+
+only having viewed information.
+
+Every session should create
+
+Calls
+
+Updates
+
+Assignments
+
+Submissions
+
+Progress
+
+Tables produce work.
+
+---
+
+# ARTICLE T018
+
+## Tables Generate Intelligence
+
+Every interaction
+
+updates
+
+history,
+
+activity,
+
+performance,
+
+relationships,
+
+organisational knowledge,
+
+automatically.
+
+---
+
+# ARTICLE T019
+
+## Excel Replacement Principle
+
+Outside mandatory client spreadsheet submissions,
+
+tables replace Excel.
+
+If recruiters still maintain operational Excel sheets,
+
+the table has failed.
+
+---
+
+# ARTICLE T020
+
+## Tables Become Operational Memory
+
+Recruiters should never ask
+
+"Which Excel contains this?"
+
+The answer should always be
+
+"KAI already knows."
+
+---
+
+# TABLE VALIDATION
+
+Every future table must answer
+
+1.
+
+Can recruiters remain here for several continuous hours?
+
+2.
+
+Can daily work be completed without Excel?
+
+3.
+
+Can operations happen inline?
+
+4.
+
+Can repetitive work become bulk work?
+
+5.
+
+Does every visible column support a decision?
+
+6.
+
+Does this preserve organisational intelligence?
+
+7.
+
+Would experienced GCC recruiters naturally adopt this table?
+
+If any answer is NO,
+
+the table shall be redesigned.
+
+---
+
+# LOCK CONDITION
+
+Tables are not databases.
+
+Tables are operational execution environments.
+
+Every operational table inside KAI shall become a recruiter workspace where work is executed,
+
+knowledge is preserved,
+
+and Excel becomes unnecessary except where external organisations mandate spreadsheet exchange.
+
+The Table Constitution derives from
+
+Human Constitution
+
+↓
+
+Operational Constitution
+
+↓
+
+Decision Constitution
+
+↓
+
+Information Constitution
+
+↓
+
+Interaction Constitution
+
+↓
+
+Intelligence Constitution
+
+↓
+
+Visual Constitution
+
+↓
+
+Workspace Constitution
+
+↓
+
+Navigation Constitution
+
+↓
+
+Queue Constitution
+
+↓
+
+Search Constitution
+
+↓
+
+Table Constitution
+
+No future operational table may violate this architecture.
