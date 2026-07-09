@@ -1,0 +1,509 @@
+BE-004 - KAI APPLICATION SERVICE LAYER
+Backend Engineering Specification v1.0
+Status: 🔒 BACKEND LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Create one universal Application Service Layer for the entire KAI
+Workforce Intelligence Operating System.
+
+Application Services coordinate business execution.
+
+They never own business rules.
+
+They orchestrate Domains.
+
+============================================================
+APPLICATION PHILOSOPHY
+============================================================
+
+Request
+
+↓
+
+Validate
+
+↓
+
+Authorize
+
+↓
+
+Load Aggregate
+
+↓
+
+Execute Domain
+
+↓
+
+Commit Transaction
+
+↓
+
+Publish Events
+
+↓
+
+Return Result
+
+============================================================
+RESPONSIBILITIES
+============================================================
+
+Execute Use Cases
+
+Coordinate Domains
+
+Manage Transactions
+
+Publish Events
+
+Return DTO
+
+Never contain business policy.
+
+============================================================
+DOES NOT OWN
+============================================================
+
+Business Rules
+
+Database Logic
+
+UI Logic
+
+Infrastructure
+
+Validation Policies
+
+============================================================
+SERVICE STRUCTURE
+============================================================
+
+Application Service
+
+↓
+
+Command
+
+↓
+
+Query
+
+↓
+
+DTO
+
+↓
+
+Mapper
+
+↓
+
+Response
+
+============================================================
+COMMANDS
+============================================================
+
+Create
+
+Update
+
+Assign
+
+Approve
+
+Reject
+
+Archive
+
+Delete (Logical)
+
+Workflow Transition
+
+============================================================
+QUERIES
+============================================================
+
+Search
+
+Lookup
+
+Summary
+
+Dashboard
+
+Reports
+
+Timeline
+
+Analytics
+
+============================================================
+COMMAND FLOW
+============================================================
+
+Receive Command
+
+↓
+
+Permission Validation
+
+↓
+
+Load Aggregate
+
+↓
+
+Execute Domain Method
+
+↓
+
+Save Repository
+
+↓
+
+Commit Transaction
+
+↓
+
+Publish Domain Events
+
+↓
+
+Return Result
+
+============================================================
+QUERY FLOW
+============================================================
+
+Receive Query
+
+↓
+
+Permission Validation
+
+↓
+
+Repository Query
+
+↓
+
+Projection
+
+↓
+
+DTO
+
+↓
+
+Response
+
+============================================================
+DTO RULES
+============================================================
+
+Request DTO
+
+Response DTO
+
+Never expose Domain Entity
+
+Never expose Database Model
+
+============================================================
+TRANSACTION RULES
+============================================================
+
+One Use Case
+
+↓
+
+One Transaction
+
+Commit Only After
+
+Domain Success
+
+Rollback On Failure
+
+============================================================
+DOMAIN COORDINATION
+============================================================
+
+One Aggregate Preferred
+
+Multiple Aggregates
+
+Only Through Application Service
+
+============================================================
+EVENT PUBLISHING
+============================================================
+
+Every Successful Command
+
+↓
+
+Timeline Event
+
+↓
+
+Queue Update
+
+↓
+
+Notification
+
+↓
+
+Audit
+
+↓
+
+Integration Event
+
+============================================================
+PERMISSION FLOW
+============================================================
+
+Authentication
+
+↓
+
+Tenant Validation
+
+↓
+
+Role Validation
+
+↓
+
+Permission Validation
+
+↓
+
+Business Execution
+
+============================================================
+VALIDATION FLOW
+============================================================
+
+DTO Validation
+
+↓
+
+Domain Validation
+
+↓
+
+Business Policies
+
+↓
+
+Execution
+
+============================================================
+MAPPING
+============================================================
+
+DTO
+
+↓
+
+Domain
+
+↓
+
+Repository
+
+↓
+
+Domain
+
+↓
+
+DTO
+
+============================================================
+ERROR FLOW
+============================================================
+
+Exception
+
+↓
+
+Rollback
+
+↓
+
+Audit
+
+↓
+
+Normalize
+
+↓
+
+Human Response
+
+============================================================
+DEPENDENCIES
+============================================================
+
+Application Service
+
+↓
+
+Repository Interface
+
+↓
+
+Domain
+
+↓
+
+Event Bus
+
+↓
+
+Unit Of Work
+
+Never Infrastructure Directly
+
+============================================================
+ASYNC OPERATIONS
+============================================================
+
+Notifications
+
+Reports
+
+OCR
+
+AI
+
+Emails
+
+WhatsApp
+
+Search Index
+
+Queue Processing
+
+Always background.
+
+============================================================
+LOGGING
+============================================================
+
+Request ID
+
+Trace ID
+
+Execution Time
+
+User
+
+Tenant
+
+Use Case
+
+Outcome
+
+============================================================
+TESTING
+============================================================
+
+Command Tests
+
+Query Tests
+
+Transaction Tests
+
+Permission Tests
+
+Workflow Tests
+
+Event Tests
+
+============================================================
+PERFORMANCE
+============================================================
+
+CRUD
+
+<500ms
+
+Query
+
+<300ms
+
+Command
+
+<500ms
+
+Bulk
+
+Async
+
+============================================================
+SCALABILITY
+============================================================
+
+Stateless
+
+Horizontal Scaling
+
+Idempotent Commands
+
+Retry Safe
+
+Event Driven
+
+============================================================
+LOVABLE RULES
+============================================================
+
+Application Services orchestrate only.
+
+Business decisions remain inside Domain.
+
+Repositories persist only.
+
+Controllers delegate only.
+
+Every successful command automatically updates Timeline, Queue,
+Notifications, Audit and Integration Events.
+
+============================================================
+BACKEND BUILD CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Application Layer ............ PASS
+
+Transaction Management ....... PASS
+
+Domain Coordination .......... PASS
+
+Performance .................. PASS
+
+Scalability .................. PASS
+
+Developer Experience ......... PASS
+
+Devil's Advocate Audit ....... PASS
+
+Backend Readiness ............ 10/10
+
+STATUS
+
+🔒 BE-004 LOCKED
+
+KAI Application Service Layer

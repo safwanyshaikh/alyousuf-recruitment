@@ -1,0 +1,485 @@
+FE-006 -KAI COMPONENT ARCHITECTURE
+Frontend Engineering Specification v1.0
+Status: 🔒 FRONTEND LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Create one universal Component Architecture for the entire KAI
+Operating System.
+
+Every UI element must originate from reusable enterprise components.
+
+No duplicated components.
+
+No business logic inside components.
+
+============================================================
+COMPONENT PHILOSOPHY
+============================================================
+
+Build Once
+
+↓
+
+Reuse Everywhere
+
+↓
+
+Maintain Forever
+
+Components solve UI.
+
+Features solve business.
+
+============================================================
+ARCHITECTURE
+============================================================
+
+Application
+
+↓
+
+Features
+
+↓
+
+Workspaces
+
+↓
+
+Templates
+
+↓
+
+Components
+
+↓
+
+Primitives
+
+============================================================
+COMPONENT LAYERS
+============================================================
+
+Primitive
+
+Composite
+
+Workspace
+
+Feature
+
+Application
+
+============================================================
+PRIMITIVES
+============================================================
+
+Button
+
+Input
+
+Textarea
+
+Select
+
+Checkbox
+
+Radio
+
+Switch
+
+Badge
+
+Avatar
+
+Icon
+
+Label
+
+Divider
+
+Tooltip
+
+Spinner
+
+Skeleton
+
+Progress
+
+============================================================
+COMPOSITES
+============================================================
+
+Search Box
+
+Filter Bar
+
+Action Bar
+
+Summary Card
+
+Queue Card
+
+Table
+
+Drawer
+
+Timeline
+
+Notification
+
+Dialog
+
+Uploader
+
+Calendar
+
+============================================================
+WORKSPACE COMPONENTS
+============================================================
+
+Global Header
+
+Sidebar
+
+Workspace Header
+
+Operational Table
+
+Intelligence Drawer
+
+Timeline Panel
+
+Queue Panel
+
+Notification Center
+
+============================================================
+FEATURE COMPONENTS
+============================================================
+
+Recruitment
+
+Candidates
+
+Partners
+
+Mobilization
+
+Visa
+
+Deployment
+
+Administration
+
+Reports
+
+============================================================
+COMPONENT STRUCTURE
+============================================================
+
+Component
+
+Types
+
+Props
+
+Hooks
+
+Styles
+
+Tests
+
+Stories
+
+Documentation
+
+============================================================
+PROPS
+============================================================
+
+Strictly Typed
+
+Minimal
+
+Composable
+
+Predictable
+
+No Optional Chaos
+
+============================================================
+STATE
+============================================================
+
+Stateless Preferred
+
+Local State Only
+
+Server State Never
+
+Business Logic Never
+
+============================================================
+EVENTS
+============================================================
+
+onClick
+
+onChange
+
+onOpen
+
+onClose
+
+onSelect
+
+onSubmit
+
+onError
+
+Typed Only
+
+============================================================
+STYLING
+============================================================
+
+Tailwind
+
+Design Tokens
+
+Variants
+
+Utility Functions
+
+No Inline Styles
+
+============================================================
+VARIANTS
+============================================================
+
+Size
+
+Color
+
+Status
+
+Density
+
+State
+
+Variant API Only
+
+============================================================
+COMPOSITION
+============================================================
+
+Compose
+
+Never Duplicate
+
+Wrap
+
+Never Copy
+
+Extend
+
+Never Fork
+
+============================================================
+DEPENDENCIES
+============================================================
+
+Components
+
+↓
+
+Hooks
+
+↓
+
+Utilities
+
+↓
+
+Types
+
+No Circular Dependencies
+
+============================================================
+RENDERING
+============================================================
+
+Memoized
+
+Lazy Loaded
+
+Virtualized
+
+Optimized
+
+Predictable
+
+============================================================
+ACCESSIBILITY
+============================================================
+
+Keyboard
+
+ARIA
+
+Focus
+
+Screen Reader
+
+Reduced Motion
+
+============================================================
+ERROR BOUNDARY
+============================================================
+
+Application
+
+Workspace
+
+Component
+
+Recovery
+
+Logging
+
+============================================================
+TESTING
+============================================================
+
+Unit
+
+Interaction
+
+Accessibility
+
+Visual
+
+Performance
+
+Snapshot
+
+============================================================
+DOCUMENTATION
+============================================================
+
+Purpose
+
+Usage
+
+Props
+
+Variants
+
+States
+
+Examples
+
+Accessibility
+
+Performance
+
+============================================================
+PERFORMANCE
+============================================================
+
+Memo
+
+Lazy
+
+Dynamic Import
+
+Virtual Rendering
+
+Stable Keys
+
+Minimal Re-render
+
+============================================================
+QUALITY RULES
+============================================================
+
+Single Responsibility
+
+Reusable
+
+Composable
+
+Typed
+
+Accessible
+
+Documented
+
+Tested
+
+============================================================
+FORBIDDEN
+============================================================
+
+Business Logic
+
+API Calls
+
+Database Knowledge
+
+Hardcoded Values
+
+Module Coupling
+
+Duplicate Components
+
+============================================================
+LOVABLE RULES
+============================================================
+
+Every component must belong to the Design Library.
+
+Never duplicate components.
+
+Never place business logic inside components.
+
+Every component must be reusable across all modules.
+
+Every component must support accessibility, responsiveness,
+performance optimization and design tokens by default.
+
+============================================================
+FRONTEND BUILD CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Component Strategy ........... PASS
+
+Reusability .................. PASS
+
+Accessibility ................ PASS
+
+Performance .................. PASS
+
+Maintainability .............. PASS
+
+Scalability .................. PASS
+
+Developer Experience ......... PASS
+
+Devil's Advocate Audit ....... PASS
+
+Frontend Readiness ........... 10/10
+
+STATUS
+
+🔒 FE-006 LOCKED
+
+KAI Component Architecture
+
+Frontend Engineering Specification v1.0

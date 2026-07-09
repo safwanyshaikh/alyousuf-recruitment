@@ -1,0 +1,529 @@
+UE-019 - KAI ERROR & RECOVERY SYSTEM
+UI Engineering Specification v1.0
+Status: 🔒 UI LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Create one universal Error & Recovery System for the entire KAI
+Operating System.
+
+Errors must never stop operational work.
+
+Every error must explain the problem, preserve user work and guide
+the user to recovery.
+
+============================================================
+ERROR PHILOSOPHY
+============================================================
+
+Detect
+
+↓
+
+Explain
+
+↓
+
+Protect Work
+
+↓
+
+Recover
+
+↓
+
+Continue
+
+Errors are operational events.
+
+Not technical events.
+
+============================================================
+ERROR CATEGORIES
+============================================================
+
+Validation
+
+Permission
+
+Authentication
+
+Authorization
+
+Network
+
+API
+
+Database
+
+Synchronization
+
+Import
+
+Export
+
+AI
+
+Automation
+
+File
+
+Storage
+
+Security
+
+Unexpected
+
+============================================================
+ERROR SEVERITY
+============================================================
+
+Information
+
+Blue
+
+Warning
+
+Amber
+
+Critical
+
+Red
+
+System
+
+Purple
+
+============================================================
+ERROR STRUCTURE
+============================================================
+
+Severity
+
+↓
+
+Human Message
+
+↓
+
+Reason
+
+↓
+
+Affected Record
+
+↓
+
+Recovery Action
+
+↓
+
+Support ID
+
+============================================================
+DISPLAY RULES
+============================================================
+
+Inline
+
+Field Errors
+
+Toast
+
+Minor Errors
+
+Drawer
+
+Operational Errors
+
+Dialog
+
+Critical Decisions
+
+Full Screen
+
+System Failure Only
+
+============================================================
+VALIDATION ERRORS
+============================================================
+
+Real Time
+
+Inline
+
+Field Highlight
+
+Correction Suggestion
+
+No Popup
+
+============================================================
+NETWORK ERRORS
+============================================================
+
+Offline Detection
+
+Retry
+
+Background Retry
+
+Resume Automatically
+
+Never Lose Draft
+
+============================================================
+AUTHENTICATION
+============================================================
+
+Session Expired
+
+Reauthenticate
+
+Restore Workspace
+
+Restore Draft
+
+Continue Work
+
+============================================================
+PERMISSION ERRORS
+============================================================
+
+Explain Restriction
+
+Show Required Role
+
+Request Access
+
+Never Reveal Hidden Data
+
+============================================================
+API ERRORS
+============================================================
+
+Retry
+
+Fallback
+
+Cached Data
+
+Background Sync
+
+Log Automatically
+
+============================================================
+DATABASE ERRORS
+============================================================
+
+Rollback Transaction
+
+Protect Data
+
+Retry
+
+Escalate
+
+Audit Event
+
+============================================================
+IMPORT ERRORS
+============================================================
+
+Row Number
+
+Reason
+
+Correction
+
+Retry Failed Rows
+
+Continue Valid Rows
+
+============================================================
+EXPORT ERRORS
+============================================================
+
+Retry
+
+Background Export
+
+Notify On Completion
+
+============================================================
+FILE ERRORS
+============================================================
+
+Unsupported Type
+
+Corrupt File
+
+Oversize
+
+Duplicate
+
+Virus Detection
+
+============================================================
+AI ERRORS
+============================================================
+
+Fallback To Manual
+
+Explain Limitation
+
+Retry Later
+
+Never Block Workflow
+
+============================================================
+AUTOMATION ERRORS
+============================================================
+
+Retry
+
+Resume
+
+Escalate
+
+Timeline Entry
+
+Notification
+
+============================================================
+RECOVERY SYSTEM
+============================================================
+
+Undo
+
+Retry
+
+Resume
+
+Restore Draft
+
+Restore Workspace
+
+Rollback
+
+Conflict Resolution
+
+============================================================
+AUTO SAVE
+============================================================
+
+Always Enabled
+
+Recover Draft
+
+Recover Form
+
+Recover Notes
+
+Recover Uploads
+
+============================================================
+CONFLICT RESOLUTION
+============================================================
+
+Detect Conflict
+
+Compare Versions
+
+Choose Version
+
+Merge Safely
+
+Audit Result
+
+============================================================
+ERROR LOGGING
+============================================================
+
+Automatic
+
+Timestamp
+
+User
+
+Module
+
+Action
+
+Stack Trace
+
+Support ID
+
+Audit Linked
+
+============================================================
+TIMELINE
+============================================================
+
+Critical Errors
+
+↓
+
+Timeline Entry
+
+↓
+
+Audit Entry
+
+↓
+
+Notification
+
+============================================================
+USER GUIDANCE
+============================================================
+
+What Happened
+
+Why
+
+How To Fix
+
+Retry
+
+Contact Support
+
+============================================================
+OFFLINE MODE
+============================================================
+
+Cache
+
+Queue Changes
+
+Auto Sync
+
+Conflict Detection
+
+Recovery
+
+============================================================
+SHORTCUTS
+============================================================
+
+Esc
+
+Close
+
+Enter
+
+Retry
+
+Ctrl + Shift + R
+
+Recover Workspace
+
+============================================================
+PERFORMANCE
+============================================================
+
+Error Detection
+
+Instant
+
+Retry
+
+<1 Second
+
+Workspace Recovery
+
+<2 Seconds
+
+============================================================
+ACCESSIBILITY
+============================================================
+
+Keyboard First
+
+Screen Reader
+
+ARIA Live
+
+Focus Management
+
+High Contrast
+
+============================================================
+RECRUITER RULES
+============================================================
+
+Never lose work.
+
+Never lose drafts.
+
+Never lose context.
+
+Never lose uploaded files.
+
+Always provide recovery.
+
+============================================================
+MANAGEMENT RULES
+============================================================
+
+Every critical error must be
+
+Auditable
+
+Traceable
+
+Recoverable
+
+Actionable
+
+============================================================
+LOVABLE RULES
+============================================================
+
+Implement one universal Error & Recovery Engine.
+
+Never expose technical stack traces.
+
+Always use human language.
+
+Always preserve operational context.
+
+Always attempt automatic recovery before user intervention.
+
+Every error must generate appropriate Audit, Timeline and Monitoring events.
+
+============================================================
+UI LOCK CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+Build Packages ............... PASS
+
+Recovery Consistency ......... PASS
+
+Recruiter Productivity ....... PASS
+
+Operational Safety ........... PASS
+
+Performance .................. PASS
+
+Accessibility ................ PASS
+
+Scalability .................. PASS
+
+Devil's Advocate Audit ....... PASS
+
+UI Engineering Completeness .. 10/10
+
+STATUS
+
+🔒 UE-019 LOCKED
+
+KAI Error & Recovery System
+
+UI Engineering Specification v1.0

@@ -1,0 +1,383 @@
+FE-001 - LOVABLE FRONTEND IMPLEMENTATION MASTER SPECIFICATION
+Status: 🔒 FRONTEND LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Convert the complete KAI UI Engineering specifications into a
+production-ready enterprise frontend.
+
+This document governs how Lovable must build KAI.
+
+No business logic.
+
+No backend.
+
+No architecture redesign.
+
+Frontend implementation only.
+
+============================================================
+IMPLEMENTATION ORDER
+============================================================
+
+Design Tokens
+
+↓
+
+Application Shell
+
+↓
+
+Navigation
+
+↓
+
+Workspace Engine
+
+↓
+
+Table Engine
+
+↓
+
+Drawer Engine
+
+↓
+
+Card Engine
+
+↓
+
+Timeline Engine
+
+↓
+
+Search Engine
+
+↓
+
+Queue Engine
+
+↓
+
+Filter Engine
+
+↓
+
+Form Engine
+
+↓
+
+Notification Engine
+
+↓
+
+Dialog Engine
+
+↓
+
+Mobile Companion
+
+↓
+
+Accessibility
+
+↓
+
+Animation
+
+↓
+
+Loading
+
+↓
+
+Error Recovery
+
+============================================================
+FRONTEND STACK
+============================================================
+
+React
+
+TypeScript
+
+Vite
+
+TailwindCSS
+
+shadcn/ui
+
+TanStack Query
+
+TanStack Table
+
+TanStack Virtual
+
+React Hook Form
+
+Zod
+
+React Router
+
+============================================================
+APPLICATION SHELL
+============================================================
+
+Persistent Layout
+
+Zero Reload
+
+Context Preservation
+
+Workspace Memory
+
+Independent Panels
+
+============================================================
+STATE MANAGEMENT
+============================================================
+
+Server State
+
+TanStack Query
+
+UI State
+
+React Context
+
+Local State
+
+Component State
+
+Persistent State
+
+Local Storage
+
+============================================================
+ROUTING
+============================================================
+
+Dashboard
+
+Recruitment Flow
+
+Candidates
+
+Partners
+
+Mobilization
+
+Visa
+
+Deployment
+
+Administration
+
+Reports
+
+No nested routing beyond three levels.
+
+============================================================
+COMPONENT STRATEGY
+============================================================
+
+Atomic
+
+Reusable
+
+Composable
+
+Typed
+
+Accessible
+
+Theme Driven
+
+============================================================
+PAGE STRATEGY
+============================================================
+
+Every page uses
+
+Global Header
+
+Left Navigation
+
+Workspace
+
+Right Drawer
+
+Notification Layer
+
+============================================================
+TABLE ENGINE
+============================================================
+
+Virtualization
+
+Sticky Header
+
+Sticky Column
+
+Infinite Scroll
+
+Bulk Selection
+
+Inline Editing
+
+============================================================
+DRAWER ENGINE
+============================================================
+
+Persistent
+
+Resizable
+
+Independent Scroll
+
+Context Aware
+
+============================================================
+SEARCH ENGINE
+============================================================
+
+Global Search
+
+Module Search
+
+Natural Language Input
+
+Recent Searches
+
+Pinned Results
+
+============================================================
+QUEUE ENGINE
+============================================================
+
+Auto Refresh
+
+Live Updates
+
+Priority Ordering
+
+Queue Cards
+
+Queue Table
+
+============================================================
+FORMS
+============================================================
+
+React Hook Form
+
+Zod Validation
+
+Auto Save
+
+Draft Recovery
+
+============================================================
+DESIGN TOKENS
+============================================================
+
+Centralized
+
+No Hardcoded Colors
+
+No Hardcoded Radius
+
+No Hardcoded Typography
+
+============================================================
+RESPONSIVE
+============================================================
+
+Desktop First
+
+Laptop
+
+Tablet
+
+Mobile Companion
+
+============================================================
+PERFORMANCE
+============================================================
+
+Lazy Loading
+
+Code Splitting
+
+Memoization
+
+Virtual Rendering
+
+Optimistic Updates
+
+============================================================
+ACCESSIBILITY
+============================================================
+
+WCAG 2.2 AA
+
+ARIA
+
+Keyboard First
+
+Screen Reader
+
+============================================================
+QUALITY RULES
+============================================================
+
+No duplicated components
+
+No duplicated layouts
+
+No duplicated styles
+
+No duplicated logic
+
+============================================================
+LOVABLE RULES
+============================================================
+
+Never redesign UI.
+
+Never invent workflows.
+
+Implement exactly according to
+
+Architecture
+
+Product Engineering
+
+Build Packages
+
+UI Engineering
+
+============================================================
+FRONTEND BUILD CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+UI Engineering ............... PASS
+
+Developer Readiness .......... PASS
+
+Lovable Readiness ............ PASS
+
+Frontend Readiness ........... 10/10
+
+STATUS
+
+🔒 FE-001 LOCKED
+
+Lovable Frontend Master Specification

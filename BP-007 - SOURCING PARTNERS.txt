@@ -1,0 +1,827 @@
+BP-007 - SOURCING PARTNERS
+Module Build Package v1.0
+Status: 🔒 BUILD LOCK
+
+============================================================
+MODULE
+============================================================
+
+Sourcing Partners
+
+Strategic Workforce Supply Intelligence Engine
+
+============================================================
+PURPOSE
+============================================================
+
+Build and preserve the agency's permanent external sourcing network.
+
+This module is an internal strategic asset.
+
+It manages every manpower source supporting the agency.
+
+It is never exposed to clients or candidates.
+
+It strengthens sourcing intelligence over years through measurable relationship history.
+
+============================================================
+FOUNDATION
+============================================================
+
+Relationship belongs to the Agency.
+
+Not to the Recruiter.
+
+Knowledge belongs to KAI.
+
+Not to individuals.
+
+Every interaction increases organizational sourcing intelligence.
+
+============================================================
+PARTNER TYPES
+============================================================
+
+Freelancer
+
+Sub Agency
+
+Associate Agency
+
+Training Centre
+
+Educational Institute
+
+============================================================
+MODULE STRUCTURE
+============================================================
+
+Partner Contact
+
+↓
+
+Partner List
+
+↓
+
+Partner Profile
+
+↓
+
+Communication
+
+↓
+
+Campaign Assignment
+
+↓
+
+Candidate Supply
+
+↓
+
+Performance
+
+↓
+
+Relationship Intelligence
+
+↓
+
+Strategic Partner Network
+
+============================================================
+PRIMARY USERS
+============================================================
+
+Recruiter
+
+Senior Recruiter
+
+Recruitment Manager
+
+Operations Manager
+
+Agency Administrator
+
+============================================================
+WORKSPACE STRUCTURE
+============================================================
+
+Global Header
+
+↓
+
+Partner Intelligence Summary
+
+↓
+
+Action Toolbar
+
+↓
+
+Universal Search
+
+↓
+
+Quick Filters
+
+↓
+
+Partner Table
+
+↓
+
+Partner Intelligence Drawer
+
+↓
+
+Timeline
+
+============================================================
+LEFT NAVIGATION
+============================================================
+
+Contacts
+
+Partners
+
+Campaign Assignments
+
+Candidate Supply
+
+Performance
+
+Communication
+
+Timeline
+
+============================================================
+WORKSPACE TREE
+============================================================
+
+Quick Contact
+
+↓
+
+Partner Verification
+
+↓
+
+Partner Profile
+
+↓
+
+Trade Mapping
+
+↓
+
+Regional Mapping
+
+↓
+
+Campaign Assignment
+
+↓
+
+Candidate Supply
+
+↓
+
+Performance Review
+
+↓
+
+Relationship Growth
+
+↓
+
+Preferred Partner
+
+↓
+
+Strategic Partner
+
+============================================================
+USER JOURNEY
+============================================================
+
+Create Contact
+
+↓
+
+Verify Partner
+
+↓
+
+Select Category
+
+↓
+
+Map Trades
+
+↓
+
+Map Geography
+
+↓
+
+Assign Campaign
+
+↓
+
+Receive Candidates
+
+↓
+
+Evaluate Performance
+
+↓
+
+Strengthen Relationship
+
+↓
+
+Become Strategic Partner
+
+============================================================
+COMPONENT TREE
+============================================================
+
+Header
+
+Summary Cards
+
+Toolbar
+
+Universal Search
+
+Quick Filters
+
+Partner Table
+
+Drawer
+
+Timeline
+
+Communication Panel
+
+Performance Panel
+
+Campaign Panel
+
+Notifications
+
+============================================================
+SUMMARY CARDS
+============================================================
+
+Total Partners
+
+Active Partners
+
+Preferred Partners
+
+Strategic Partners
+
+Campaign Support
+
+Candidates Received
+
+Top Performing Partners
+
+Inactive Partners
+
+Relationship Health
+
+============================================================
+TABLE
+============================================================
+
+Partner Code
+
+Partner Name
+
+Category
+
+Region
+
+Primary Trade
+
+Active Campaigns
+
+Candidates Supplied
+
+Performance Score
+
+Relationship Status
+
+Last Activity
+
+Actions
+
+============================================================
+DRAWER
+============================================================
+
+Partner Identity
+
+Organization Summary
+
+Contact Details
+
+Trade Coverage
+
+Regional Coverage
+
+Campaign History
+
+Candidate Supply History
+
+Performance Timeline
+
+Communication Timeline
+
+AI Recommendation
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+STATE MANAGEMENT
+============================================================
+
+Selected Partner
+
+Drawer
+
+Search
+
+Filters
+
+Sorting
+
+Pagination
+
+Pinned Partners
+
+Notifications
+
+============================================================
+DATABASE
+============================================================
+
+Partner
+
+PartnerContact
+
+PartnerCategory
+
+TradeMapping
+
+RegionMapping
+
+CampaignAssignment
+
+CandidateSupply
+
+Performance
+
+Communication
+
+Timeline
+
+Audit
+
+Notification
+
+============================================================
+RELATIONSHIPS
+============================================================
+
+Partner
+
+↓
+
+Campaign
+
+↓
+
+Candidate Supply
+
+↓
+
+Performance
+
+↓
+
+Timeline
+
+↓
+
+Audit
+
+============================================================
+SERVICES
+============================================================
+
+Partner Service
+
+Contact Service
+
+Campaign Assignment Service
+
+Performance Service
+
+Communication Service
+
+Timeline Service
+
+Search Service
+
+Notification Service
+
+Audit Service
+
+============================================================
+API SET
+============================================================
+
+Partner API
+
+Contact API
+
+Campaign Assignment API
+
+Performance API
+
+Communication API
+
+Timeline API
+
+Search API
+
+Notification API
+
+Audit API
+
+Analytics API
+
+============================================================
+AUTOMATION
+============================================================
+
+Generate Partner Code
+
+Create Timeline
+
+Generate Audit
+
+Track Candidate Supply
+
+Track Campaign Support
+
+Calculate Performance
+
+Calculate Response Time
+
+Calculate Fill Ratio
+
+Calculate Relationship Score
+
+Generate Ranking
+
+Generate Reminders
+
+============================================================
+AI
+============================================================
+
+Partner Reliability
+
+Trade Expertise
+
+Regional Expertise
+
+Response Speed
+
+Supply Quality
+
+Submission Conversion
+
+Deployment Conversion
+
+Relationship Health
+
+Campaign Recommendation
+
+Partner Recommendation
+
+Replacement Recommendation
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+SEARCH
+============================================================
+
+Universal
+
+Natural Language
+
+Partner Name
+
+Category
+
+Trade
+
+Region
+
+City
+
+State
+
+Campaign
+
+Recruiter
+
+============================================================
+FILTERS
+============================================================
+
+Category
+
+Trade
+
+Region
+
+Performance
+
+Relationship
+
+Campaign
+
+Active Status
+
+Preferred
+
+Strategic
+
+============================================================
+QUEUE
+============================================================
+
+New Partners
+
+Verification Pending
+
+Campaign Ready
+
+Active Campaigns
+
+Waiting Response
+
+Performance Review
+
+Preferred Partners
+
+Strategic Partners
+
+Inactive Partners
+
+============================================================
+NOTIFICATIONS
+============================================================
+
+New Partner
+
+Verification Required
+
+Campaign Assigned
+
+Candidate Received
+
+No Response
+
+Performance Review Due
+
+Relationship Reminder
+
+Strategic Opportunity
+
+============================================================
+PERMISSIONS
+============================================================
+
+Agency Administrator
+
+Recruitment Manager
+
+Senior Recruiter
+
+Recruiter
+
+Read Only
+
+============================================================
+SECURITY
+============================================================
+
+Tenant Isolation
+
+RBAC
+
+Encrypted Records
+
+Internal Visibility Only
+
+Audit Logging
+
+Permission Validation
+
+Relationship Protection
+
+============================================================
+PERFORMANCE
+============================================================
+
+Workspace <2 Seconds
+
+Search <200 ms
+
+Partner Save <1 Second
+
+Drawer Load <1 Second
+
+Timeline Real Time
+
+============================================================
+TESTING
+============================================================
+
+Partner Creation
+
+Verification
+
+Campaign Assignment
+
+Candidate Supply
+
+Performance Calculation
+
+Relationship Intelligence
+
+Search
+
+Automation
+
+AI
+
+Permissions
+
+Performance
+
+============================================================
+DEPLOYMENT CHECKLIST
+============================================================
+
+Database
+
+Partner Engine
+
+Services
+
+APIs
+
+Automation
+
+AI
+
+Timeline
+
+Audit
+
+Notifications
+
+Search
+
+Testing
+
+Production
+
+============================================================
+LOVABLE BUILD PACKAGE
+============================================================
+
+Build the complete Sourcing Partners workspace exactly as specified.
+
+This module is an internal intelligence network.
+
+Never expose partner identity outside the tenant.
+
+Use Apple Contacts inspired productivity.
+
+Three-pane layout.
+
+Navigation.
+
+↓
+
+Operational Table.
+
+↓
+
+Intelligence Drawer.
+
+Support inline editing.
+
+Bulk campaign assignment.
+
+Persistent context.
+
+Keyboard shortcuts.
+
+Zero duplicate navigation.
+
+Relationship intelligence must always be visible.
+
+Performance must be operational, never financial.
+
+============================================================
+CLAUDE BACKEND PACKAGE
+============================================================
+
+Implement Sourcing Intelligence Engine.
+
+Implement Partner Engine.
+
+Implement Campaign Assignment Engine.
+
+Implement Candidate Supply Engine.
+
+Implement Performance Engine.
+
+Implement Relationship Intelligence Engine.
+
+Implement Timeline Engine.
+
+Implement Audit Engine.
+
+Implement Search Engine.
+
+Implement AI Recommendation Engine.
+
+Maintain permanent organizational sourcing knowledge.
+
+Maintain complete tenant isolation.
+
+Production ready.
+
+============================================================
+BUILD LOCK CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+Feature Register ............. PASS
+
+Implementation ............... PASS
+
+Frontend ..................... PASS
+
+Backend ...................... PASS
+
+Automation ................... PASS
+
+AI ........................... PASS
+
+Security ..................... PASS
+
+Performance .................. PASS
+
+Scalability .................. PASS
+
+Recruiter 12-Hour Audit ...... PASS
+
+GCC Recruitment Audit ........ PASS
+
+Devil's Advocate Audit ....... PASS
+
+Build Readiness .............. 10/10
+
+STATUS
+
+🔒 BP-007 LOCKED
+
+Sourcing Partners
+
+Module Build Package v1.0

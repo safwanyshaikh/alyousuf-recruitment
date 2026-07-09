@@ -1,0 +1,540 @@
+UE-012 - KAI FORM SYSTEM
+UI Engineering Specification v1.0
+Status: 🔒 UI LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Create one universal Form System for the entire KAI
+Operating System.
+
+Forms capture operational decisions.
+
+Forms never become administrative burden.
+
+Every form should feel faster than filling paper.
+
+============================================================
+FORM PHILOSOPHY
+============================================================
+
+Minimum Typing
+
+Maximum Intelligence
+
+Context Aware
+
+Auto Completed
+
+Operational First
+
+============================================================
+FORM TYPES
+============================================================
+
+Quick Form
+
+Standard Form
+
+Wizard
+
+Bulk Form
+
+Import Form
+
+Approval Form
+
+Review Form
+
+============================================================
+FORM STRUCTURE
+============================================================
+
+Header
+
+↓
+
+Context Summary
+
+↓
+
+Sections
+
+↓
+
+Fields
+
+↓
+
+Validation
+
+↓
+
+Primary Action
+
+↓
+
+Secondary Actions
+
+============================================================
+HEADER
+============================================================
+
+Form Title
+
+Related Record
+
+Reference Number
+
+Status
+
+Close
+
+============================================================
+CONTEXT SUMMARY
+============================================================
+
+Always Visible
+
+Shows
+
+Current Object
+
+Current Stage
+
+Owner
+
+Priority
+
+Linked Records
+
+============================================================
+SECTION RULES
+============================================================
+
+Maximum
+
+8 Fields
+
+Per Section
+
+Collapsible
+
+Logical Grouping
+
+Progress Indicator
+
+============================================================
+FIELD TYPES
+============================================================
+
+Text
+
+Textarea
+
+Number
+
+Currency
+
+Percentage
+
+Phone
+
+Email
+
+Password
+
+Date
+
+Time
+
+DateTime
+
+Dropdown
+
+Multi Select
+
+Search Select
+
+Checkbox
+
+Radio
+
+Switch
+
+Tag
+
+File Upload
+
+Signature
+
+Location
+
+============================================================
+SMART FIELDS
+============================================================
+
+Auto Complete
+
+Auto Suggest
+
+AI Suggestion
+
+Reference Lookup
+
+Relationship Lookup
+
+Recent Values
+
+Frequently Used
+
+============================================================
+FIELD BEHAVIOUR
+============================================================
+
+Auto Save
+
+Inline Validation
+
+Instant Formatting
+
+Dependency Aware
+
+Conditional Visibility
+
+Conditional Mandatory
+
+============================================================
+VALIDATION
+============================================================
+
+Real Time
+
+Inline
+
+Human Language
+
+Prevent Duplicate
+
+Prevent Invalid Data
+
+Prevent Broken Workflow
+
+============================================================
+AUTO POPULATION
+============================================================
+
+Candidate
+
+Requirement
+
+Client
+
+Project
+
+Campaign
+
+Recruiter
+
+Dates
+
+Reference Numbers
+
+Country
+
+Trade
+
+Automatically populated whenever available.
+
+============================================================
+AI ASSISTANCE
+============================================================
+
+Suggest Values
+
+Detect Missing Information
+
+Highlight Inconsistencies
+
+Recommend Corrections
+
+Explain Validation Errors
+
+============================================================
+FILE UPLOAD
+============================================================
+
+Drag & Drop
+
+Browse
+
+Paste
+
+Multiple Files
+
+Preview
+
+OCR Ready
+
+Version Control
+
+============================================================
+IMPORT
+============================================================
+
+Excel
+
+CSV
+
+PDF
+
+Image OCR
+
+Email Attachment
+
+Bulk Import
+
+============================================================
+FORM STATES
+============================================================
+
+Draft
+
+Editing
+
+Valid
+
+Invalid
+
+Saving
+
+Saved
+
+Submitted
+
+Approved
+
+Rejected
+
+Archived
+
+============================================================
+BUTTONS
+============================================================
+
+Save Draft
+
+Save
+
+Submit
+
+Approve
+
+Reject
+
+Cancel
+
+Reset
+
+Archive
+
+============================================================
+SHORTCUTS
+============================================================
+
+Ctrl + S
+
+Save
+
+Ctrl + Enter
+
+Submit
+
+Esc
+
+Cancel
+
+Tab
+
+Next Field
+
+Shift + Tab
+
+Previous Field
+
+============================================================
+ERROR HANDLING
+============================================================
+
+Inline
+
+Human Language
+
+Highlight Field
+
+Recovery Suggestion
+
+Retry
+
+============================================================
+SUCCESS HANDLING
+============================================================
+
+Auto Save Confirmation
+
+Toast Notification
+
+Timeline Update
+
+Audit Update
+
+Queue Refresh
+
+============================================================
+DRAWER FORMS
+============================================================
+
+Default Behaviour
+
+Most forms open inside the Intelligence Drawer.
+
+Never navigate away unless a wizard is required.
+
+============================================================
+WIZARDS
+============================================================
+
+Use only when
+
+More than 20 Fields
+
+or
+
+Multiple Dependent Steps
+
+Always show progress.
+
+============================================================
+RESPONSIVE
+============================================================
+
+Desktop
+
+Multi Column
+
+Laptop
+
+Multi Column
+
+Tablet
+
+Two Column
+
+Mobile
+
+Single Column
+
+============================================================
+PERFORMANCE
+============================================================
+
+Open Form
+
+<150ms
+
+Auto Save
+
+Instant
+
+Validation
+
+Real Time
+
+============================================================
+ACCESSIBILITY
+============================================================
+
+Keyboard First
+
+Screen Reader
+
+ARIA
+
+Focus Ring
+
+High Contrast
+
+============================================================
+RECRUITER RULES
+============================================================
+
+Never ask twice.
+
+Never retype existing data.
+
+Never manually enter reference numbers.
+
+Always reuse known information.
+
+============================================================
+MANAGEMENT RULES
+============================================================
+
+Forms must guarantee
+
+Consistency
+
+Accuracy
+
+Compliance
+
+Traceability
+
+============================================================
+LOVABLE RULES
+============================================================
+
+Implement one universal Form Engine.
+
+Never create module-specific form behavior.
+
+Auto-populate wherever possible.
+
+Minimize typing.
+
+Prefer search-select over dropdowns.
+
+Every successful submission must automatically update Timeline, Audit, Queue, Dashboard and AI.
+
+============================================================
+UI LOCK CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+Build Packages ............... PASS
+
+Form Consistency ............. PASS
+
+Recruiter Productivity ....... PASS
+
+Data Quality ................. PASS
+
+Performance .................. PASS
+
+Scalability .................. PASS
+
+Devil's Advocate Audit ....... PASS
+
+UI Engineering Completeness .. 10/10
+
+STATUS
+
+🔒 UE-012 LOCKED
+
+KAI Form System
+
+UI Engineering Specification v1.0

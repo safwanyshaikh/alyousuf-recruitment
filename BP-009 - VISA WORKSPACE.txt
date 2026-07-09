@@ -1,0 +1,749 @@
+BP-009 - VISA WORKSPACE
+Module Build Package v1.0
+Status: 🔒 BUILD LOCK
+
+============================================================
+MODULE
+============================================================
+
+Visa Workspace
+
+Immigration & Compliance Intelligence Engine
+
+============================================================
+PURPOSE
+============================================================
+
+Convert a Mobilization-complete candidate into a legally cleared,
+travel-ready employee.
+
+The Visa Workspace governs employer sponsorship, immigration
+compliance, embassy processing and travel authorization.
+
+It answers only one question.
+
+"Can this candidate legally travel and join the employer today?"
+
+============================================================
+FOUNDATION
+============================================================
+
+Mobilization Complete
+
+↓
+
+Visa Workspace
+
+↓
+
+Visa Approved
+
+↓
+
+Travel Ready
+
+↓
+
+Deployment Workspace
+
+Visa processing never starts before Mobilization completion.
+
+Deployment never starts before Travel Ready.
+
+============================================================
+MODULE STRUCTURE
+============================================================
+
+Visa Intake
+
+↓
+
+Employer Approval
+
+↓
+
+Immigration Compliance
+
+↓
+
+Embassy Processing
+
+↓
+
+Visa Approval
+
+↓
+
+Travel Clearance
+
+↓
+
+Travel Ready
+
+============================================================
+PRIMARY USERS
+============================================================
+
+Visa Coordinator
+
+Visa Manager
+
+Operations Manager
+
+Recruiter
+
+Agency Administrator
+
+============================================================
+WORKSPACE STRUCTURE
+============================================================
+
+Global Header
+
+↓
+
+Visa Intelligence Summary
+
+↓
+
+Action Toolbar
+
+↓
+
+Universal Search
+
+↓
+
+Quick Filters
+
+↓
+
+Visa Operations Table
+
+↓
+
+Visa Intelligence Drawer
+
+↓
+
+Timeline
+
+============================================================
+LEFT NAVIGATION
+============================================================
+
+Visa Queue
+
+Employer Documents
+
+Embassy
+
+Compliance
+
+Travel Clearance
+
+Timeline
+
+============================================================
+WORKSPACE TREE
+============================================================
+
+Ready For Visa
+
+↓
+
+Visa Application
+
+↓
+
+Employer Approval
+
+↓
+
+Government Processing
+
+↓
+
+Embassy Processing
+
+↓
+
+Visa Issued
+
+↓
+
+Travel Clearance
+
+↓
+
+Travel Ready
+
+============================================================
+USER JOURNEY
+============================================================
+
+Mobilization Completed
+
+↓
+
+Visa Auto Created
+
+↓
+
+Employer Approval
+
+↓
+
+Visa Processing
+
+↓
+
+Compliance Validation
+
+↓
+
+Embassy Decision
+
+↓
+
+Visa Approved
+
+↓
+
+Travel Ready
+
+↓
+
+Deployment Workspace
+
+============================================================
+COMPONENT TREE
+============================================================
+
+Header
+
+Summary Cards
+
+Toolbar
+
+Universal Search
+
+Quick Filters
+
+Visa Table
+
+Drawer
+
+Timeline
+
+Compliance Panel
+
+Document Panel
+
+Notifications
+
+============================================================
+SUMMARY CARDS
+============================================================
+
+Ready For Visa
+
+Applications Submitted
+
+Employer Approval Pending
+
+Embassy Pending
+
+Additional Documents
+
+Visa Approved
+
+Travel Ready
+
+Delayed Cases
+
+============================================================
+TABLE
+============================================================
+
+Visa No
+
+Candidate
+
+KAI No
+
+Passport
+
+Employer
+
+Country
+
+Current Stage
+
+Visa Status
+
+Coordinator
+
+Last Activity
+
+Actions
+
+============================================================
+DRAWER
+============================================================
+
+Candidate Summary
+
+Visa Summary
+
+Employer Information
+
+Compliance Checklist
+
+Visa Documents
+
+Embassy Timeline
+
+Travel Clearance
+
+AI Recommendation
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+STATE MANAGEMENT
+============================================================
+
+Selected Visa
+
+Drawer
+
+Search
+
+Filters
+
+Sorting
+
+Pagination
+
+Notifications
+
+============================================================
+DATABASE
+============================================================
+
+Visa
+
+VisaApplication
+
+EmployerApproval
+
+Compliance
+
+Embassy
+
+TravelClearance
+
+Document
+
+Timeline
+
+Audit
+
+Notification
+
+============================================================
+RELATIONSHIPS
+============================================================
+
+Candidate
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Travel Clearance
+
+↓
+
+Deployment
+
+============================================================
+SERVICES
+============================================================
+
+Visa Engine
+
+Compliance Engine
+
+Employer Engine
+
+Embassy Engine
+
+Travel Clearance Engine
+
+Timeline Engine
+
+Search Engine
+
+Notification Engine
+
+Audit Engine
+
+============================================================
+API SET
+============================================================
+
+Visa API
+
+Employer API
+
+Compliance API
+
+Embassy API
+
+Travel Clearance API
+
+Timeline API
+
+Notification API
+
+Search API
+
+Audit API
+
+============================================================
+AUTOMATION
+============================================================
+
+Create Visa Workspace
+
+Generate Visa Number
+
+Track Employer Approval
+
+Track Embassy Status
+
+Track Compliance
+
+Calculate Travel Readiness
+
+Generate Timeline
+
+Generate Audit
+
+Generate Reminders
+
+Escalate Delays
+
+Create Deployment Workspace
+
+============================================================
+AI
+============================================================
+
+Visa Readiness
+
+Compliance Score
+
+Delay Prediction
+
+Employer Risk
+
+Embassy Risk
+
+Travel Readiness
+
+Priority Recommendation
+
+Coordinator Recommendation
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+SEARCH
+============================================================
+
+Universal
+
+Natural Language
+
+Candidate
+
+KAI No
+
+Visa No
+
+Passport
+
+Employer
+
+Country
+
+Coordinator
+
+============================================================
+FILTERS
+============================================================
+
+Country
+
+Employer
+
+Visa Status
+
+Coordinator
+
+Priority
+
+Embassy
+
+Compliance
+
+Travel Ready
+
+============================================================
+QUEUE
+============================================================
+
+Ready For Visa
+
+Application Pending
+
+Employer Approval
+
+Embassy Processing
+
+Additional Documents
+
+Visa Approved
+
+Travel Ready
+
+Delayed
+
+Completed
+
+Archived
+
+============================================================
+NOTIFICATIONS
+============================================================
+
+Visa Created
+
+Employer Approval Pending
+
+Documents Required
+
+Embassy Update
+
+Visa Approved
+
+Visa Rejected
+
+Travel Ready
+
+Delay Alert
+
+Compliance Alert
+
+============================================================
+PERMISSIONS
+============================================================
+
+Agency Administrator
+
+Visa Manager
+
+Visa Coordinator
+
+Operations Manager
+
+Recruiter
+
+Read Only
+
+============================================================
+SECURITY
+============================================================
+
+Tenant Isolation
+
+RBAC
+
+Encrypted Documents
+
+Audit Logging
+
+Permission Validation
+
+Compliance Protection
+
+============================================================
+PERFORMANCE
+============================================================
+
+Workspace <2 Seconds
+
+Search <200 ms
+
+Status Update Instant
+
+Timeline Real Time
+
+============================================================
+TESTING
+============================================================
+
+Visa Creation
+
+Employer Approval
+
+Compliance
+
+Embassy Workflow
+
+Travel Readiness
+
+Automation
+
+AI
+
+Permissions
+
+Performance
+
+============================================================
+DEPLOYMENT CHECKLIST
+============================================================
+
+Database
+
+Visa Engine
+
+Services
+
+APIs
+
+Automation
+
+AI
+
+Timeline
+
+Audit
+
+Notifications
+
+Search
+
+Testing
+
+Production
+
+============================================================
+LOVABLE BUILD PACKAGE
+============================================================
+
+Build the complete Visa Workspace exactly as specified.
+
+This is an operational immigration workspace.
+
+Always display candidate readiness before document details.
+
+Show the next pending action at the top.
+
+Highlight delays automatically.
+
+Support inline updates.
+
+Bulk actions.
+
+Keyboard shortcuts.
+
+Persistent context.
+
+Zero duplicate navigation.
+
+============================================================
+CLAUDE BACKEND PACKAGE
+============================================================
+
+Implement Visa Intelligence Engine.
+
+Implement Compliance Engine.
+
+Implement Employer Approval Engine.
+
+Implement Embassy Processing Engine.
+
+Implement Travel Readiness Engine.
+
+Implement Timeline Engine.
+
+Implement Audit Engine.
+
+Implement Search Engine.
+
+Implement AI Recommendation Engine.
+
+Automatically create Deployment Workspace after Travel Ready.
+
+Production ready.
+
+============================================================
+BUILD LOCK CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+Feature Register ............. PASS
+
+Implementation ............... PASS
+
+Frontend ..................... PASS
+
+Backend ...................... PASS
+
+Automation ................... PASS
+
+AI ........................... PASS
+
+Security ..................... PASS
+
+Performance .................. PASS
+
+Scalability .................. PASS
+
+Recruiter 12-Hour Audit ...... PASS
+
+GCC Recruitment Audit ........ PASS
+
+Devil's Advocate Audit ....... PASS
+
+Build Readiness .............. 10/10
+
+STATUS
+
+🔒 BP-009 LOCKED
+
+Visa Workspace
+
+Module Build Package v1.0

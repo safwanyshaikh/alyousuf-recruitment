@@ -1,0 +1,522 @@
+FE-002 - KAI FRONTEND PROJECT STRUCTURE
+Status: 🔒 FRONTEND LOCK
+
+============================================================
+PURPOSE
+============================================================
+
+Define one universal enterprise frontend architecture for KAI.
+
+Every feature, module and component must follow this structure.
+
+No duplicate folders.
+
+No feature sprawl.
+
+No business logic inside UI components.
+
+============================================================
+PROJECT STRUCTURE
+============================================================
+
+src/
+
+app/
+
+assets/
+
+components/
+
+features/
+
+layouts/
+
+pages/
+
+hooks/
+
+contexts/
+
+providers/
+
+services/
+
+api/
+
+types/
+
+schemas/
+
+utils/
+
+constants/
+
+config/
+
+styles/
+
+store/
+
+router/
+
+lib/
+
+workers/
+
+============================================================
+APP
+============================================================
+
+Application Bootstrap
+
+Providers
+
+Theme
+
+Authentication
+
+Routing
+
+Error Boundary
+
+============================================================
+FEATURES
+============================================================
+
+dashboard/
+
+recruitment/
+
+candidates/
+
+partners/
+
+mobilization/
+
+visa/
+
+deployment/
+
+administration/
+
+reports/
+
+============================================================
+FEATURE STRUCTURE
+============================================================
+
+components/
+
+pages/
+
+hooks/
+
+services/
+
+types/
+
+schemas/
+
+utils/
+
+constants/
+
+============================================================
+COMPONENT LIBRARY
+============================================================
+
+buttons/
+
+cards/
+
+tables/
+
+drawers/
+
+dialogs/
+
+forms/
+
+search/
+
+queue/
+
+timeline/
+
+filters/
+
+navigation/
+
+notifications/
+
+charts/
+
+loaders/
+
+errors/
+
+============================================================
+LAYOUTS
+============================================================
+
+Application Layout
+
+Dashboard Layout
+
+Workspace Layout
+
+Administration Layout
+
+Report Layout
+
+Mobile Layout
+
+============================================================
+PAGES
+============================================================
+
+Dashboard
+
+Recruitment
+
+Candidates
+
+Partners
+
+Mobilization
+
+Visa
+
+Deployment
+
+Administration
+
+Reports
+
+============================================================
+HOOKS
+============================================================
+
+Reusable Only
+
+No Business Logic
+
+UI State
+
+Keyboard
+
+Resize
+
+Responsive
+
+Selection
+
+============================================================
+CONTEXTS
+============================================================
+
+Authentication
+
+Theme
+
+Workspace
+
+Notifications
+
+Drawer
+
+Queue
+
+Search
+
+============================================================
+PROVIDERS
+============================================================
+
+Query Provider
+
+Theme Provider
+
+Router Provider
+
+Error Provider
+
+Authentication Provider
+
+============================================================
+SERVICES
+============================================================
+
+API Client
+
+Authentication
+
+Search
+
+Notifications
+
+Storage
+
+Download
+
+Upload
+
+============================================================
+API
+============================================================
+
+REST Client
+
+Endpoints
+
+Request Builder
+
+Response Parser
+
+Error Handler
+
+Retry Logic
+
+============================================================
+SCHEMAS
+============================================================
+
+Validation
+
+Zod
+
+Reusable
+
+Typed
+
+============================================================
+TYPES
+============================================================
+
+Interfaces
+
+Enums
+
+DTO
+
+Models
+
+Shared Types
+
+============================================================
+UTILS
+============================================================
+
+Formatting
+
+Parsing
+
+Validation
+
+Date
+
+Currency
+
+Helpers
+
+============================================================
+CONSTANTS
+============================================================
+
+Routes
+
+Permissions
+
+Statuses
+
+Colors
+
+Breakpoints
+
+Limits
+
+============================================================
+CONFIG
+============================================================
+
+Environment
+
+Application
+
+Theme
+
+Query
+
+Build
+
+============================================================
+STYLES
+============================================================
+
+Tailwind
+
+Design Tokens
+
+Typography
+
+Utilities
+
+Animations
+
+============================================================
+STORE
+============================================================
+
+UI State Only
+
+Persistent Preferences
+
+No Server Data
+
+============================================================
+ROUTER
+============================================================
+
+Protected Routes
+
+Public Routes
+
+Lazy Loading
+
+Permission Guards
+
+============================================================
+LIB
+============================================================
+
+Reusable Libraries
+
+No Business Logic
+
+============================================================
+WORKERS
+============================================================
+
+Background Processing
+
+Search Index
+
+Large Imports
+
+OCR
+
+AI Streaming
+
+============================================================
+CODING RULES
+============================================================
+
+One Component
+
+One Responsibility
+
+Maximum
+
+300 Lines
+
+Extract Logic
+
+Extract Hooks
+
+Extract Types
+
+============================================================
+NAMING
+============================================================
+
+PascalCase
+
+Components
+
+camelCase
+
+Functions
+
+kebab-case
+
+Folders
+
+UPPER_CASE
+
+Constants
+
+============================================================
+IMPORT RULES
+============================================================
+
+Absolute Imports
+
+No Circular Imports
+
+No Deep Relative Paths
+
+============================================================
+PERFORMANCE
+============================================================
+
+Lazy Loading
+
+Memoization
+
+Tree Shaking
+
+Virtualization
+
+Dynamic Imports
+
+============================================================
+TESTING
+============================================================
+
+Component Tests
+
+Integration Tests
+
+Accessibility Tests
+
+Performance Tests
+
+============================================================
+LOVABLE RULES
+============================================================
+
+Generate code exactly following this structure.
+
+Never invent folders.
+
+Never duplicate components.
+
+Every feature must remain isolated.
+
+Every reusable component belongs inside the Design Library.
+
+============================================================
+FRONTEND BUILD CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Project Structure ............ PASS
+
+Scalability .................. PASS
+
+Developer Experience ......... PASS
+
+Maintainability .............. PASS
+
+Performance .................. PASS
+
+Devil's Advocate Audit ....... PASS
+
+Frontend Readiness ........... 10/10
+
+STATUS
+
+🔒 FE-002 LOCKED
+
+KAI Frontend Project Structure

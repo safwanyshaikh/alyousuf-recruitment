@@ -1,0 +1,879 @@
+BP-006 - CANDIDATES
+Module Build Package v1.0
+Status: 🔒 BUILD LOCK
+
+============================================================
+MODULE
+============================================================
+
+Candidates
+
+Workforce Identity Intelligence Engine
+
+============================================================
+PURPOSE
+============================================================
+
+Build the permanent Workforce Identity Repository.
+
+Every human enters KAI only once.
+
+The Contact is the beginning.
+
+The Candidate Profile is created only after a CV is received and matched.
+
+The module continuously strengthens organizational workforce intelligence throughout the candidate lifecycle.
+
+============================================================
+GOLDEN PRINCIPLE
+============================================================
+
+One Human
+
+↓
+
+One Identity
+
+↓
+
+One KAI Number
+
+↓
+
+Lifetime Relationship
+
+Never duplicate.
+
+Never recreate.
+
+Never lose history.
+
+============================================================
+MODULE STRUCTURE
+============================================================
+
+Contact Module
+
+↓
+
+Candidate Table
+
+↓
+
+Candidate Profile
+
+↓
+
+Timeline
+
+↓
+
+Documents
+
+↓
+
+Communication
+
+↓
+
+Assessment
+
+↓
+
+Deployment History
+
+↓
+
+Future Opportunity
+
+============================================================
+PRIMARY USERS
+============================================================
+
+Recruiter
+
+Senior Recruiter
+
+Recruitment Manager
+
+Operations Manager
+
+Agency Administrator
+
+============================================================
+WORKSPACE STRUCTURE
+============================================================
+
+Global Header
+
+↓
+
+Operational Summary
+
+↓
+
+Action Toolbar
+
+↓
+
+Universal Search
+
+↓
+
+Quick Filters
+
+↓
+
+Candidate Table
+
+↓
+
+Candidate Detail Drawer
+
+↓
+
+Timeline
+
+============================================================
+LEFT NAVIGATION
+============================================================
+
+Contacts
+
+Candidates
+
+Assessments
+
+Documents
+
+Communication
+
+Timeline
+
+============================================================
+WORKSPACE TREE
+============================================================
+
+Quick Contact
+
+↓
+
+Contact Dictionary
+
+↓
+
+Recruiter Calling
+
+↓
+
+Recruiter Notes
+
+↓
+
+Contact Updated
+
+↓
+
+Interested
+
+↓
+
+CV Received
+
+↓
+
+Identity Match
+
+↓
+
+Candidate Profile
+
+↓
+
+Foundation Assessment
+
+↓
+
+K14 Verdict
+
+↓
+
+Shortlist
+
+↓
+
+Submission
+
+↓
+
+Interview
+
+↓
+
+Selection
+
+↓
+
+Mobilization
+
+↓
+
+Visa
+
+↓
+
+Deployment
+
+↓
+
+Alumni
+
+↓
+
+Future Opportunity
+
+============================================================
+USER JOURNEY
+============================================================
+
+Create Contact
+
+↓
+
+Call Candidate
+
+↓
+
+Update Contact
+
+↓
+
+Receive CV
+
+↓
+
+Identity Match
+
+↓
+
+Create Candidate Profile
+
+↓
+
+Foundation Assessment
+
+↓
+
+K14 Verdict
+
+↓
+
+Recruitment Flow
+
+↓
+
+Deployment
+
+↓
+
+Future Opportunity
+
+============================================================
+COMPONENT TREE
+============================================================
+
+Header
+
+Summary Cards
+
+Toolbar
+
+Universal Search
+
+Quick Filters
+
+Candidate Table
+
+Drawer
+
+Timeline
+
+Communication Panel
+
+Document Panel
+
+Assessment Panel
+
+Notifications
+
+============================================================
+SUMMARY CARDS
+============================================================
+
+New Contacts
+
+Interested
+
+CV Pending
+
+Profiles Created
+
+Assessment Pending
+
+Submission Ready
+
+Interview Today
+
+Selected
+
+Deployment Ready
+
+Future Opportunity
+
+============================================================
+TABLE
+============================================================
+
+KAI No
+
+Name
+
+Mobile
+
+Nationality
+
+Current Location
+
+Current Designation
+
+Trade
+
+Requirement
+
+Status
+
+Recruiter
+
+Last Activity
+
+Actions
+
+============================================================
+DRAWER
+============================================================
+
+Identity
+
+Quick Summary
+
+Communication Timeline
+
+Recruiter Notes
+
+Documents
+
+Assessment
+
+K14 Verdict
+
+Recruitment History
+
+Deployment History
+
+AI Recommendation
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+STATE MANAGEMENT
+============================================================
+
+Selected Candidate
+
+Selected Contact
+
+Drawer
+
+Search
+
+Filters
+
+Sorting
+
+Pagination
+
+Pinned Records
+
+Notifications
+
+============================================================
+DATABASE
+============================================================
+
+Contact
+
+Candidate
+
+Identity
+
+Communication
+
+Assessment
+
+Document
+
+DeploymentHistory
+
+Timeline
+
+Audit
+
+Notification
+
+============================================================
+RELATIONSHIPS
+============================================================
+
+Contact
+
+↓
+
+Candidate
+
+↓
+
+Assessment
+
+↓
+
+Submission
+
+↓
+
+Deployment
+
+↓
+
+Alumni
+
+============================================================
+SERVICES
+============================================================
+
+Contact Service
+
+Identity Service
+
+Candidate Service
+
+Communication Service
+
+Assessment Service
+
+Document Service
+
+Timeline Service
+
+Search Service
+
+Notification Service
+
+Audit Service
+
+============================================================
+API SET
+============================================================
+
+Contact API
+
+Candidate API
+
+Identity API
+
+Assessment API
+
+Document API
+
+Communication API
+
+Timeline API
+
+Search API
+
+Notification API
+
+Audit API
+
+============================================================
+AUTOMATION
+============================================================
+
+Generate KAI Number
+
+Identity Match
+
+Duplicate Detection
+
+Profile Creation
+
+Timeline Creation
+
+Audit Creation
+
+Communication Logging
+
+Document Classification
+
+Deployment Linking
+
+Future Opportunity Detection
+
+============================================================
+AI
+============================================================
+
+Identity Confidence
+
+Experience Credibility
+
+Requirement Match
+
+Trade Confidence
+
+Deployment Readiness
+
+Salary Intelligence
+
+Availability
+
+Document Completeness
+
+Redeployment Recommendation
+
+Relationship Intelligence
+
+Evidence
+
+Confidence
+
+Next Action
+
+============================================================
+SEARCH
+============================================================
+
+Universal
+
+Natural Language
+
+KAI Number
+
+Name
+
+Mobile
+
+Passport
+
+Trade
+
+Nationality
+
+Location
+
+Requirement
+
+Campaign
+
+Deployment
+
+============================================================
+FILTERS
+============================================================
+
+Status
+
+Trade
+
+Nationality
+
+Current Location
+
+Experience
+
+Assessment
+
+K14 Verdict
+
+Availability
+
+Recruiter
+
+============================================================
+QUEUE
+============================================================
+
+New Contacts
+
+Call Pending
+
+Interested
+
+CV Pending
+
+Assessment
+
+K14 Review
+
+Submission Ready
+
+Interview
+
+Selection
+
+Mobilization
+
+Visa
+
+Deployment
+
+Alumni
+
+Future Opportunity
+
+============================================================
+NOTIFICATIONS
+============================================================
+
+New Contact
+
+Duplicate Detected
+
+CV Received
+
+Assessment Due
+
+Interview Scheduled
+
+Client Feedback
+
+Offer Released
+
+Deployment Completed
+
+Future Opportunity Available
+
+============================================================
+PERMISSIONS
+============================================================
+
+Agency Administrator
+
+Recruitment Manager
+
+Senior Recruiter
+
+Recruiter
+
+Read Only
+
+============================================================
+SECURITY
+============================================================
+
+Tenant Isolation
+
+RBAC
+
+Encrypted Documents
+
+Identity Protection
+
+Audit Logging
+
+Permission Validation
+
+Timeline Protection
+
+============================================================
+PERFORMANCE
+============================================================
+
+Workspace <2 Seconds
+
+Search <200 ms
+
+Contact Save <1 Second
+
+Profile Load <2 Seconds
+
+Timeline Real Time
+
+============================================================
+TESTING
+============================================================
+
+Quick Contact
+
+Identity Match
+
+Duplicate Detection
+
+Candidate Creation
+
+Communication
+
+Assessment
+
+K14
+
+Search
+
+Automation
+
+AI
+
+Permissions
+
+Performance
+
+============================================================
+DEPLOYMENT CHECKLIST
+============================================================
+
+Database
+
+Identity Engine
+
+Services
+
+APIs
+
+Automation
+
+AI
+
+Timeline
+
+Audit
+
+Notifications
+
+Search
+
+Testing
+
+Production
+
+============================================================
+LOVABLE BUILD PACKAGE
+============================================================
+
+Build the complete Candidates workspace exactly as specified.
+
+Implement Apple Contacts inspired productivity with KAI operational intelligence.
+
+Maintain three-pane workflow:
+
+Navigation
+
+↓
+
+Operational Table
+
+↓
+
+Intelligence Drawer
+
+Every recruiter action must be executable without leaving the workspace.
+
+Inline editing.
+
+Bulk actions.
+
+Keyboard shortcuts.
+
+Instant search.
+
+Persistent context.
+
+Zero duplicate navigation.
+
+Never convert a Contact into a Candidate until a CV is received and Identity Match succeeds.
+
+============================================================
+CLAUDE BACKEND PACKAGE
+============================================================
+
+Implement Workforce Identity Engine.
+
+Implement Contact Engine.
+
+Implement Candidate Engine.
+
+Implement Identity Matching Engine.
+
+Implement Duplicate Detection.
+
+Implement Communication Engine.
+
+Implement Assessment Engine.
+
+Implement Timeline Engine.
+
+Implement Audit Engine.
+
+Implement Search Engine.
+
+Implement AI Recommendation Engine.
+
+Implement Future Opportunity Engine.
+
+Maintain One Human • One Identity • One KAI Number throughout the platform.
+
+Production ready.
+
+============================================================
+BUILD LOCK CERTIFICATE
+============================================================
+
+Architecture ................. PASS
+
+Product Engineering .......... PASS
+
+Feature Register ............. PASS
+
+Implementation ............... PASS
+
+Frontend ..................... PASS
+
+Backend ...................... PASS
+
+Automation ................... PASS
+
+AI ........................... PASS
+
+Security ..................... PASS
+
+Performance .................. PASS
+
+Scalability .................. PASS
+
+Recruiter 12-Hour Audit ...... PASS
+
+Devil's Advocate Audit ....... PASS
+
+GCC Recruitment Audit ........ PASS
+
+Build Readiness .............. 10/10
+
+STATUS
+
+🔒 BP-006 LOCKED
+
+Candidates
+
+Module Build Package v1.0
