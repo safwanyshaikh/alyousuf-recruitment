@@ -576,10 +576,28 @@ function processThread_(thread, circuit) {
     return 'REJECTED';
   }
 
-  // S07.F01-L — Write to Candidates sheet
-  writeToSheet_(scored, threadId, cvLink, appDate);
-  writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
-  appendConsent_(parsed, appDate, threadId);
+  // S07.F01-L — Atomic intake: KAI issuance + Foundation Queue (intake_atomic_v1.gs)
+  // intakeCreateCandidate_ holds LockService for the critical section:
+  //   race-dup check → KAI generation → row write (col 25 set at birth) → _Meta → Queue.
+  // This replaces the previous three-call pattern (writeToSheet_ + writeToMeta_ + appendConsent_)
+  // which issued KAI in a separate non-atomic batch — root cause of the 90 Phase-1 collisions.
+  var iaResult = intakeCreateCandidate_(
+    scored, threadId, message.getId(), cvLink, appDate, candEmail, candMobile, parsed);
+
+  if (iaResult === 'DUPLICATE') {
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.duplicate);
+    return 'DUPLICATE';
+  }
+  if (iaResult === 'LOCK_TIMEOUT') {
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.error);
+    return 'LOCK_TIMEOUT';
+  }
+  if (iaResult === 'ERROR') {
+    try { logError_(thread, message.getFrom(), message.getSubject(), 'IA write error', ''); } catch (le) {}
+    moveLabel_(thread, CONFIG.labels.input, CONFIG.labels.error);
+    return 'ERROR';
+  }
+  // iaResult === 'CREATED' — continue with quota, follow-up, label move below
 
   appendLog_({
     status: 'PROCESSED',
@@ -1269,8 +1287,14 @@ function applyDecisionRules_(scored, rules) {
 // ═══════════════════════════════════════════════════════════════════
 // S13 · SHEET WRITERS
 // ═══════════════════════════════════════════════════════════════════
-// S13.F01 — write scored candidate to Candidates sheet
+// S13.F01 — DEPRECATED: direct creation path disabled. Use intakeCreateCandidate_().
+// This function is intentionally blocked to enforce Mission Zero single-writer mandate.
+// All callers have been migrated to intakeCreateCandidate_ in intake_atomic_v1.gs.
 function writeToSheet_(scored, threadId, cvLink, appDate) {
+  throw new Error(
+    'writeToSheet_: DEPRECATED — single-writer mandate (Mission Zero). ' +
+    'Use intakeCreateCandidate_() from intake_atomic_v1.gs.'
+  );
   var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
   if (!sheet) { Logger.log('S13: Candidates sheet not found.'); return; }
   var ic  = CONFIG.inputColumns;

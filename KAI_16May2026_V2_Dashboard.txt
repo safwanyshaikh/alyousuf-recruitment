@@ -799,6 +799,9 @@
     .fb-row:hover{border-color:var(--blue);box-shadow:0 0 0 2px rgba(59,130,246,.12)}
     .fb-row.urgent{border-left:3px solid var(--red)}
     .fb-row.normal{border-left:3px solid var(--green)}
+    .fb-row.new-req{border-color:var(--gold);background:rgba(245,158,11,.10);animation:pulse-new 2s ease-out}
+    @keyframes pulse-new{0%{box-shadow:0 0 0 0 rgba(245,158,11,.7)}70%{box-shadow:0 0 0 8px rgba(245,158,11,0)}100%{box-shadow:0 0 0 0 rgba(245,158,11,0)}}
+    .req-card.new-req{border-color:var(--gold);background:rgba(245,158,11,.08);animation:pulse-new 2s ease-out}
     .fb-row-top{display:flex;align-items:center;justify-content:space-between;
       margin-bottom:3px}
     .fb-req-id{font-size:9.5px;font-weight:700;color:var(--navy);font-family:monospace}
@@ -1557,7 +1560,8 @@ Local Transfer accepted"></textarea>
 var ALL_RECORDS    = [];
 var FILTERED       = [];
 var ALL_DATA       = null;
-var OPEN_REQS      = [];
+var OPEN_REQS               = [];
+var PENDING_HIGHLIGHT_REQS  = [];
 var PAGE           = 1;
 var PAGE_SIZE      = 50;
 var SORT_COL       = 'freshness';   // DEFAULT: newest profiles first (strict freshness order)
@@ -1638,7 +1642,8 @@ function onData(d) {
   computeDeployReadyMetrics();
   populateFilterDropdowns(d);
   renderRequirementsStrip(OPEN_REQS);
-  renderFlightBoard(OPEN_REQS);   // ← sidebar flight board
+  renderFlightBoard(OPEN_REQS);
+  highlightNewRequirements();
   PAGE = 1;
   applyFilters();
   var now = new Date();
@@ -2741,7 +2746,7 @@ function renderRequirementsStrip(reqs) {
   }
   document.getElementById('reqs-count').textContent = '(' + reqs.length + ' open)';
   strip.innerHTML = reqs.map(function(r) {
-    return '<div class="req-card" onclick="filterByReq(\''+esc(r.reqId)+'\')">' +
+    return '<div class="req-card" data-req="'+esc(r.reqId)+'" onclick="filterByReq(\''+esc(r.reqId)+'\')">' +
       '<div class="rc-id">'+esc(r.reqId)+'</div>' +
       '<div class="rc-trade">'+esc(r.trade||'—')+'</div>' +
       '<div class="rc-meta">'+esc(r.clientName||'Unknown')+' · '+esc(r.deployCountry||'GCC')+
@@ -3020,7 +3025,7 @@ function renderFlightBoard(reqs) {
     var matchCnt = parseInt(r.shortlistCount||0);
     var qty      = parseInt(r.quantity||1);
     var gap      = Math.max(0, qty - matchCnt);
-    return '<div class="'+rowCls+'" onclick="filterByReqFlight(\''+esc(r.reqId)+'\')" title="Click to find matching candidates">' +
+    return '<div class="'+rowCls+'" data-req="'+esc(r.reqId)+'" onclick="filterByReqFlight(\''+esc(r.reqId)+'\')" title="Click to find matching candidates">' +
       '<div class="fb-row-top">' +
         '<span class="fb-req-id">'+esc(r.reqId)+'</span>' +
         '<span class="fb-status '+stCls+'">'+stLbl+'</span>' +
@@ -3051,6 +3056,58 @@ function filterByReqFlight(reqId) {
       el.classList.add('selected');
     });
   }, 400);
+}
+
+// ── POST-CREATION AUTO REDIRECT ─────────────────────────────────────────
+/**
+ * Call after any requirement is created (single JD mapping or multi-JD save).
+ * Closes the import center, refreshes data, then highlights the new rows.
+ */
+function onCreated(reqIds) {
+  if (!reqIds || !reqIds.length) return;
+  PENDING_HIGHLIGHT_REQS = reqIds.slice();
+  closeImportCenter();
+  // Open the requirements panel so highlights are visible
+  var panel = document.getElementById('reqs-panel');
+  if (panel && !panel.classList.contains('visible')) panel.classList.add('visible');
+  refreshData();
+}
+
+/**
+ * Called by onData() after renderFlightBoard / renderRequirementsStrip.
+ * Adds .new-req class and scrolls the flight board to the first new item.
+ */
+function highlightNewRequirements() {
+  if (!PENDING_HIGHLIGHT_REQS || !PENDING_HIGHLIGHT_REQS.length) return;
+  var ids = PENDING_HIGHLIGHT_REQS;
+  PENDING_HIGHLIGHT_REQS = [];
+
+  var firstBoard = null, firstCard = null;
+  ids.forEach(function(reqId) {
+    document.querySelectorAll('[data-req="' + reqId + '"]').forEach(function(el) {
+      el.classList.add('new-req');
+      if (el.classList.contains('fb-row') && !firstBoard) firstBoard = el;
+      if (el.classList.contains('req-card') && !firstCard)  firstCard  = el;
+    });
+  });
+
+  // Scroll flight board to first new requirement
+  if (firstBoard) {
+    firstBoard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  // Scroll req strip to first new card
+  if (firstCard) {
+    firstCard.scrollIntoView({ behavior: 'smooth', inline: 'nearest' });
+  }
+
+  // Remove highlight after 5s so it doesn't persist
+  setTimeout(function() {
+    ids.forEach(function(reqId) {
+      document.querySelectorAll('[data-req="' + reqId + '"]').forEach(function(el) {
+        el.classList.remove('new-req');
+      });
+    });
+  }, 5000);
 }
 
 // ── RECRUITER SPRINT ENGINE ────────────────────────────────────────────
@@ -3469,7 +3526,7 @@ function extractJdFromPaste() {
       document.getElementById('jd-paste-processing').style.display = 'none';
       showToast('Error: ' + (err.message || err));
     })
-    .extractJdFromPastePublicV2Fixed(text, title);
+    .extractJdFromPastePublicV293Fixed(text, title);
 }
 
 function clearJdPaste() {
@@ -3791,10 +3848,39 @@ function renderMultiJdConfirmation(res, containerId) {
       '</div></div>';
   });
 
+  var bid = esc(res.batchId || '');
   html += '</div>' +
+    // ── Project linking section ────────────────────────────────────
+    '<div style="margin-top:14px;padding:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px">' +
+      '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:600;color:var(--navy)">' +
+        '<input type="checkbox" id="multi-proj-toggle-' + bid + '" onchange="toggleMultiProjFields(\'' + bid + '\')">' +
+        ' Link all requirements to a Client / Project' +
+      '</label>' +
+      '<div id="multi-proj-fields-' + bid + '" style="display:none;margin-top:10px">' +
+        '<div style="display:grid;gap:8px">' +
+          '<div>' +
+            '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">CLIENT NAME <span style="color:var(--red)">*</span></label>' +
+            '<input id="multi-proj-client-' + bid + '" type="text" placeholder="e.g. Wjeen International" ' +
+            'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+          '</div>' +
+          '<div>' +
+            '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">PROJECT NAME <span style="color:var(--red)">*</span></label>' +
+            '<input id="multi-proj-name-' + bid + '" type="text" placeholder="e.g. Shutdown 2026" ' +
+            'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+          '</div>' +
+          '<div>' +
+            '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">COUNTRY</label>' +
+            '<select id="multi-proj-country-' + bid + '" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:#fff">' +
+            _npCountryOptions('GCC') +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    // ── Action buttons ─────────────────────────────────────────────
     '<div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
     '<button class="imp-btn imp-btn-primary" id="btn-confirm-multi-jd" ' +
-    'onclick="confirmSaveMultiJds(\'' + esc(res.batchId || '') + '\',\'' + esc(containerId) + '\',' + jds.length + ')">' +
+    'onclick="confirmSaveMultiJds(\'' + bid + '\',\'' + esc(containerId) + '\',' + jds.length + ')">' +
     '✓ Save Selected Requirements</button>' +
     '<button class="imp-btn imp-btn-ghost" onclick="document.getElementById(\'' + esc(containerId) + '\').innerHTML=\'\'" style="padding:8px 14px">✕ Cancel</button>' +
     '</div>' +
@@ -3815,6 +3901,24 @@ function confirmSaveMultiJds(batchId, containerId, total) {
     if (chk && chk.checked) selected.push(i);
   }
   if (selected.length === 0) { showToast('Select at least one position to save'); return; }
+
+  // Read project-linking fields if checkbox is ticked
+  var newCampaign = null;
+  var toggleEl = document.getElementById('multi-proj-toggle-' + batchId);
+  if (toggleEl && toggleEl.checked) {
+    var clientEl  = document.getElementById('multi-proj-client-'  + batchId);
+    var nameEl    = document.getElementById('multi-proj-name-'    + batchId);
+    var countryEl = document.getElementById('multi-proj-country-' + batchId);
+    var clientName  = clientEl  ? clientEl.value.trim()  : '';
+    var projectName = nameEl    ? nameEl.value.trim()    : '';
+    var country     = countryEl ? countryEl.value        : 'GCC';
+    if (!clientName || !projectName) {
+      showToast('Enter client name and project name to link requirements');
+      return;
+    }
+    newCampaign = { clientName: clientName, projectName: projectName, country: country };
+  }
+
   var btn = document.getElementById('btn-confirm-multi-jd');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
   var statusEl = document.getElementById('multi-save-status-' + containerId);
@@ -3824,11 +3928,19 @@ function confirmSaveMultiJds(batchId, containerId, total) {
     .withSuccessHandler(function(res) {
       if (btn) { btn.disabled = false; btn.textContent = '✓ Save Selected Requirements'; }
       if (res && res.ok) {
-        if (statusEl) statusEl.innerHTML = '✅ Saved <strong>' + res.saved + '</strong> requirements · Req IDs: ' +
-          (res.reqIds || []).map(function(id){ return '<code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(id) + '</code>'; }).join(' ');
-        showToast('✓ ' + res.saved + ' requirements saved');
+        var reqs   = res.requirements || [];
+        var saved  = reqs.length;
+        var reqIds = reqs.map(function(r) { return r.reqId; });
+        if (statusEl) statusEl.innerHTML =
+          '✅ Saved <strong>' + saved + '</strong> requirements' +
+          (res.campaignId ? ' · Campaign: <code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(res.campaignId) + '</code>' : '') +
+          ' · Req IDs: ' +
+          reqIds.map(function(id) {
+            return '<code style="font-size:10px;background:var(--bg);padding:1px 4px;border-radius:3px;border:1px solid var(--border)">' + esc(id) + '</code>';
+          }).join(' ');
+        showToast('✓ ' + saved + ' requirements saved' + (res.campaignId ? ' · ' + res.campaignId : ''));
         loadImportStats();
-        setTimeout(function() { refreshData(); }, 1500);
+        onCreated(reqIds);
       } else {
         if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">⚠️ ' + esc(res ? res.msg : 'Save failed') + '</span>';
       }
@@ -3837,7 +3949,12 @@ function confirmSaveMultiJds(batchId, containerId, total) {
       if (btn) { btn.disabled = false; btn.textContent = '✓ Save Selected Requirements'; }
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">Error: ' + esc(e.message || e) + '</span>';
     })
-    .saveMultiJdBatch(batchId, selected);
+    .bulkCreateRequirementsFromJDsV293(batchId, selected, newCampaign, null);
+}
+
+function toggleMultiProjFields(batchId) {
+  var el = document.getElementById('multi-proj-fields-' + batchId);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
 }
 
 // ── PROJECT MANAGEMENT (client-side) ────────────────────────────────
@@ -3867,29 +3984,99 @@ function mapReqToProject(reqId) {
   google.script.run
     .withSuccessHandler(function(res) {
       if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = res && res.ok ? '✅ Mapped to project' : '⚠️ ' + (res ? res.msg : 'Failed'); }
-      if (res && res.ok) showToast('✓ Requirement mapped to project');
+      if (res && res.ok) {
+        showToast('✓ Requirement mapped to project');
+        onCreated([reqId]);
+      }
     })
     .withFailureHandler(function(e) { showToast('Map error: ' + (e.message || e)); })
     .mapReqToProjectPublic(reqId, projectId);
 }
 
 function createProjectAndMap(reqId, clientName, country) {
-  var name = prompt('Project name:', clientName ? clientName + ' Project' : 'New Project');
-  if (!name) return;
+  renderNewProjectForm(reqId, clientName, country);
+}
+
+function renderNewProjectForm(reqId, clientName, country) {
+  var formId = 'np-form-' + (reqId || '').replace(/[^a-z0-9]/gi, '');
+  var existing = document.getElementById(formId);
+  if (existing) {
+    existing.style.display = existing.style.display === 'none' ? '' : 'none';
+    return;
+  }
+  var anchor = document.getElementById('jdpm-status-' + reqId);
+  if (!anchor) return;
+  anchor.style.display = 'block';
+  var div = document.createElement('div');
+  div.id = formId;
+  div.style.cssText = 'margin-top:10px;padding:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px';
+  div.innerHTML =
+    '<div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:10px">＋ New Client / Project</div>' +
+    '<div style="display:grid;gap:8px">' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">CLIENT NAME <span style="color:var(--red)">*</span></label>' +
+        '<input id="np-client-' + esc(reqId) + '" type="text" value="' + esc(clientName || '') + '" placeholder="e.g. Wjeen International" ' +
+        'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+      '</div>' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">PROJECT NAME <span style="color:var(--red)">*</span></label>' +
+        '<input id="np-project-' + esc(reqId) + '" type="text" value="" placeholder="e.g. Shutdown 2026" ' +
+        'style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;outline:none;box-sizing:border-box">' +
+      '</div>' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px">COUNTRY</label>' +
+        '<select id="np-country-' + esc(reqId) + '" style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:#fff">' +
+        _npCountryOptions(country || 'GCC') +
+        '</select>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:12px">' +
+      '<button onclick="submitNewProjectForm(\'' + esc(reqId) + '\')" ' +
+      'style="padding:7px 14px;border-radius:6px;background:var(--navy);color:#fff;border:none;cursor:pointer;font-size:12px;font-weight:600">✓ Create & Link</button>' +
+      '<button onclick="document.getElementById(\'' + formId + '\').style.display=\'none\'" ' +
+      'style="padding:7px 12px;border-radius:6px;border:1px solid var(--border2);background:#fff;cursor:pointer;font-size:12px">Cancel</button>' +
+    '</div>' +
+    '<div id="np-msg-' + esc(reqId) + '" style="font-size:11px;margin-top:8px;display:none"></div>';
+  anchor.parentNode.insertBefore(div, anchor.nextSibling);
+}
+
+function _npCountryOptions(selected) {
+  return ['Saudi Arabia','UAE','Qatar','Kuwait','Bahrain','Oman','GCC'].map(function(o) {
+    return '<option value="' + o + '"' + (o === selected ? ' selected' : '') + '>' + o + '</option>';
+  }).join('');
+}
+
+function submitNewProjectForm(reqId) {
+  var clientEl  = document.getElementById('np-client-'  + reqId);
+  var projectEl = document.getElementById('np-project-' + reqId);
+  var countryEl = document.getElementById('np-country-' + reqId);
+  var msgEl     = document.getElementById('np-msg-'     + reqId);
+
+  var clientName  = clientEl  ? clientEl.value.trim()  : '';
+  var projectName = projectEl ? projectEl.value.trim() : '';
+  var country     = countryEl ? countryEl.value        : 'GCC';
+
+  if (!clientName)  { showToast('Client name is required');  if (clientEl)  clientEl.focus();  return; }
+  if (!projectName) { showToast('Project name is required'); if (projectEl) projectEl.focus(); return; }
+
+  if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = 'var(--muted)'; msgEl.textContent = '⏳ Creating hierarchy…'; }
+
   google.script.run
     .withSuccessHandler(function(res) {
       if (res && res.ok) {
-        showToast('✓ Project created: ' + res.projectId);
-        loadProjectsIntoSelector(reqId);
-        // Auto-map
-        setTimeout(function() {
-          var sel = document.getElementById('jdpm-sel-' + reqId);
-          if (sel) { sel.value = res.projectId; mapReqToProject(reqId); }
-        }, 600);
-      } else { showToast('Create failed: ' + (res ? res.msg : 'Error')); }
+        if (msgEl) { msgEl.style.color = 'var(--green2)'; msgEl.textContent = '✓ ' + res.projectId + ' · Campaign: ' + res.campaignId; }
+        showToast('✓ Client → Project → Campaign created and linked');
+        onCreated([reqId]);
+      } else {
+        if (msgEl) { msgEl.style.color = 'var(--red)'; msgEl.textContent = '⚠ ' + (res ? res.msg : 'Failed'); }
+        showToast('Error: ' + (res ? res.msg : 'Failed'));
+      }
     })
-    .withFailureHandler(function(e) { showToast('Error: ' + (e.message || e)); })
-    .createProjectPublic(name, clientName || '', country || 'GCC');
+    .withFailureHandler(function(e) {
+      if (msgEl) { msgEl.style.color = 'var(--red)'; msgEl.textContent = 'Error: ' + (e.message || e); }
+      showToast('Error: ' + (e.message || e));
+    })
+    .createClientHierarchyAndMapReqPublic(reqId, clientName, projectName, country);
 }
 
 // ── RECRUITER ACTIONS ON MATCH ROWS ─────────────────────────────────

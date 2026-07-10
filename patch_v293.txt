@@ -1,0 +1,603 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI — KARIGAR AI  |  patch_v293.gs
+ *  Purpose : JD Extraction Fix — Gemini multimodal PDF + department
+ *  Version : 2.9.3
+ *  Date    : 16-Jun-2026
+ *  Author  : KAI Engineering
+ *  Paste   : Add as a NEW .gs file in the Apps Script editor
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ *  ROOT CAUSE (WHY v291 FAILED)
+ *  ─────────────────────────────────────────────────────────────────
+ *  The JD PDFs use character-level glyph fragmentation without proper
+ *  ToUnicode font maps. Drive PDF→Doc text extraction produces empty
+ *  or garbled text for these files. regex fallback never had usable
+ *  text to work with. Result: 0 Created / 4 Failed.
+ *
+ *  FIX
+ *  ─────────────────────────────────────────────────────────────────
+ *  Send the PDF base64 directly to Gemini as inlineData (multimodal).
+ *  Gemini renders the PDF visually and reads field values correctly —
+ *  bypasses Drive OCR and the text encoding problem entirely.
+ *  Drive OCR is kept as fallback for any PDFs Gemini cannot process.
+ *
+ *  SECTION INDEX
+ *  ─────────────────────────────────────────────────────────────────
+ *  S93.C01  REQ_HEADERS_V293_         — 19-column _Requirements schema
+ *  S93.F01  extractJdFromPdfInline_v293_(base64, mimeType, filename)
+ *           Primary extraction: PDF inline → Gemini multimodal
+ *  S93.F02  extractSingleJdBlock_v293_(text, subject)
+ *           Fallback extraction: text block → Gemini text + regex
+ *  S93.F03  extractJdV284_v293_(text, subject)
+ *           Orchestrator for text-based fallback
+ *  S93.F04  extractJdPublicV293Fixed(base64Data, filename, mimeType)
+ *           Public entry point — PRIMARY: F01, FALLBACK: F03
+ *           Dashboard: google.script.run.extractJdPublicV293Fixed(...)
+ *  S93.F05  extractJdFromPastePublicV293Fixed(text, title)
+ *           Public paste entry point
+ *  S93.F06  saveRequirementV293_(jd)
+ *           19-column save — col 19 = Department
+ *  S93.F07  bulkCreateRequirementsFromJDsV293(batchId, indices, newCampaign, existingCampaignId)
+ *           Bulk confirm-and-save: {reqId, trade, department, quantity, country}
+ *
+ *  DEPENDENCIES
+ *  ─────────────────────────────────────────────────────────────────
+ *  V282  : getMasterSS_(), ensureSheet_()
+ *  V284  : CONFIG_V2, createProject_(), listProjects(), mapReqToProject_()
+ *  V291  : callGemini_v291_(), callGeminiString_v291_(), cleanOcrText_(),
+ *          splitMultipleJds_()
+ *  V292  : findOrCreateClient_(), findOrCreateProject_(),
+ *          findOrCreateCampaign_(), getCampaignById_(),
+ *          incrementCampaignReqCount_()
+ *
+ *  All functions are additive — nothing in prior patches is modified.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ═══════════════════════════════════════════════════════════════════
+// S93.C01 — 19-column Requirements header (adds Department at col 19)
+// ═══════════════════════════════════════════════════════════════════
+
+var REQ_HEADERS_V293_ = [
+  'Req ID',               // col 1
+  'Received Date',        // col 2
+  'Client Name',          // col 3
+  'Deploy Country',       // col 4
+  'Trade',                // col 5
+  'Quantity',             // col 6
+  'Min Experience (yr)',  // col 7
+  'Min Age',              // col 8
+  'Max Age',              // col 9
+  'Salary',               // col 10
+  'Local Transfer',       // col 11
+  'Visit Visa OK',        // col 12
+  'GCC Preferred',        // col 13
+  'Certifications',       // col 14
+  'Special Requirements', // col 15
+  'Urgency',              // col 16
+  'Status',               // col 17
+  'Notes',                // col 18
+  'Department'            // col 19  ← new in v293
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// S93 · JD EXTRACTION — MULTIMODAL PDF → GEMINI
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * S93.F01 — PRIMARY extraction: send PDF inline to Gemini.
+ *
+ * These PDFs use character-level glyph fragmentation without proper
+ * ToUnicode maps, so Drive OCR text extraction fails. By sending the
+ * PDF as inlineData, Gemini renders it visually and reads the content.
+ *
+ * @param  {string} base64Data  Raw PDF as base64 (from dashboard)
+ * @param  {string} mimeType    'application/pdf' (default)
+ * @param  {string} filename    Used as hint in prompt; also last-resort trade
+ * @returns {{ ok, jds:[], count, errors:[] }}
+ */
+function extractJdFromPdfInline_v293_(base64Data, mimeType, filename) {
+  var result = { ok: false, jds: [], count: 0, errors: [] };
+  try {
+    var mime = mimeType || 'application/pdf';
+
+    var prompt =
+      'This PDF is a Job Description document. Extract structured data from it.\n\n' +
+      'Rules:\n' +
+      '- Map the field labelled "Position Title", "Designation", "Position", or "Job Title" to "trade".\n' +
+      '- For "department" choose the closest match from: ' +
+        'Project Management, Operations, Maintenance, Construction, QA/QC, HSE.\n' +
+      '- quantity = number of open positions (default 1 if not stated).\n' +
+      '- If multiple positions are in the document, return a JSON array.\n' +
+      '- Return ONLY valid JSON. No markdown, no explanation.\n\n' +
+      'Schema (single position):\n' +
+      '{"trade":"","department":"","quantity":1,"deployCountry":"","location":"",' +
+      '"minExperience":0,"maxExperience":0,"educationReq":"","salary":"","clientName":"",' +
+      '"localTransfer":false,"visitVisaOK":false,"gccPreference":false,"languageReq":"",' +
+      '"certifications":[],"urgency":"NORMAL",' +
+      '"specialRequirements":{"rotation":"","accommodation":"","transport":"","iqamaTransfer":false},' +
+      '"externalRefNo":"","notes":""}';
+
+    // inlineData part — Gemini reads the PDF visually
+    var parts = [
+      { inlineData: { mimeType: mime, data: base64Data } },
+      { text: prompt }
+    ];
+
+    var rawResp = callGemini_v291_(parts, null);
+    if (!rawResp) { result.errors.push('No response from Gemini'); return result; }
+
+    // Unwrap Gemini envelope
+    var gText = rawResp;
+    try {
+      var envelope = JSON.parse(rawResp);
+      var candidate = (envelope.candidates || [])[0] || {};
+      if (candidate.content) {
+        gText = ((candidate.content.parts || [])[0] || {}).text || rawResp;
+      }
+    } catch(pe) {}
+
+    // Try array of JDs first, then single object
+    var jdList = null;
+    var aStart = gText.indexOf('[');
+    var oStart = gText.indexOf('{');
+    if (aStart >= 0 && (oStart < 0 || aStart < oStart)) {
+      var aEnd = gText.lastIndexOf(']') + 1;
+      if (aEnd > aStart) {
+        try { jdList = JSON.parse(gText.slice(aStart, aEnd)); } catch(pe) {}
+      }
+    }
+    if (!jdList) {
+      var oEnd = gText.lastIndexOf('}') + 1;
+      if (oStart >= 0 && oEnd > oStart) {
+        try {
+          var obj = JSON.parse(gText.slice(oStart, oEnd));
+          jdList = [obj];
+        } catch(pe) {}
+      }
+    }
+
+    if (!jdList || !Array.isArray(jdList) || jdList.length === 0) {
+      result.errors.push('Gemini returned no parseable JSON');
+      return result;
+    }
+
+    // Filter valid JDs and fill defaults
+    var valid = [];
+    jdList.forEach(function(jd) {
+      if (!jd || typeof jd !== 'object') return;
+      // Last-resort: use filename as trade
+      if (!jd.trade && filename) {
+        jd.trade = filename.replace(/\.[^.]+$/, '').replace(/[_\-]+/g, ' ').trim();
+      }
+      if (jd.trade || jd.externalRefNo) {
+        if (!jd.quantity) jd.quantity = 1;
+        if (!jd.salary)   jd.salary   = 'Not Stated';
+        if (!jd.urgency)  jd.urgency  = 'NORMAL';
+        valid.push(jd);
+      }
+    });
+
+    result.ok    = valid.length > 0;
+    result.jds   = valid;
+    result.count = valid.length;
+    return result;
+
+  } catch(err) {
+    result.errors.push('PDF inline extraction error: ' + err.message);
+    Logger.log('S93.F01 error: ' + err.message);
+    return result;
+  }
+}
+
+/**
+ * S93.F02 — FALLBACK extraction from plain text block.
+ * Used when Drive OCR is the text source (F01 primary failed).
+ * Supports: Position Title / Designation / Position / Job Title + Department.
+ */
+function extractSingleJdBlock_v293_(text, subject) {
+  var jd = {};
+
+  try {
+    var geminiPrompt =
+      'Extract structured data from this job description text. Return ONLY valid JSON, no markdown.\n\n' +
+      'Rules:\n' +
+      '- Map "Position Title", "Designation", "Position", or "Job Title" field to "trade".\n' +
+      '- For "department" choose from: Project Management, Operations, Maintenance, Construction, QA/QC, HSE.\n\n' +
+      'Fields:\n' +
+      '{"trade":"","department":"","quantity":1,"deployCountry":"","location":"",' +
+      '"minExperience":0,"maxExperience":0,"educationReq":"","salary":"","clientName":"",' +
+      '"localTransfer":false,"visitVisaOK":false,"gccPreference":false,"languageReq":"",' +
+      '"certifications":[],"urgency":"NORMAL",' +
+      '"specialRequirements":{"rotation":"","accommodation":"","transport":"","iqamaTransfer":false},' +
+      '"externalRefNo":"","notes":""}\n\n' +
+      'JD Text:\n' +
+      (typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text).slice(0, 4000);
+
+    var rawResp = callGeminiString_v291_(geminiPrompt, null);
+    if (rawResp) {
+      var gText = rawResp;
+      try {
+        var envelope = JSON.parse(rawResp);
+        gText = ((envelope.candidates || [])[0] || {}).content
+          ? ((envelope.candidates[0].content.parts || [])[0] || {}).text || rawResp
+          : rawResp;
+      } catch(pe) {}
+      var s = gText.indexOf('{'), e2 = gText.lastIndexOf('}') + 1;
+      if (s >= 0 && e2 > s) {
+        var parsed = JSON.parse(gText.slice(s, e2));
+        if (parsed && typeof parsed === 'object' &&
+            (parsed.trade || parsed.department || parsed.externalRefNo)) {
+          jd = parsed;
+        }
+      }
+    }
+  } catch(gemErr) {
+    Logger.log('S93.F02: Gemini text extraction failed: ' + gemErr.message);
+  }
+
+  // Trade regex fallback
+  if (!jd.trade) {
+    var cleaned = typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text;
+    var tradePatterns = [
+      /position\s+title\s*:\s*([^\n\r]+)/im,
+      /designation\s*:\s*([^\n\r]+)/im,
+      /^position\s*:\s*([^\n\r]+)/im,
+      /job\s+title\s*[:\s]+([^\n\r]+)/i,
+      /role\s*:\s*([^\n\r]+)/i
+    ];
+    for (var ti = 0; ti < tradePatterns.length; ti++) {
+      var tm = cleaned.match(tradePatterns[ti]);
+      if (tm && tm[1] && tm[1].trim().length > 1 && tm[1].trim().length < 100) {
+        jd.trade = tm[1].trim();
+        break;
+      }
+    }
+    if (!jd.trade && subject) {
+      jd.trade = subject.replace(/^(?:re:|fwd?:|fw:)\s*/i, '').replace(/\.[^.]+$/, '').trim();
+    }
+    if (!jd.quantity)    jd.quantity = 1;
+    if (!jd.salary)      jd.salary   = 'Not Stated';
+    if (!jd.urgency)     jd.urgency  = 'NORMAL';
+    if (!jd.deployCountry) {
+      var cl = cleaned.toLowerCase();
+      if (/saudi|ksa/.test(cl))           jd.deployCountry = 'Saudi Arabia';
+      else if (/\buae\b|dubai/.test(cl))  jd.deployCountry = 'UAE';
+      else if (/qatar|doha/.test(cl))     jd.deployCountry = 'Qatar';
+      else if (/oman|muscat/.test(cl))    jd.deployCountry = 'Oman';
+      else if (/kuwait/.test(cl))         jd.deployCountry = 'Kuwait';
+      else if (/bahrain|manama/.test(cl)) jd.deployCountry = 'Bahrain';
+    }
+  }
+
+  // Department regex fallback — always runs
+  if (!jd.department) {
+    var deptText = typeof cleanOcrText_ === 'function' ? cleanOcrText_(text) : text;
+    var dm = deptText.match(/department\s*:\s*([^\n\r]+)/i) ||
+             deptText.match(/division\s*:\s*([^\n\r]+)/i)   ||
+             deptText.match(/section\s*:\s*([^\n\r]+)/i);
+    if (dm && dm[1] && dm[1].trim().length > 0 && dm[1].trim().length < 60) {
+      jd.department = dm[1].trim();
+    }
+  }
+
+  return jd;
+}
+
+/**
+ * S93.F03 — Text-based orchestrator (Drive OCR fallback path only).
+ */
+function extractJdV284_v293_(text, subject) {
+  var result = { ok: false, jds: [], count: 0, errors: [] };
+  var blocks = typeof splitMultipleJds_ === 'function' ? splitMultipleJds_(text) : [text];
+  blocks.forEach(function(block, idx) {
+    try {
+      var jd = extractSingleJdBlock_v293_(block, subject);
+      if (jd.trade || jd.externalRefNo) result.jds.push(jd);
+    } catch(e) {
+      result.errors.push('Block ' + (idx + 1) + ': ' + e.message);
+    }
+  });
+  result.ok    = result.jds.length > 0;
+  result.count = result.jds.length;
+  return result;
+}
+
+/**
+ * S93.F04 — Public file upload entry point.
+ *
+ * PRIMARY  : S93.F01 — PDF sent inline to Gemini (multimodal).
+ *            Bypasses Drive OCR. Handles fragmented-glyph PDFs.
+ * FALLBACK : Drive OCR → Google Doc text → S93.F03.
+ *            Used if Gemini inline fails or mimeType is not PDF.
+ *
+ * Dashboard call:
+ *   google.script.run
+ *     .withSuccessHandler(onResult)
+ *     .extractJdPublicV293Fixed(base64Data, filename, mimeType)
+ *
+ * Returns:
+ *   Single JD  → {ok:true, count:1, jds:[{reqId,...}], isMulti:false}
+ *   Multi JD   → {ok:true, isMulti:true, pendingSave:true, batchId, count, jds:[previews]}
+ *   Failure    → {ok:false, msg, errors:[]}
+ */
+function extractJdPublicV293Fixed(base64Data, filename, mimeType) {
+  var result = { ok:false, count:0, jds:[], isMulti:false, msg:'', errors:[] };
+  var mime = mimeType || 'application/pdf';
+
+  // ── PRIMARY: Gemini multimodal PDF inline ──────────────────────
+  var inlineResult = extractJdFromPdfInline_v293_(base64Data, mime, filename);
+
+  if (inlineResult.ok && inlineResult.jds.length > 0) {
+    return saveAndReturnJds_v293_(inlineResult.jds, filename, result);
+  }
+
+  // Log inline errors, try Drive OCR fallback
+  result.errors = result.errors.concat(inlineResult.errors);
+
+  // ── FALLBACK: Drive OCR text extraction ───────────────────────
+  var tempFileId = null, docFileId = null;
+  try {
+    var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mime, filename || 'jd_upload');
+    var text = '';
+    try {
+      var tempFile = DriveApp.createFile(blob);
+      tempFileId   = tempFile.getId();
+      var docMeta  = Drive.Files.copy(
+        { title: 'kai_tmp_jd_v293_' + Date.now(),
+          mimeType: 'application/vnd.google-apps.document' },
+        tempFileId);
+      docFileId = docMeta.id;
+      text = DocumentApp.openById(docFileId).getBody().getText();
+    } catch(convErr) {
+      result.errors.push('Drive OCR failed: ' + convErr.message);
+    }
+
+    if (!text || text.trim().length < 20) {
+      result.msg = 'Could not extract text from this file. Inline extraction also failed.';
+      return result;
+    }
+
+    var extracted = extractJdV284_v293_(text, filename);
+    if (!extracted.ok) {
+      result.msg = 'Could not identify a valid JD. ' +
+                   (extracted.errors.length ? extracted.errors[0] : '');
+      result.errors = result.errors.concat(extracted.errors);
+      return result;
+    }
+
+    return saveAndReturnJds_v293_(extracted.jds, filename, result);
+
+  } catch(err) {
+    result.msg = 'Extraction error: ' + err.message;
+    return result;
+  } finally {
+    try { if (tempFileId) DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e) {}
+    try { if (docFileId)  DriveApp.getFileById(docFileId).setTrashed(true);  } catch(e) {}
+  }
+}
+
+/**
+ * S93.F04a — Internal helper: save JDs and build return value.
+ * Used by both primary and fallback paths of S93.F04.
+ */
+function saveAndReturnJds_v293_(jds, filename, result) {
+  if (jds.length === 1) {
+    var reqId = saveRequirementV293_(jds[0]);
+    jds[0].reqId = reqId;
+    result.ok = true; result.count = 1; result.jds = jds; result.isMulti = false;
+    result.msg = '1 position extracted and saved';
+    return result;
+  }
+
+  // Multi-JD batch
+  var batchId = 'B' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+  try {
+    CacheService.getScriptCache().put('JD_BATCH_' + batchId, JSON.stringify(jds), 1800);
+  } catch(ce) {
+    var saved = [];
+    jds.forEach(function(jd) {
+      try { var rId = saveRequirementV293_(jd); jd.reqId = rId; saved.push(jd); } catch(e) {}
+    });
+    result.ok = true; result.count = saved.length; result.jds = saved; result.isMulti = true;
+    result.msg = saved.length + ' positions saved (cache unavailable)';
+    return result;
+  }
+  var previews = jds.map(function(jd, idx) {
+    return {
+      idx: idx, trade: jd.trade||'', department: jd.department||'',
+      clientName: jd.clientName||'', deployCountry: jd.deployCountry||'',
+      quantity: jd.quantity||1, salary: jd.salary||'', urgency: jd.urgency||''
+    };
+  });
+  result.ok = true; result.isMulti = true; result.pendingSave = true;
+  result.batchId = batchId; result.count = jds.length; result.jds = previews;
+  result.msg = jds.length + ' positions found — please confirm which to save';
+  return result;
+}
+
+/**
+ * S93.F05 — Public paste entry point.
+ * Dashboard: google.script.run.extractJdFromPastePublicV293Fixed(text, title)
+ */
+function extractJdFromPastePublicV293Fixed(text, title) {
+  var result = { ok:false, count:0, jds:[], isMulti:false, msg:'', errors:[] };
+  if (!text || text.trim().length < 15) {
+    result.msg = 'Please paste the JD text first.';
+    return result;
+  }
+  try {
+    var extracted = extractJdV284_v293_(text.trim(), title || '');
+    if (!extracted.ok) {
+      result.msg = 'Could not detect a valid JD in the pasted text.';
+      result.errors = extracted.errors;
+      return result;
+    }
+    return saveAndReturnJds_v293_(extracted.jds, title, result);
+  } catch(err) {
+    result.msg = 'Extraction error: ' + err.message;
+    return result;
+  }
+}
+
+/**
+ * S93.F06 — Save requirement with 19-column schema.
+ *
+ * Columns 1-18: identical to saveRequirementV284_ (backward-compatible reads).
+ * Column 19   : Department (new in v293).
+ *
+ * @param  {Object} jd   Extracted JD — trade, department, quantity, etc.
+ * @returns {string}     Req ID e.g. "REQ-20260616-0042"
+ */
+function saveRequirementV293_(jd) {
+  var ss    = getMasterSS_();
+  var sheet = ss.getSheetByName(CONFIG_V2.requirementsSheet) ||
+              ensureSheet_(ss, CONFIG_V2.requirementsSheet, REQ_HEADERS_V293_, '#1e3a5f');
+
+  var props   = PropertiesService.getScriptProperties();
+  var counter = parseInt(props.getProperty(CONFIG_V2.reqIdCounterKey) || '0') + 1;
+  props.setProperty(CONFIG_V2.reqIdCounterKey, String(counter));
+  var reqId = 'REQ-' + Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyyMMdd') +
+              '-' + String(counter).padStart(4, '0');
+  var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd-MMM-yyyy HH:mm');
+
+  var certsStr = Array.isArray(jd.certifications) ?
+    jd.certifications.join(', ') : (jd.certifications || '');
+
+  var notes = [
+    jd.educationReq  ? 'Edu: '    + jd.educationReq  : '',
+    jd.externalRefNo ? 'ExtRef: ' + jd.externalRefNo  : '',
+    jd.roleCategory  ? 'Type: '   + jd.roleCategory   : '',
+    jd.languageReq   ? jd.languageReq                 : '',
+    jd.salaryType === 'SALARY_CODE' ? 'SalaryRange: ' + (jd.salaryRange || '') : '',
+    jd.sourceFile    ? 'Source: ' + jd.sourceFile     : '',
+    jd.notes         || ''
+  ].filter(Boolean).join(' | ');
+
+  var specStr = '';
+  if (jd.specialRequirements && typeof jd.specialRequirements === 'object') {
+    try { specStr = JSON.stringify(jd.specialRequirements); } catch(e) {}
+  }
+
+  sheet.appendRow([
+    reqId,                                  // 1  Req ID
+    today,                                  // 2  Received Date
+    jd.clientName    || '',                 // 3  Client Name
+    jd.deployCountry || jd.location || '',  // 4  Deploy Country
+    jd.trade         || '',                 // 5  Trade
+    jd.quantity      || 1,                  // 6  Quantity
+    jd.minExperience || 0,                  // 7  Min Experience (yr)
+    jd.minAge        || '',                 // 8  Min Age
+    jd.maxAge        || '',                 // 9  Max Age
+    jd.salary        || 'Not Stated',       // 10 Salary
+    jd.localTransfer ? 'Yes' : '',          // 11 Local Transfer
+    jd.visitVisaOK   ? 'Yes' : '',          // 12 Visit Visa OK
+    jd.gccPreference ? 'Yes' : '',          // 13 GCC Preferred
+    certsStr,                               // 14 Certifications
+    specStr,                                // 15 Special Requirements
+    jd.urgency       || 'NORMAL',           // 16 Urgency
+    'OPEN',                                 // 17 Status
+    notes,                                  // 18 Notes
+    jd.department    || ''                  // 19 Department  ← new
+  ]);
+
+  SpreadsheetApp.flush();
+  return reqId;
+}
+
+/**
+ * S93.F07 — Bulk confirm-and-save from multi-JD batch cache.
+ *
+ * Drop-in replacement for bulkCreateRequirementsFromJDs (patch_v292)
+ * with department support. Dashboard must call this function name.
+ *
+ * @param  {string}   batchId            ScriptCache suffix (JD_BATCH_{batchId})
+ * @param  {number[]} indices            Which JDs to save; [] = all
+ * @param  {Object}   newCampaign        {clientName, projectName, country} or null
+ * @param  {string}   existingCampaignId Backward-compat direct campaign ID
+ *
+ * @returns {{ok, campaignCreated, campaignId, campaignName,
+ *            requirements:[{reqId,trade,department,quantity,country}],
+ *            msg, errors:[]}}
+ */
+function bulkCreateRequirementsFromJDsV293(batchId, indices, newCampaign, existingCampaignId) {
+  var result = {
+    ok: false, campaignCreated: false, campaignId: '', campaignName: '',
+    requirements: [], msg: '', errors: []
+  };
+  try {
+    if (!batchId) { result.msg = 'batchId is required.'; return result; }
+
+    var cached = CacheService.getScriptCache().get('JD_BATCH_' + batchId);
+    if (!cached) {
+      result.msg = 'Batch data expired or not found. Please re-upload the JD files.';
+      return result;
+    }
+    var allJds  = JSON.parse(cached);
+    var idxList = indices || [];
+    var toSave  = idxList.length === 0
+      ? allJds
+      : allJds.filter(function(_, i) { return idxList.indexOf(i) !== -1; });
+
+    if (toSave.length === 0) { result.msg = 'No JDs to save.'; return result; }
+
+    // ── Campaign / Project resolution ───────────────────────────
+    var campaignId = '', campaignName = '', campaignCreated = false, projectId = '';
+
+    if (existingCampaignId) {
+      var ec = getCampaignById_(existingCampaignId);
+      if (!ec) { result.msg = 'Campaign not found: ' + existingCampaignId; return result; }
+      campaignId = ec.campaignId; campaignName = ec.campaignName; projectId = ec.projectId;
+
+    } else if (newCampaign && newCampaign.projectName) {
+      var cn  = String(newCampaign.clientName  || '').trim();
+      var pn  = String(newCampaign.projectName || '').trim();
+      var cty = String(newCampaign.country     || '').trim();
+      var cid = findOrCreateClient_(cn, cty);
+      projectId = findOrCreateProject_(cn, pn, cty);
+      var camp  = findOrCreateCampaign_(cid, cn, projectId, pn, cty);
+      campaignId = camp.campaignId; campaignName = camp.campaignName;
+      campaignCreated = camp.campaignCreated;
+    }
+
+    result.campaignId = campaignId; result.campaignName = campaignName;
+    result.campaignCreated = campaignCreated;
+
+    // ── Save requirements ────────────────────────────────────────
+    var requirements = [], saved = 0;
+    toSave.forEach(function(jd) {
+      try {
+        if (newCampaign) {
+          if (!jd.clientName    && newCampaign.clientName) jd.clientName    = newCampaign.clientName;
+          if (!jd.deployCountry && newCampaign.country)    jd.deployCountry = newCampaign.country;
+        }
+        var reqId = saveRequirementV293_(jd);
+        try { if (projectId) mapReqToProject_(reqId, projectId); } catch(me) {}
+        requirements.push({
+          reqId:      reqId,
+          trade:      jd.trade         || '',
+          department: jd.department    || '',
+          quantity:   jd.quantity      || 1,
+          country:    jd.deployCountry || ''
+        });
+        saved++;
+      } catch(se) {
+        result.errors.push('JD "' + (jd.trade || 'unknown') + '": ' + se.message);
+      }
+    });
+
+    if (campaignId && saved > 0) { try { incrementCampaignReqCount_(campaignId, saved); } catch(e) {} }
+    result.ok           = saved > 0;
+    result.requirements = requirements;
+    result.msg = saved + ' requirement' + (saved !== 1 ? 's' : '') + ' saved' +
+      (campaignId ? ' under ' + (campaignCreated ? 'new' : 'existing') + ' campaign ' + campaignId : '') +
+      (result.errors.length ? ' (' + result.errors.length + ' error(s))' : '');
+    return result;
+
+  } catch(err) {
+    result.msg = 'bulkCreateRequirementsFromJDsV293 error: ' + err.message;
+    Logger.log('S93.F07 fatal: ' + err.message);
+    return result;
+  }
+}

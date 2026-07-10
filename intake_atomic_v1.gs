@@ -1,0 +1,648 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * MISSION ZERO — INTAKE ATOMIC ENGINE (intake_atomic_v1.gs)
+ * Branch : claude/sweet-franklin-mnmfcz
+ * Build  : 21-Jun-2026
+ * ───────────────────────────────────────────────────────────────────
+ * SINGLE RESPONSIBILITY: close the two broken welds in the intake path.
+ *
+ *   WELD 1 (BROKEN): KAI issued outside the candidate write, in a
+ *   separate non-atomic batch → root cause of all 90 Phase-1 collisions.
+ *
+ *   WELD 2 (MISSING): no Foundation Queue enqueue after candidate write
+ *   → "parser platform" symptom, never becomes an OS.
+ *
+ * REPLACES S07.F01-L in processThread_ (Code.gs:580-582):
+ *   BEFORE: writeToSheet_() + writeToMeta_() + appendConsent_()
+ *   AFTER:  intakeCreateCandidate_()
+ *
+ * CHAIN (matches CEO Mission Zero diagram exactly):
+ *   Email → Attachment → K14 Parse          ← existing, untouched
+ *   → intakeCreateCandidate_()              ← this file
+ *       → LockService.tryLock()
+ *       → iaMetaDuplicateCheck_()           (race-condition guard)
+ *       → generateKaiNo_()                  (inside lock — now atomic)
+ *       → iaWriteWithKai_()                 (col 25 set at birth)
+ *       → writeToMeta_() + appendConsent_() (inside lock — dedup index current)
+ *       → iaEnqueueFoundation_()            (_ProcessingQueue INTAKE)
+ *       → LockService.releaseLock()
+ *   → Visible in Recruiter Dashboard        ← existing dashboard reads Candidates
+ *
+ * STRESS TEST: Run intakeStressTest100() in Apps Script editor.
+ * Expected: 100/100 unique KAI numbers, 100 Foundation Queue entries, 0 collisions.
+ * Cleanup:  Run intakeStressTestCleanup_() after reviewing output.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// ───────────────────────────────────────────────────────────────────
+// IA.S00 · CONFIG
+// ───────────────────────────────────────────────────────────────────
+var IA_LOCK_WAIT_MS   = 8000;         // 8 s — Gemini parse is done before we enter
+var IA_STRESS_PREFIX  = 'STRESS_TEST_';
+var IA_STRESS_MOB_PFX = '+000000';    // synthetic prefix — no valid country code
+var IA_QUEUE_STEP     = 'INTAKE';     // step name in _ProcessingQueue
+
+// ── Mission Zero test isolation (Option A) ──────────────────────────
+// Synthetic tests write ONLY to these dedicated sheets and the TEST KAI
+// counter. Production Candidates / _Meta / _ProcessingQueue and the
+// production KAI counter are NEVER touched by synthetic tests.
+var IA_TEST_CAND_SHEET  = '_TEST_Candidates';
+var IA_TEST_META_SHEET  = '_TEST_Meta';
+var IA_TEST_QUEUE_SHEET = '_TEST_ProcessingQueue';
+
+// IA.S00.F01 — Resolve write target context.
+// testMode:true  → dedicated _TEST_* sheets + TEST KAI counter (zero prod impact)
+// testMode:false → production Candidates / _Meta / _ProcessingQueue (real intake)
+function iaResolveCtx_(opts) {
+  opts = opts || {};
+  if (opts.testMode === true) {
+    return {
+      testMode:       true,
+      candSheetName:  IA_TEST_CAND_SHEET,
+      metaSheetName:  IA_TEST_META_SHEET,
+      queueSheetName: IA_TEST_QUEUE_SHEET
+    };
+  }
+  return {
+    testMode:       false,
+    candSheetName:  CONFIG.sheetName,
+    metaSheetName:  CONFIG.metaSheetName,
+    queueSheetName: '_ProcessingQueue'
+  };
+}
+
+// IA.S00.F02 — Ensure a dedicated test sheet exists (created on first use).
+function iaEnsureTestSheet_(name, headers) {
+  var ss = getMasterSS_();
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (headers && headers.length) {
+      sh.appendRow(headers);
+      sh.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+      sh.setFrozenRows(1);
+    }
+  }
+  return sh;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IA.S01 · ATOMIC INTAKE — ENTRY POINT
+// Called from processThread_ in place of writeToSheet_ block.
+// Gemini parsing (slow) happens BEFORE this call; lock scope is tight.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * IA.S01.F01 — intakeCreateCandidate_
+ *
+ * @param {object} scored      - output of scoreCandidate_ / applyDecisionRules_
+ * @param {string} threadId    - Gmail thread ID (for consent + meta records)
+ * @param {string} msgId       - Gmail message ID
+ * @param {string} cvLink      - Google Drive URL of saved CV attachment
+ * @param {*}      appDate     - application date (Date or string)
+ * @param {string} candEmail   - normalised candidate email
+ * @param {string} candMobile  - normalised candidate mobile
+ * @param {object} parsed      - raw Gemini parse output (for consent + meta)
+ * @param {object} [opts]      - { testMode:true } redirects ALL writes to
+ *                               dedicated _TEST_* sheets + TEST KAI counter
+ *                               (zero production impact). Omit for real intake.
+ * @returns {string}  'CREATED' | 'DUPLICATE' | 'LOCK_TIMEOUT' | 'ERROR'
+ */
+function intakeCreateCandidate_(scored, threadId, msgId, cvLink, appDate,
+                                candEmail, candMobile, parsed, opts) {
+  var ctx  = iaResolveCtx_(opts);
+  var lock = LockService.getScriptLock();
+
+  if (!lock.tryLock(IA_LOCK_WAIT_MS)) {
+    // Pipeline under load — move this thread back to error label for next run
+    if (typeof appendLog_ === 'function')
+      appendLog_({ status: 'IA_LOCK_TIMEOUT',
+                   notes: 'Script lock unavailable after ' + IA_LOCK_WAIT_MS + 'ms. Thread re-queued.' });
+    Logger.log('IA: lock timeout — ' + (candEmail || 'no-email'));
+    return 'LOCK_TIMEOUT';
+  }
+
+  try {
+
+    // ── STEP 1: Race-condition duplicate guard (inside lock) ──────
+    // The pre-lock isDuplicate_ in processThread_ catches most duplicates.
+    // This inner check catches the race window: two threads both passed
+    // isDuplicate_ before either wrote to _Meta. Now only one can be first.
+    var dupResult = iaMetaDuplicateCheck_(candEmail, candMobile, ctx);
+    if (dupResult.duplicate) {
+      if (typeof appendLog_ === 'function')
+        appendLog_({ status: 'IA_DUPLICATE_RACE',
+                     email: typeof maskEmail_ === 'function' ? maskEmail_(candEmail) : candEmail,
+                     notes: 'Race dup caught inside lock — ' + dupResult.reason });
+      Logger.log('IA: race-dup — ' + dupResult.reason);
+      return 'DUPLICATE';
+    }
+
+    // ── STEP 2: KAI issuance — PropertiesService R-M-W under lock ──
+    // generateKaiNo_() is the SINGLE WRITER (KAI_16May2026_V2.gs S32.F06).
+    // We already hold the script lock for this whole critical section, so we
+    // pass lockHeld:true to mint directly without re-acquiring / early-releasing
+    // the same lock. The counter RMW is therefore atomic vs every other caller.
+    var kaiNo = generateKaiNo_({ lockHeld: true, testMode: ctx.testMode });
+    Logger.log('IA: KAI issued inside lock — ' + kaiNo + (ctx.testMode ? ' [TEST]' : ''));
+
+    // ── STEP 3: Candidate row write WITH KAI No at birth ──────────
+    // iaWriteWithKai_ mirrors writeToSheet_ but sets col 25 (KAI No).
+    // The candidate NEVER exists in Candidates without a KAI No.
+    iaWriteWithKai_(scored, kaiNo, threadId, cvLink, appDate, ctx);
+
+    // ── STEP 4: Dedup index + consent (inside lock) ───────────────
+    // Writing dedup index BEFORE releasing the lock ensures the inner
+    // check in STEP 1 can see this record immediately when the next
+    // thread acquires the lock. In test mode this targets _TEST_Meta;
+    // consent (production GDPR log) is SKIPPED for synthetic tests.
+    if (ctx.testMode) {
+      iaWriteTestMeta_(ctx, candEmail, candMobile,
+                       (parsed && parsed.full_name) || '',
+                       (parsed && parsed.industry)  || '', threadId, msgId);
+    } else {
+      if (typeof writeToMeta_ === 'function')
+        writeToMeta_(candEmail, candMobile,
+                     (parsed && parsed.full_name) || '',
+                     (parsed && parsed.industry)  || '',
+                     threadId, msgId);
+      if (typeof appendConsent_ === 'function')
+        appendConsent_(parsed, appDate, threadId);
+    }
+
+    // ── STEP 5: Foundation Queue enqueue ─────────────────────────
+    // Candidate is now visible to Foundation (_ProcessingQueue INTAKE).
+    iaEnqueueFoundation_(kaiNo, candEmail, scored.trade || '', ctx);
+
+    // ── STEP 6: Audit trail ───────────────────────────────────────
+    if (typeof appendLog_ === 'function')
+      appendLog_({
+        status: 'IA_CREATED',
+        name:   typeof maskName_  === 'function' ? maskName_(scored.full_name)  : scored.full_name,
+        email:  typeof maskEmail_ === 'function' ? maskEmail_(candEmail)        : candEmail,
+        mobile: typeof maskPhone_ === 'function' ? maskPhone_(candMobile)       : candMobile,
+        trade:  scored.trade,
+        notes:  'KAI=' + kaiNo + ' | ' + (scored.verdict || '') + ' | Score=' + (scored.score || 0)
+      });
+
+    return 'CREATED';
+
+  } catch (err) {
+    Logger.log('IA: intakeCreateCandidate_ error — ' + err.message);
+    if (typeof appendLog_ === 'function')
+      appendLog_({ status: 'IA_ERROR', notes: err.message,
+                   email: typeof maskEmail_ === 'function' ? maskEmail_(candEmail) : candEmail });
+    return 'ERROR';
+
+  } finally {
+    // Lock ALWAYS released — even on error
+    try { lock.releaseLock(); } catch (le) { Logger.log('IA: releaseLock failed: ' + le); }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IA.S02 · CANDIDATE ROW WRITE (with KAI No at col 25)
+// Mirrors writeToSheet_ (Code.gs S13.F01) but adds col 25.
+// ═══════════════════════════════════════════════════════════════════
+
+function iaWriteWithKai_(scored, kaiNo, threadId, cvLink, appDate, ctx) {
+  ctx = ctx || iaResolveCtx_(null);
+  var sheet;
+  if (ctx.testMode) {
+    sheet = iaEnsureTestSheet_(ctx.candSheetName, CONFIG.headers);
+  } else {
+    sheet = getMasterSS_().getSheetByName(ctx.candSheetName);
+  }
+  if (!sheet) throw new Error('IA: candidate sheet not found — ' + ctx.candSheetName);
+
+  var ic     = CONFIG.inputColumns;
+  var kaiCol = CONFIG_V2.extCol.kaiNo;   // 25
+
+  // Row sized to at least kaiCol (25); fill with empty strings
+  var row = new Array(kaiCol).fill('');
+
+  // Cols 1-24: identical layout to writeToSheet_
+  row[ic.stage           - 1] = 'Pending action';
+  row[ic.applicationDate - 1] = appDate || new Date();
+  row[ic.nationality     - 1] = scored.nationality;
+  row[ic.name            - 1] = scored.full_name;
+  row[ic.mobile          - 1] = scored.mobile ? "'" + scored.mobile : '';
+  row[ic.email           - 1] = scored.email;
+  row[ic.education       - 1] = scored.education;
+  row[ic.positionApplied - 1] = scored.positionApplied;
+  row[ic.trade           - 1] = scored.trade;
+  row[ic.industry        - 1] = scored.industry;
+  row[ic.experience      - 1] = scored.experience;
+  row[ic.gulf            - 1] = scored.gulfExperience;
+  row[ic.dob             - 1] = scored.dob;
+  row[ic.age             - 1] = scored.age;
+  row[ic.verdict         - 1] = scored.verdict;
+  row[ic.flags           - 1] = scored.flag;
+  row[ic.score           - 1] = scored.score;
+  row[ic.scoreBreakdown  - 1] = scored.scoreBreakdown;
+  row[ic.recommendedRoles- 1] = scored.recommendedRoles;
+  row[ic.kaiAssessment   - 1] = scored.kaiAssessment;
+  row[ic.recruiterAction - 1] = scored.recruiterAction;
+  row[ic.cvLink          - 1] = cvLink || '';
+  row[ic.notes           - 1] = scored.notes || '';
+  row[ic.active          - 1] = 'TRUE';
+
+  // Col 25 — KAI No: minted atomically, set at row creation
+  row[kaiCol - 1] = kaiNo;
+
+  sheet.appendRow(row);
+  if (typeof applyFlagFormatting_ === 'function')
+    applyFlagFormatting_(sheet, sheet.getLastRow(), scored.flag);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IA.S03 · RACE-CONDITION DUPLICATE CHECK (inner lock guard)
+// Checks _Meta dedup index — written inside lock in STEP 4, so any
+// concurrent thread that wrote before us will be visible here.
+// ═══════════════════════════════════════════════════════════════════
+
+function iaMetaDuplicateCheck_(email, mobile, ctx) {
+  ctx = ctx || iaResolveCtx_(null);
+  var metaSheet = getMasterSS_().getSheetByName(ctx.metaSheetName);
+  if (!metaSheet || metaSheet.getLastRow() < 2)
+    return { duplicate: false, reason: null };
+
+  var emailNorm  = String(email  || '').toLowerCase().trim();
+  var mobileTrim = String(mobile || '').replace(/^'/, '').trim();
+  var last       = metaSheet.getLastRow();
+
+  // _Meta cols: Key(1) Email(2) Mobile(3) Name(4) …
+  var data = metaSheet.getRange(2, 1, last - 1, 3).getValues();
+
+  for (var i = 0; i < data.length; i++) {
+    var mEmail  = String(data[i][1] || '').toLowerCase().trim();
+    var mMobile = String(data[i][2] || '').replace(/^'/, '').trim();
+
+    if (emailNorm  && mEmail  && emailNorm  === mEmail)
+      return { duplicate: true,  reason: 'Email in _Meta: ' + emailNorm };
+    if (mobileTrim && mMobile && mobileTrim === mMobile)
+      return { duplicate: true,  reason: 'Mobile in _Meta: ' + mobileTrim };
+  }
+  return { duplicate: false, reason: null };
+}
+
+// IA.S03.F02 — Test-mode dedup index writer (_TEST_Meta). Mirrors writeToMeta_
+// column layout so iaMetaDuplicateCheck_ reads cols 1-3 identically.
+function iaWriteTestMeta_(ctx, email, mobile, name, industry, threadId, msgId) {
+  var sheet = iaEnsureTestSheet_(ctx.metaSheetName,
+    ['Key', 'Email', 'Mobile', 'Name', 'Industry', 'Date', 'ThreadId', 'MsgId', 'Source']);
+  var key = (email || '') + '|' + (mobile || '');
+  sheet.appendRow([key, email, mobile, name, industry, new Date(), threadId, msgId, 'test']);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IA.S04 · FOUNDATION QUEUE ENQUEUE
+// Writes one record to _ProcessingQueue (step=INTAKE, status=PENDING).
+// This makes the candidate immediately visible to Foundation processors.
+// ═══════════════════════════════════════════════════════════════════
+
+function iaEnqueueFoundation_(kaiNo, email, trade, ctx) {
+  ctx = ctx || iaResolveCtx_(null);
+  // _ProcessingQueue headers:
+  //   QueueID | KAINo | Step | Status | FailureReason | LastAttempt | RetryCount | CreatedAt
+  var qHeaders = ['QueueID', 'KAINo', 'Step', 'Status', 'FailureReason',
+                  'LastAttempt', 'RetryCount', 'CreatedAt'];
+  var qs;
+  if (ctx.testMode) {
+    qs = iaEnsureTestSheet_(ctx.queueSheetName, qHeaders);
+  } else {
+    qs = getMasterSS_().getSheetByName(ctx.queueSheetName);
+    if (!qs) {
+      Logger.log('IA: _ProcessingQueue tab not found — skipping Foundation enqueue for ' + kaiNo);
+      return;
+    }
+  }
+  var qId = 'IA-' + new Date().getTime() + '-' + Math.floor(Math.random() * 9000 + 1000);
+  qs.appendRow([qId, kaiNo, IA_QUEUE_STEP, 'PENDING', '', '', 0, new Date()]);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IA.S05 · STRESS TEST — 100 consecutive atomic writes
+//
+// PURPOSE: prove the lock + KAI counter mechanism is collision-free
+// before any backfill or reissue work begins.
+//
+// HOW TO RUN:
+//   Apps Script editor → select intakeStressTest100 → Run
+//   Inspect Execution Log for the VERDICT line.
+//   Run intakeStressTestCleanup_() to remove the 100 synthetic rows.
+//
+// EVIDENCE PRODUCED (logged to Execution Log):
+//   - All 100 KAI numbers generated (sequential, unique)
+//   - Foundation Queue entries added
+//   - Candidate rows added
+//   - Elapsed time
+//   - Collision count (must be 0)
+//   - Error details if any
+// ═══════════════════════════════════════════════════════════════════
+
+function intakeStressTest100() {
+  var N   = 100;
+  var ctx = iaResolveCtx_({ testMode: true });   // ISOLATED — _TEST_* sheets only
+
+  // Ensure isolated test sheets exist before measuring baselines.
+  var candSheet = iaEnsureTestSheet_(ctx.candSheetName, CONFIG.headers);
+  var qSheet    = iaEnsureTestSheet_(ctx.queueSheetName,
+    ['QueueID', 'KAINo', 'Step', 'Status', 'FailureReason', 'LastAttempt', 'RetryCount', 'CreatedAt']);
+
+  var baseCandRows = candSheet.getLastRow();
+  var baseQRows    = qSheet.getLastRow();
+  var kaiGenerated = [];
+  var kaiSet       = {};
+  var collisions   = [];
+  var errors       = [];
+  var startMs      = Date.now();
+
+  Logger.log('IA STRESS: Starting 100-candidate stress test …');
+
+  for (var i = 1; i <= N; i++) {
+    var mob   = IA_STRESS_MOB_PFX + String(Date.now()).slice(-7) + String(i);
+    var email = 'stress' + i + '.' + Date.now() + '@kai.stress.test';
+
+    // Minimal scored object — same shape as real scoreCandidate_ output
+    var fakeScored = {
+      full_name:        IA_STRESS_PREFIX + i,
+      nationality:      'Testistan',
+      mobile:           mob,
+      email:            email,
+      education:        'Diploma',
+      positionApplied:  'Welder',
+      trade:            'Welder',
+      industry:         'Construction',
+      experience:       5,
+      gulfExperience:   2,
+      dob:              '',
+      age:              30,
+      verdict:          'NEEDS_CALL',
+      flag:             '',
+      score:            55,
+      scoreBreakdown:   'stress-test',
+      recommendedRoles: '',
+      kaiAssessment:    '',
+      recruiterAction:  '',
+      notes:            'STRESS_TEST iteration ' + i
+    };
+    var fakeParsed = {
+      full_name: IA_STRESS_PREFIX + i,
+      email:     email,
+      industry:  'Construction'
+    };
+
+    var outcome = intakeCreateCandidate_(
+      fakeScored,
+      'STRESS-THREAD-' + i,            // threadId
+      'STRESS-MSG-' + i,               // msgId
+      '',                               // cvLink
+      new Date(),                       // appDate
+      email,                            // candEmail
+      mob,                              // candMobile
+      fakeParsed,                       // parsed
+      { testMode: true }                // ISOLATED — _TEST_* sheets + TEST counter
+    );
+
+    if (outcome !== 'CREATED') {
+      errors.push({ i: i, outcome: outcome, mob: mob, email: email });
+      Logger.log('IA STRESS [' + i + ']: ' + outcome);
+      continue;
+    }
+
+    // Read KAI No from the row just appended
+    var lastRow = candSheet.getLastRow();
+    var kaiVal  = String(candSheet.getRange(lastRow, CONFIG_V2.extCol.kaiNo).getValue() || '').trim();
+
+    kaiGenerated.push(kaiVal);
+    if (kaiSet[kaiVal]) {
+      collisions.push({ i: i, kaiNo: kaiVal, firstAt: kaiSet[kaiVal] });
+      Logger.log('IA STRESS [' + i + ']: COLLISION — ' + kaiVal + ' already issued at iteration ' + kaiSet[kaiVal]);
+    } else {
+      kaiSet[kaiVal] = i;
+    }
+  }
+
+  var elapsedMs        = Date.now() - startMs;
+  var newCandRows      = candSheet.getLastRow() - baseCandRows;
+  var newQRows         = qSheet.getLastRow() - baseQRows;
+  var allUnique        = (kaiGenerated.length === N && collisions.length === 0 &&
+                          Object.keys(kaiSet).length === N);
+  var verdict          = (allUnique && errors.length === 0)
+                         ? 'PASS — 100/100 clean'
+                         : 'FAIL — see details below';
+
+  Logger.log('');
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('MISSION ZERO — INTAKE STRESS TEST REPORT');
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('Attempted        : ' + N);
+  Logger.log('Created          : ' + kaiGenerated.length);
+  Logger.log('Errors           : ' + errors.length);
+  Logger.log('KAI Collisions   : ' + collisions.length);
+  Logger.log('Unique KAI Nos   : ' + Object.keys(kaiSet).length);
+  Logger.log('KAI Range        : ' + (kaiGenerated[0] || 'N/A') +
+             ' → ' + (kaiGenerated[kaiGenerated.length - 1] || 'N/A'));
+  Logger.log('Foundation Queue : +' + newQRows + ' entries (step=INTAKE)');
+  Logger.log('Candidates +rows : +' + newCandRows + ' rows');
+  Logger.log('Elapsed          : ' + elapsedMs + ' ms');
+  Logger.log('VERDICT          : ' + verdict);
+  Logger.log('══════════════════════════════════════════════════');
+
+  if (kaiGenerated.length > 0) {
+    Logger.log('');
+    Logger.log('KAI Numbers generated (' + kaiGenerated.length + '):');
+    for (var k = 0; k < kaiGenerated.length; k++)
+      Logger.log('  [' + (k + 1) + '] ' + kaiGenerated[k]);
+  }
+  if (errors.length > 0) {
+    Logger.log('');
+    Logger.log('Errors:');
+    errors.forEach(function (e) { Logger.log('  ' + JSON.stringify(e)); });
+  }
+  if (collisions.length > 0) {
+    Logger.log('');
+    Logger.log('COLLISIONS (must be empty for PASS):');
+    collisions.forEach(function (c) { Logger.log('  ' + JSON.stringify(c)); });
+  }
+
+  Logger.log('');
+  Logger.log('Run intakeStressTestCleanup_() to remove the ' + kaiGenerated.length + ' test rows.');
+
+  return {
+    attempted:               N,
+    created:                 kaiGenerated.length,
+    errors:                  errors,
+    collisions:              collisions,
+    uniqueKaiCount:          Object.keys(kaiSet).length,
+    kaiFirst:                kaiGenerated[0]                    || 'N/A',
+    kaiLast:                 kaiGenerated[kaiGenerated.length - 1] || 'N/A',
+    kaiGenerated:            kaiGenerated,
+    foundationQueueEnqueued: newQRows,
+    candidatesAdded:         newCandRows,
+    elapsedMs:               elapsedMs,
+    verdict:                 verdict
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// IA.S05.T02 — Remove synthetic rows written by intakeStressTest100.
+// Run from Apps Script editor after confirming test output.
+// ─────────────────────────────────────────────────────────────────
+
+function intakeStressTestCleanup_() {
+  // Test isolation (Option A): ALL synthetic data lives in dedicated _TEST_*
+  // sheets. Cleanup = delete those sheets outright. This is atomic per sheet
+  // and CANNOT touch production Candidates / _Meta / _ProcessingQueue. Even a
+  // total cleanup failure leaves ZERO production pollution — the worst case is
+  // three orphan _TEST_* tabs that can be deleted by hand at any time.
+  var ss = getMasterSS_();
+  var targets = [IA_TEST_CAND_SHEET, IA_TEST_META_SHEET, IA_TEST_QUEUE_SHEET];
+  var deleted = {}, removedCount = 0, failures = [];
+
+  targets.forEach(function (name) {
+    try {
+      var sh = ss.getSheetByName(name);
+      if (sh) {
+        var rows = Math.max(0, sh.getLastRow() - 1);
+        ss.deleteSheet(sh);
+        deleted[name] = rows;
+        removedCount++;
+      } else {
+        deleted[name] = 0;   // already absent — nothing to remove
+      }
+    } catch (e) {
+      failures.push(name + ': ' + e.message);
+      Logger.log('IA CLEANUP: failed to delete ' + name + ' — ' + e.message);
+    }
+  });
+
+  // Reset the TEST KAI counter so the next test run starts clean. This NEVER
+  // touches the production counter (kai_no_counter) — different key entirely.
+  try {
+    PropertiesService.getScriptProperties()
+      .deleteProperty(CONFIG_V2.kaiNoTestCounterKey);
+  } catch (e) {}
+
+  Logger.log('IA STRESS CLEANUP: removed test sheets ' + JSON.stringify(deleted) +
+             (failures.length ? ' | FAILURES: ' + failures.join('; ') : ' | clean') +
+             ' | TEST counter reset.');
+
+  return {
+    candidatesDeleted: deleted[IA_TEST_CAND_SHEET]  || 0,
+    queueDeleted:      deleted[IA_TEST_QUEUE_SHEET] || 0,
+    metaDeleted:       deleted[IA_TEST_META_SHEET]  || 0,
+    sheetsRemoved:     removedCount,
+    failures:          failures
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IA.S06 · CONCURRENCY HARNESS — 5 parallel batches of 100
+//
+// Apps Script cannot spawn threads inside one execution. True concurrency
+// requires multiple SIMULTANEOUS executions. This harness installs five
+// one-time triggers that all fire ~1 minute out, so five separate executions
+// hit generateKaiNo_ at the same time — the exact condition that produced the
+// 90 collisions. With the single-writer lock in place, the collector must
+// report 0 cross-batch collisions.
+//
+// PROCEDURE (Apps Script editor):
+//   1. Run  intakeConcurrencyInstall_()   → schedules 5 batches (fires in ~1 min)
+//   2. Wait ~3 minutes for all 5 to finish
+//   3. Run  intakeConcurrencyReport_()    → prints cross-batch collision report
+//   4. Run  intakeStressTestCleanup_()    → removes all synthetic rows
+//      Run  intakeConcurrencyUninstall_() → removes any leftover triggers
+// ═══════════════════════════════════════════════════════════════════
+
+var IA_CONC_PREFIX  = IA_STRESS_PREFIX + 'CONC_';   // STRESS_TEST_CONC_
+var IA_CONC_BATCHES = ['A', 'B', 'C', 'D', 'E'];
+var IA_CONC_PER     = 100;
+
+function intakeConcurrencyInstall_() {
+  IA_CONC_BATCHES.forEach(function (tag) {
+    ScriptApp.newTrigger('intakeConcBatch' + tag).timeBased().after(60 * 1000).create();
+  });
+  Logger.log('IA CONC: 5 batches scheduled (intakeConcBatchA..E) — fire in ~60s, ' +
+             IA_CONC_PER + ' candidates each (500 total). Run intakeConcurrencyReport_() after ~3 min.');
+}
+
+// Named trigger targets — each runs in its own execution (true concurrency).
+function intakeConcBatchA() { intakeConcRun_('A'); }
+function intakeConcBatchB() { intakeConcRun_('B'); }
+function intakeConcBatchC() { intakeConcRun_('C'); }
+function intakeConcBatchD() { intakeConcRun_('D'); }
+function intakeConcBatchE() { intakeConcRun_('E'); }
+
+function intakeConcRun_(tag) {
+  var created = 0;
+  for (var i = 1; i <= IA_CONC_PER; i++) {
+    var mob   = IA_STRESS_MOB_PFX + tag.charCodeAt(0) + String(Date.now()).slice(-7) + i;
+    var email = 'conc.' + tag + '.' + i + '.' + Date.now() + '@kai.stress.test';
+    var scored = {
+      full_name: IA_CONC_PREFIX + tag + '_' + i, nationality: 'Testistan',
+      mobile: mob, email: email, education: '', positionApplied: 'Welder',
+      trade: 'Welder', industry: 'Construction', experience: 5, gulfExperience: 1,
+      dob: '', age: 30, verdict: 'NEEDS_CALL', flag: '', score: 50,
+      scoreBreakdown: 'conc', recommendedRoles: '', kaiAssessment: '',
+      recruiterAction: '', notes: 'CONC ' + tag
+    };
+    var out = intakeCreateCandidate_(scored, 'CONC-' + tag + '-' + i, 'CONC-MSG-' + tag + i,
+                                     '', new Date(), email, mob,
+                                     { full_name: scored.full_name, email: email, industry: 'Construction' },
+                                     { testMode: true });   // ISOLATED — _TEST_* + TEST counter
+    if (out === 'CREATED') created++;
+  }
+  Logger.log('IA CONC batch ' + tag + ': created ' + created + '/' + IA_CONC_PER);
+}
+
+// Collector — scans Candidates for all CONC rows, reports cross-batch collisions.
+function intakeConcurrencyReport_() {
+  var cs   = getMasterSS_().getSheetByName(IA_TEST_CAND_SHEET);   // ISOLATED test sheet
+  if (!cs || cs.getLastRow() < 2) {
+    Logger.log('IA CONC REPORT: no _TEST_Candidates data — did the batches run?');
+    return { rows: 0, uniqueKai: 0, blankKai: 0, collisions: [], verdict: 'NO DATA' };
+  }
+  var last = cs.getLastRow();
+  var nameCol = CONFIG.inputColumns.name;
+  var kaiCol  = CONFIG_V2.extCol.kaiNo;
+
+  var data = cs.getRange(2, 1, last - 1, kaiCol).getValues();
+  var kaiSeen = {}, collisions = [], rows = 0, blankKai = 0;
+
+  for (var i = 0; i < data.length; i++) {
+    var nm = String(data[i][nameCol - 1] || '');
+    if (nm.indexOf(IA_CONC_PREFIX) !== 0) continue;
+    rows++;
+    var kai = String(data[i][kaiCol - 1] || '').trim();
+    if (!kai) { blankKai++; continue; }
+    if (kaiSeen[kai]) collisions.push({ kaiNo: kai, rowA: kaiSeen[kai], rowB: i + 2, name: nm });
+    else kaiSeen[kai] = i + 2;
+  }
+
+  var verdict = (rows > 0 && collisions.length === 0 && blankKai === 0)
+              ? 'PASS — 0 cross-batch collisions, 0 blank KAI' : 'FAIL';
+  Logger.log('══════════════════════════════════════════════════');
+  Logger.log('MISSION ZERO — CONCURRENCY REPORT (5 x ' + IA_CONC_PER + ')');
+  Logger.log('  CONC candidate rows : ' + rows);
+  Logger.log('  Unique KAI numbers  : ' + Object.keys(kaiSeen).length);
+  Logger.log('  Blank KAI rows      : ' + blankKai);
+  Logger.log('  Cross-batch collide : ' + collisions.length);
+  Logger.log('  VERDICT             : ' + verdict);
+  if (collisions.length) collisions.forEach(function (c) { Logger.log('  COLLISION ' + JSON.stringify(c)); });
+  Logger.log('══════════════════════════════════════════════════');
+  return { rows: rows, uniqueKai: Object.keys(kaiSeen).length, blankKai: blankKai,
+           collisions: collisions, verdict: verdict };
+}
+
+function intakeConcurrencyUninstall_() {
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (String(t.getHandlerFunction()).indexOf('intakeConcBatch') === 0) {
+      ScriptApp.deleteTrigger(t); removed++;
+    }
+  });
+  Logger.log('IA CONC: removed ' + removed + ' leftover triggers.');
+  return { triggersRemoved: removed };
+}

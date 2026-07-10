@@ -934,9 +934,18 @@ function processThread_v291_(thread, circuit) {
     return 'REJECTED';
   }
 
-  if (typeof writeToSheet_  === 'function') writeToSheet_(scored, threadId, cvLink, appDate);
-  if (typeof writeToMeta_   === 'function') writeToMeta_(candEmail, candMobile, parsed.full_name, parsed.industry, threadId, message.getId());
-  if (typeof appendConsent_ === 'function') appendConsent_(parsed, appDate, threadId);
+  // v291 — Atomic intake path (intake_atomic_v1.gs) — only path; legacy fallback removed.
+  var iaResult291 = intakeCreateCandidate_(
+    scored, threadId, message.getId(), cvLink, appDate, candEmail, candMobile, parsed);
+  if (iaResult291 === 'DUPLICATE') {
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, doneLabel);
+    return 'DUPLICATE';
+  }
+  if (iaResult291 === 'LOCK_TIMEOUT' || iaResult291 === 'ERROR') {
+    if (typeof moveLabel_ === 'function') moveLabel_(thread, inputLabel, errorLabel);
+    return iaResult291;
+  }
+  // iaResult291 === 'CREATED' — fall through to quota + log + followup
   if (typeof incrementQuota_=== 'function') incrementQuota_('cv');
 
   appendLog_v291_({ status:'PROCESSED', name:scored.full_name, email:candEmail, mobile:candMobile,
@@ -1510,6 +1519,10 @@ function clearCache() {
 // ═══════════════════════════════════════════════════════════════════
 
 function backfillCVs() {
+  // DISABLED — Mission Zero: historical replay must not run during validation window.
+  // Re-enable only after Mission Zero Certified = YES and explicit CEO approval.
+  Logger.log('BLOCKED: backfillCVs() is disabled during Mission Zero validation window.');
+  return;
   var BATCH    = 20;   // threads per run (keep low to avoid timeout)
   var DELAY_MS = 2000; // ms between Gemini calls
   var props    = PropertiesService.getScriptProperties();
@@ -1583,7 +1596,10 @@ function resetBackfill() {
 }
 
 function autoBackfillTrigger() {
-  // Run this to set a trigger that auto-continues every 4 minutes
+  // DISABLED — Mission Zero: trigger installation blocked during validation window.
+  // Re-enable only after Mission Zero Certified = YES and explicit CEO approval.
+  Logger.log('BLOCKED: autoBackfillTrigger() is disabled during Mission Zero validation window.');
+  return;
   ScriptApp.newTrigger('backfillCVs')
     .timeBased().everyMinutes(5).create();
   Logger.log('Auto-trigger set — backfillCVs() will run every 4 minutes until complete.');

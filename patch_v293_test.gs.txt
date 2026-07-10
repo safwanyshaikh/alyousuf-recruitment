@@ -1,0 +1,166 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ *  KAI patch_v293 — GAS TEST RUNNER
+ *  Paste this as a TEMPORARY .gs file in the Apps Script editor.
+ *  Run testPatch_v293_Preflight() first, then testPatch_v293_FullUpload().
+ *  Delete this file after validation is complete.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * TEST 1 — Preflight
+ * Verifies all v293 functions are loaded and Gemini API is reachable.
+ * Run from Apps Script editor: select testPatch_v293_Preflight → Run.
+ * Check View → Logs for output.
+ */
+function testPatch_v293_Preflight() {
+  var log = [];
+  var passed = 0, failed = 0;
+
+  function chk(label, cond, detail) {
+    if (cond) { passed++; log.push('  [PASS] ' + label + (detail ? ' — ' + detail : '')); }
+    else       { failed++; log.push('  [FAIL] ' + label + (detail ? ' — ' + detail : '')); }
+  }
+
+  log.push('=== patch_v293 Preflight ===');
+
+  // Function existence
+  chk('extractJdFromPdfInline_v293_',     typeof extractJdFromPdfInline_v293_     === 'function');
+  chk('extractSingleJdBlock_v293_',       typeof extractSingleJdBlock_v293_       === 'function');
+  chk('extractJdPublicV293Fixed',         typeof extractJdPublicV293Fixed         === 'function');
+  chk('saveAndReturnJds_v293_',           typeof saveAndReturnJds_v293_           === 'function');
+  chk('saveRequirementV293_',             typeof saveRequirementV293_             === 'function');
+  chk('bulkCreateRequirementsFromJDsV293',typeof bulkCreateRequirementsFromJDsV293=== 'function');
+
+  // Prior-patch dependencies
+  chk('callGemini_v291_ available',       typeof callGemini_v291_                 === 'function');
+  chk('callGeminiString_v291_ available', typeof callGeminiString_v291_           === 'function');
+  chk('getMasterSS_ available',           typeof getMasterSS_                     === 'function');
+  chk('ensureSheet_ available',           typeof ensureSheet_                     === 'function');
+  chk('CONFIG_V2 available',              typeof CONFIG_V2                        !== 'undefined');
+  chk('findOrCreateClient_ available',    typeof findOrCreateClient_              === 'function');
+  chk('getCampaignById_ available',       typeof getCampaignById_                 === 'function');
+
+  // Gemini API key
+  try {
+    var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    chk('GEMINI_API_KEY set', !!key && key.length > 10, key ? key.slice(0,8) + '...' : 'NOT SET');
+  } catch(e) {
+    chk('GEMINI_API_KEY set', false, e.message);
+  }
+
+  // _Requirements sheet accessible
+  try {
+    var ss = getMasterSS_();
+    var sh = ss.getSheetByName(CONFIG_V2.requirementsSheet);
+    chk('_Requirements sheet exists', !!sh, sh ? sh.getLastRow() + ' rows' : 'will be created on first save');
+  } catch(e) {
+    chk('_Requirements accessible', false, e.message);
+  }
+
+  // Gemini connectivity test (tiny payload)
+  try {
+    var testResp = callGeminiString_v291_('Reply with exactly: {"ok":true}', null);
+    var parsed = JSON.parse(JSON.parse(testResp).candidates[0].content.parts[0].text);
+    chk('Gemini API reachable', parsed.ok === true, 'round-trip OK');
+  } catch(e) {
+    chk('Gemini API reachable', false, e.message.slice(0, 120));
+  }
+
+  log.push('');
+  log.push('=== RESULT: ' + passed + ' PASS / ' + failed + ' FAIL ===');
+  Logger.log(log.join('\n'));
+  SpreadsheetApp.getUi().alert(
+    'Preflight: ' + passed + ' passed, ' + failed + ' failed.\nCheck View → Logs for detail.');
+}
+
+/**
+ * TEST 2 — Full upload simulation
+ * Simulates extractJdPublicV293Fixed for each of the 4 JD PDFs
+ * by fetching them from Google Drive.
+ *
+ * BEFORE RUNNING:
+ *   1. Upload the 4 PDF files to any folder in your Google Drive.
+ *   2. Set the FOLDER_NAME constant below to the exact folder name.
+ *   3. Run testPatch_v293_FullUpload from the Apps Script editor.
+ *
+ * The test calls the real extractJdPublicV293Fixed — if it passes,
+ * the dashboard upload will pass too.
+ */
+var FOLDER_NAME = 'KAI_Test_JDs';  // ← change to your Drive folder name
+
+function testPatch_v293_FullUpload() {
+  var log = [];
+  var created = 0, failedCount = 0;
+  var folder = null;
+
+  try {
+    var folders = DriveApp.getFoldersByName(FOLDER_NAME);
+    if (!folders.hasNext()) {
+      Logger.log('ERROR: Folder "' + FOLDER_NAME + '" not found in Drive. ' +
+                 'Create it and upload the 4 PDFs there first.');
+      return;
+    }
+    folder = folders.next();
+  } catch(e) {
+    Logger.log('ERROR accessing Drive: ' + e.message);
+    return;
+  }
+
+  log.push('=== patch_v293 Full Upload Test ===');
+  log.push('Folder: ' + folder.getName() + '  (' + folder.getId() + ')');
+
+  var files = folder.getFiles();
+  var pdfs  = [];
+  while (files.hasNext()) {
+    var f = files.next();
+    if (f.getMimeType() === 'application/pdf') pdfs.push(f);
+  }
+  log.push('Found ' + pdfs.length + ' PDF(s) in folder.\n');
+
+  if (pdfs.length === 0) {
+    Logger.log(log.join('\n'));
+    Logger.log('No PDFs found. Upload the 4 JD PDFs to the "' + FOLDER_NAME + '" folder and retry.');
+    return;
+  }
+
+  pdfs.forEach(function(pdfFile) {
+    var fname = pdfFile.getName();
+    log.push('─── ' + fname + ' ───');
+    try {
+      var blob   = pdfFile.getBlob();
+      var b64    = Utilities.base64Encode(blob.getBytes());
+      var result = extractJdPublicV293Fixed(b64, fname, 'application/pdf');
+
+      log.push('  ok:         ' + result.ok);
+      log.push('  msg:        ' + result.msg);
+      if (result.ok && result.jds && result.jds.length > 0) {
+        var jd = result.jds[0];
+        log.push('  trade:      ' + (jd.trade      || '—'));
+        log.push('  department: ' + (jd.department || '—'));
+        log.push('  quantity:   ' + (jd.quantity   || 1));
+        log.push('  reqId:      ' + (jd.reqId      || '(batch — not saved yet)'));
+        created++;
+        log.push('  STATUS:     ✓ CREATED');
+      } else {
+        log.push('  errors:     ' + JSON.stringify(result.errors));
+        failedCount++;
+        log.push('  STATUS:     ✗ FAILED');
+      }
+    } catch(e) {
+      log.push('  EXCEPTION:  ' + e.message);
+      failedCount++;
+      log.push('  STATUS:     ✗ FAILED');
+    }
+    log.push('');
+  });
+
+  log.push('=== FINAL RESULT ===');
+  log.push(created     + ' Requirements Created');
+  log.push(failedCount + ' Failed');
+
+  Logger.log(log.join('\n'));
+  SpreadsheetApp.getUi().alert(
+    created + ' Requirements Created\n' + failedCount + ' Failed\n\n' +
+    'Check View → Logs for full detail including trade, department, reqId per file.');
+}

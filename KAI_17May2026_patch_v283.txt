@@ -460,7 +460,11 @@ var BACKLOG_CFG = {
 };
 
 // S63.F01 — Main backlog clearance function (run from menu or trigger today only)
+// DISABLED — Mission Zero: historical replay must not run during validation window.
+// Re-enable only after Mission Zero Certified = YES and explicit CEO approval.
 function runBacklogClearance() {
+  Logger.log('BLOCKED: runBacklogClearance() is disabled during Mission Zero validation window.');
+  return { ok:false, msg:'Disabled during Mission Zero validation window.' };
   var props = PropertiesService.getScriptProperties();
   var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
 
@@ -555,7 +559,11 @@ function runBacklogClearance() {
 }
 
 // S63.F02 — Schedule today's backlog clearance (installs hourly trigger for today)
+// DISABLED — Mission Zero: historical replay trigger installation blocked during validation window.
+// Re-enable only after Mission Zero Certified = YES and explicit CEO approval.
 function scheduleBacklogClearance() {
+  Logger.log('BLOCKED: scheduleBacklogClearance() is disabled during Mission Zero validation window.');
+  return;
   var props = PropertiesService.getScriptProperties();
   var today = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
   props.setProperty('BACKLOG_CLEARANCE_DATE', today);

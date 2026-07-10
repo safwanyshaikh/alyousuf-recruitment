@@ -864,12 +864,142 @@ function findCandidateByKaiNo_(kaiNo) {
     var ss    = getMasterSS_();
     var sheet = ss.getSheetByName(CONFIG.sheetName);
     if (!sheet || sheet.getLastRow() < 2) return null;
-    var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+    // KAI No lives in the extended column block (col 25), NOT column 1 (Stage).
+    // Source the column from config so it can never drift again.
+    var kaiCol = (typeof CONFIG_V2 !== 'undefined' && CONFIG_V2.extCol && CONFIG_V2.extCol.kaiNo)
+               ? CONFIG_V2.extCol.kaiNo : 25;
+    var target = String(kaiNo || '').trim().toUpperCase();
+    if (!target) return null;
+    var n    = sheet.getLastRow() - 1;
+    var data = sheet.getRange(2, kaiCol, n, 1).getValues();
     for (var i = 0; i < data.length; i++) {
-      if (String(data[i][0]).trim().toUpperCase() === kaiNo.toUpperCase()) return i + 2;
+      if (String(data[i][0]).trim().toUpperCase() === target) return i + 2;
     }
   } catch(e) {}
   return null;
+}
+
+/**
+ * S81.F05b — One-shot verifier for the Candidate Profile API chain.
+ * Run this from the editor after deploying. Read View -> Logs.
+ * PASS = "Lookup row" is a number AND "API ok: true | name: <real name>".
+ */
+function VERIFY_KAI_LOOKUP() {
+  var target = 'AYE-KAI-2026-009904';
+  var row = findCandidateByKaiNo_(target);
+  Logger.log('Lookup row: ' + row);
+  if (!row) { Logger.log('FAIL: null — patch not applied/deployed'); return; }
+  var sheet = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  Logger.log('col25 KAI No: ' + sheet.getRange(row, CONFIG_V2.extCol.kaiNo).getValue());
+  Logger.log('col4  Name  : ' + sheet.getRange(row, CONFIG.inputColumns.name).getValue());
+  var api = getCandidateProfileApi_(target);
+  Logger.log('API ok: ' + api.ok + ' | name: ' + (api.header ? api.header.name : 'n/a'));
+  Logger.log('API assessment.generated: ' + (api.assessment ? api.assessment.generated : 'n/a'));
+}
+
+/**
+ * S81.F05c — DIAGNOSE_CANDIDATE_IDENTITY
+ * Paste into Apps Script. Run from editor. Read View -> Logs.
+ * Input: kaiNo string e.g. 'AYE-KAI-2026-009904'
+ */
+function DIAGNOSE_CANDIDATE_IDENTITY(kaiNo) {
+  kaiNo = kaiNo || 'AYE-KAI-2026-009904';
+  Logger.log('═══ DIAGNOSE_CANDIDATE_IDENTITY ═══');
+  Logger.log('Requested kaiNo : ' + kaiNo);
+
+  // 1. Resolve row
+  var row = findCandidateByKaiNo_(kaiNo);
+  Logger.log('Resolved row    : ' + row);
+  if (!row) { Logger.log('RESULT: NOT FOUND — kaiNo does not exist in col 25'); return; }
+
+  // 2. Read raw sheet columns
+  var sheet    = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  var kaiCol   = CONFIG_V2.extCol.kaiNo;       // 25
+  var nameCol  = CONFIG.inputColumns.name;     // 4
+  var scoreCol = CONFIG.inputColumns.score;    // 17
+  var verdCol  = CONFIG.inputColumns.verdict;  // 15
+  var assCol   = CONFIG.inputColumns.kaiAssessment; // 20
+  Logger.log('col25 KAI No    : ' + sheet.getRange(row, kaiCol).getValue());
+  Logger.log('col4  Name      : ' + sheet.getRange(row, nameCol).getValue());
+  Logger.log('col17 Score     : ' + sheet.getRange(row, scoreCol).getValue());
+  Logger.log('col15 Verdict   : ' + sheet.getRange(row, verdCol).getValue());
+  var assText = String(sheet.getRange(row, assCol).getValue() || '').trim();
+  Logger.log('col20 Assessment: ' + (assText.length > 0 ? 'PRESENT (' + assText.length + ' chars)' : 'EMPTY'));
+
+  // 3. Duplicate count in col 25
+  var n      = sheet.getLastRow() - 1;
+  var allKai = sheet.getRange(2, kaiCol, n, 1).getValues();
+  var dupCount = 0;
+  var dupRows  = [];
+  for (var i = 0; i < allKai.length; i++) {
+    if (String(allKai[i][0]).trim().toUpperCase() === kaiNo.trim().toUpperCase()) {
+      dupCount++;
+      dupRows.push(i + 2);
+    }
+  }
+  Logger.log('Duplicate count : ' + dupCount + ' (rows: ' + dupRows.join(', ') + ')');
+  if (dupCount > 1) Logger.log('⚠️  DUPLICATE KAI — first match returned, others ignored');
+
+  // 4. Cache status for dashboard data (API chain does NOT use this cache)
+  var cached = CacheService.getScriptCache().get('kai_dashboard_v2');
+  Logger.log('Dashboard cache : ' + (cached ? 'PRESENT (may be stale)' : 'EMPTY'));
+
+  // 5. Full API response
+  var api = getCandidateProfileApi_(kaiNo);
+  Logger.log('API ok          : ' + api.ok);
+  Logger.log('API name        : ' + (api.header ? api.header.name : 'n/a'));
+  Logger.log('API score       : ' + (api.header ? api.header.score : 'n/a'));
+  Logger.log('API verdict     : ' + (api.header ? api.header.verdict : 'n/a'));
+  Logger.log('API assess.gen  : ' + (api.assessment ? api.assessment.generated : 'n/a'));
+  Logger.log('═══════════════════════════════════════');
+}
+
+/**
+ * S81.F05d — DIAGNOSE_DUPLICATE_KAIS
+ * Scans entire Candidates sheet for duplicate KAI numbers.
+ * Run from editor. Read View -> Logs.
+ */
+function DIAGNOSE_DUPLICATE_KAIS() {
+  Logger.log('═══ DIAGNOSE_DUPLICATE_KAIS ═══');
+  var sheet   = getMasterSS_().getSheetByName(CONFIG.sheetName);
+  var kaiCol  = CONFIG_V2.extCol.kaiNo;    // 25
+  var nameCol = CONFIG.inputColumns.name;  // 4
+  var n       = sheet.getLastRow() - 1;
+  Logger.log('Total candidate rows: ' + n);
+
+  var kaiVals  = sheet.getRange(2, kaiCol,  n, 1).getValues();
+  var nameVals = sheet.getRange(2, nameCol, n, 1).getValues();
+
+  var seen = {}, dups = [], emptyCount = 0;
+  for (var i = 0; i < kaiVals.length; i++) {
+    var k = String(kaiVals[i][0] || '').trim().toUpperCase();
+    if (!k) { emptyCount++; continue; }
+    if (seen[k] !== undefined) {
+      dups.push({
+        kaiNo:   k,
+        row1:    seen[k].row,
+        name1:   seen[k].name,
+        row2:    i + 2,
+        name2:   String(nameVals[i][0] || '').trim()
+      });
+    } else {
+      seen[k] = { row: i + 2, name: String(nameVals[i][0] || '').trim() };
+    }
+  }
+
+  Logger.log('Rows with empty KAI No : ' + emptyCount);
+  Logger.log('Duplicate KAI Nos found: ' + dups.length);
+  if (dups.length === 0) {
+    Logger.log('RESULT: No duplicates — KAI No is unique across all rows');
+  } else {
+    dups.forEach(function(d) {
+      Logger.log('DUP: ' + d.kaiNo +
+        ' | row ' + d.row1 + ' = ' + d.name1 +
+        ' | row ' + d.row2 + ' = ' + d.name2);
+    });
+    Logger.log('⚠️  findCandidateByKaiNo_ returns FIRST match only — duplicates cause wrong candidate');
+  }
+  Logger.log('═══════════════════════════════════════');
 }
 
 /**
