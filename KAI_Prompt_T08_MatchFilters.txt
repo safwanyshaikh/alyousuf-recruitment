@@ -1,0 +1,123 @@
+KAI RECRUITMENT OS — TASK 08: Match Screen Filters (P2)
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+The Matching screen currently loads all candidates with no useful filters.
+Recruiters reviewing 300+ candidates manually is the bottleneck.
+
+Add a filter bar to the Matching screen with server-side filtering.
+Every filter change re-fetches from GAS. No client-side filtering.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILTER BAR — place above the candidate cards/rows
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Filters (left to right):
+
+  [Tier ▾]          [Nationality ▾]     [Hide Assigned ☐]
+  [Min Gulf Exp ▾]  [Sort ▾]            [Clear Filters]
+
+DEFAULTS on first load (persist in localStorage per requirement):
+  Tier:           Strong
+  Nationality:    Indian
+  Hide Assigned:  ON  (checked)
+  Min Gulf Exp:   Any
+  Sort:           Highest Match
+
+Persist each filter in localStorage using key:
+  kai_match_filter_{reqId}_{filterName}
+  e.g. kai_match_filter_AYE-REQ-2026-0001_nationality
+
+
+TIER DROPDOWN options:
+  Strong (default)
+  Good
+  Possible
+  All Tiers
+
+NATIONALITY DROPDOWN options:
+  Indian (default)
+  Pakistani
+  Nepali
+  Sri Lankan
+  Bangladeshi
+  Filipino
+  All Nationalities
+
+HIDE ASSIGNED CHECKBOX:
+  Label: "Hide Assigned"
+  Default: checked (true)
+  When checked: passes hideAssigned=true to API — GAS excludes candidates
+  already slotted to this requirement
+
+MIN GULF EXP DROPDOWN:
+  Any (default)
+  1+ years
+  2+ years
+  3+ years
+  5+ years
+
+SORT DROPDOWN:
+  Highest Match (default) — sort=score
+  Latest Candidate        — sort=latest
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+API CALL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Build URL params on every fetch:
+
+  const params = new URLSearchParams({
+    action: 'match',
+    token: sessionToken,
+    reqId: requirement.reqId,
+    tier: selectedTier === 'All Tiers' ? 'ALL' : selectedTier.toUpperCase(),
+    sort: selectedSort === 'Latest Candidate' ? 'latest' : 'score',
+    page: currentPage,
+    limit: 50,
+  });
+  if (nationalityFilter && nationalityFilter !== 'All Nationalities')
+    params.append('nationality', nationalityFilter);
+  if (hideAssigned)
+    params.append('hideAssigned', 'true');
+  if (minGulfExp > 0)
+    params.append('minGulfExp', minGulfExp);
+
+GAS returns when tier ≠ ALL:
+  { ok:true, reqId, tier, records:[...], total:N,
+    page:N, limit:50, totalPages:N, counts:{STRONG,GOOD,POSSIBLE,total} }
+
+Show at top of results:
+  "Showing [n] of [total] [Tier] matches · [STRONG: n] [GOOD: n] [POSSIBLE: n]"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PAGINATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+← Prev   Page 1 of N   Next →
+
+Reset to page 1 on every filter change.
+Disable Prev on page 1, disable Next on last page.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ASSIGN BUTTON (wire if not already done from T07)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Each candidate row must have [+ Assign] button (from T07 spec).
+When hideAssigned=ON, already-assigned candidates are excluded server-side
+so this button should always be active for visible candidates.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT CHANGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- GAS URL, token logic, CORS headers
+- Existing candidate card layout
+- Submission List screen (T07)
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec

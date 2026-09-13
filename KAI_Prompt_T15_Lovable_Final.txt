@@ -1,0 +1,137 @@
+On the Candidates page, make the following 5 changes. Do not touch any other page, the candidate drawer, the grid columns, or the GAS API URL.
+
+---
+
+CHANGE 1 — DELETE THE SEARCH BAR BELOW THE SUMMARY CARDS
+
+There are two search bars on the Candidates page right now:
+- One in the top header/navbar
+- One below the summary cards (placeholder says "Search name, passport, mobile, trade, KI number...")
+
+Delete the second one completely — the one below the summary cards. Remove the entire element and its container. Leave no empty space. The filter row (Trade, Industry, Nationality...) should move up to fill the gap.
+
+---
+
+CHANGE 2 — UPGRADE THE HEADER SEARCH BAR
+
+The header search bar (the one that stays in the navbar) becomes the KAI Universal Search. Make these changes to it:
+
+1. Change its placeholder text to:
+   "Search Candidate, KI No, Passport, Mobile, Email, Requirement..."
+
+2. Wire it so that when the user types, after a 400ms debounce and minimum 2 characters, it appends `q=<searchTerm>` to the candidates API call. When cleared, remove the q param.
+
+3. Every time the search term changes: reset to page 1, then re-fetch.
+
+4. Use AbortController to cancel the previous in-flight request before sending a new one.
+
+5. Update the record count label:
+   - When search is active: "Showing 1–100 of 243 results for "welder""
+   - When no search: "Showing 1–100 of 5,820 candidates"
+
+The API call format (already exists in the codebase — just add q):
+```
+const params = new URLSearchParams({
+  action: 'candidates',
+  token: sessionToken,
+  page: currentPage,
+  limit: 100,
+  sort: 'newest',
+});
+if (searchQuery && searchQuery.length >= 2) params.append('q', searchQuery);
+if (nationalityFilter) params.append('nationality', nationalityFilter);
+if (tradeFilter) params.append('trade', tradeFilter);
+// ... other filters
+```
+
+The backend handles all matching — the UI only sends q and renders what comes back. Never filter records locally.
+
+---
+
+CHANGE 3 — MOVE UPLOAD CV AND DOCUMENT OPERATIONS INTO THE HEADER
+
+Currently "Upload CV" and "Document Operations" buttons sit in the top-right of the page content area. Move them into the navbar/header row, to the RIGHT of the search bar and LEFT of the notification bell.
+
+Header order left to right:
+[KAI OS logo] [sidebar toggle] | [TENANT name] | [Universal Search input — wide] [Upload CV button] [Document Operations button] | [Bell] [Avatar] [Logout]
+
+- "Upload CV" = filled/primary blue button, compact
+- "Document Operations" = outline/secondary button, compact
+- These two buttons only appear in the header when the Candidates page is active. On all other pages they must not show.
+- On small screens (under 1024px): collapse "Document Operations" into a ⋮ overflow menu next to Upload CV.
+- The click behavior of both buttons stays exactly the same — do not change what they do, only move them.
+
+---
+
+CHANGE 4 — COMPRESS THE FILTER AREA INTO A SINGLE ROW
+
+The current filter area has 13 dropdowns across 2 rows taking up ~150px. Replace it with a single compact row (~40px):
+
+Primary ribbon (always visible):
+[Trade ▼] [Industry ▼] [Nationality ▼] [Recruiter ▼] [Associate ▼] [More Filters ▼] [Clear All]
+
+Move these into the "More Filters" popover (not a full-page drawer — a compact panel that opens below the button):
+- Specialization
+- Total Experience (range)
+- GCC Experience (range)
+- Passport (All / Available / Not Available)
+- ECR/ECNR
+- CV (All / Available / Not Available)
+- Contact (All / Available / Not Available)
+- Source
+
+The More Filters popover:
+- Opens on click, closes on click-outside or Escape
+- 2-column layout inside
+- If any secondary filter is active, show a count badge: "More Filters (3)"
+
+"Clear All" clears everything — primary ribbon filters AND secondary filters inside the popover — and resets to page 1. After clearing, Nationality resets to "Indian" (the KAI default), not to "All".
+
+Filter persistence rules:
+- When a recruiter opens a candidate drawer and closes it: ALL filter values stay exactly as they were. Do not re-fetch. Do not reset anything.
+- Filters only reset when: user clicks Clear All, OR user manually changes a dropdown.
+- Nationality preference is saved to localStorage key kai_nationality_filter. Default = "Indian" if nothing saved.
+- Every filter change: reset to page 1 then re-fetch.
+
+---
+
+CHANGE 5 — DEFAULT SORT = NEWEST FIRST (ALWAYS)
+
+The API call must always include `sort: 'newest'`. Never omit it, never let it be overridden.
+
+The sort field on the backend is `applicationDate` — the original date the candidate's CV was received. Do not use createdAt, updatedAt, parsedAt, or any other timestamp.
+
+No sort toggle needed in the UI. Newest is always the default and only sort. The most recently received CV must always be at the top of the grid.
+
+---
+
+RESPONSIVE LAYOUT (tablets under 1024px wide)
+
+On screens narrower than 1024px, hide these grid columns:
+Location, Education, Top 3 Positions, Readiness, CV, Contact, Actions
+
+Keep visible:
+1. Stage badge
+2. Candidate (name + nationality + age)
+3. Trade / Skill
+4. Experience (IND + GCC)
+5. GCC Match %
+
+Rows must still be tappable to open the candidate drawer. No horizontal scrollbar.
+
+---
+
+DO NOT CHANGE ANY OF THESE:
+- The GAS API URL
+- The session token logic (localStorage key: kai_session_token)
+- The candidate grid column order or column content
+- The candidate drawer (any tab, any field inside it)
+- The pagination controls (Prev / Next / Page X of Y)
+- The 8 summary cards (Total Candidates, Needs Call, Ready, Shortlisted, Submitted, Selected, Mobilization, Deployed)
+- Stage badge colours (Review=grey, Needs Call=amber, Shortlisted=blue, Submitted=purple, Selected=green, Mobilization=orange, Deployed=dark green, Do Not Contact=red)
+- The Upload CV and Document Operations functionality — only their position changes
+- Any other page (Dashboard, Requirements, Campaigns, Pipeline, etc.)
+- KAI Number and Passport Number must never appear in the grid — drawer only
+
+GAS URL (do not modify):
+https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec

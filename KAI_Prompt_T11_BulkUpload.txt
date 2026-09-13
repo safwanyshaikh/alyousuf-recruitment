@@ -1,0 +1,79 @@
+KAI RECRUITMENT OS — TASK 11: Bulk CV Upload (P5)
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+Recruiters need to upload multiple CVs at once.
+The existing single uploadCV endpoint handles one file per call.
+Bulk upload = queue multiple files and call uploadCV once per file sequentially.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENTRY POINT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On the Upload CV modal (existing), add a second tab:
+  Tab 1: Single Upload  (existing behaviour)
+  Tab 2: Bulk Upload    (new)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BULK UPLOAD TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Drop zone:
+  [Drop CVs here or click to select]
+  Accepts: PDF, DOCX (multiple files, max 10 per batch)
+
+File queue — show list of selected files before upload:
+  ┌─────────────────────────────────────────────┐
+  │  📄 Ravi_Kumar_CV.pdf          [✕ Remove]   │
+  │  📄 Ahmed_Ali_CV.pdf           [✕ Remove]   │
+  │  📄 John_Doe_CV.docx           [✕ Remove]   │
+  └─────────────────────────────────────────────┘
+
+  [Upload All (3 files)]
+
+On [Upload All]:
+  Process each file one at a time (sequential, not parallel — GAS limit).
+  Show live progress:
+
+  ┌─────────────────────────────────────────────┐
+  │  📄 Ravi_Kumar_CV.pdf      ✓ AYE-KAI-2026-006001  │
+  │  📄 Ahmed_Ali_CV.pdf       ⟳ Processing...        │
+  │  📄 John_Doe_CV.docx       ○ Waiting               │
+  └─────────────────────────────────────────────┘
+
+  For each file, use the SAME POST as single upload:
+    fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'uploadCV',
+        token: sessionToken,
+        fileName: file.name,
+        mimeType: file.type,
+        fileB64: base64String,
+        recruiter: currentUser.email
+      })
+    })
+
+  On each file complete → show KAI Number or error message inline.
+
+Summary when all done:
+  "3 uploaded: 3 new candidates created"
+  or "3 uploaded: 2 new, 1 duplicate (AYE-KAI-2026-000043 updated)"
+
+[Close] button — refreshes candidate list.
+
+Max 10 files per batch. If user selects more, show: "Maximum 10 files per
+batch. Please remove some files."
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT CHANGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Single upload tab (Tab 1) behaviour is unchanged.
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec

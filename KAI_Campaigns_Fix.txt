@@ -1,0 +1,9 @@
+The Campaigns page Status column is showing raw JSON text like:
+{"rotation":"1000001023/1000001024","accommodation":"","transport":"","iqamaTransfer":false}
+
+Fix: parse that JSON and display it cleanly, or just show the Status field value ("OPEN", "CLOSED" etc).
+
+Also the Campaign name column is showing the raw JD filename (e.g. "REQ-20260517-0001 — AMMAD PROJECT_JD (1).pdf").
+Clean it up: show only the Trade value (col 5 from requirements) as the campaign title, with the REQ ID as subtitle in grey smaller text.
+
+Do not change any other screen.

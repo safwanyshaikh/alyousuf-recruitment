@@ -1,0 +1,117 @@
+KAI RECRUITMENT OS — TASK 12: Associate Import (P6)
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+Import 125 sub-agents/associates from Excel into KAI.
+Associates = sourcing partners who send candidates to AYE.
+
+GAS has a new `_Associates` sheet and `importAssociates` endpoint.
+Build the Associates screen and import flow.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NEW SCREEN: Associates
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add "Associates" to the left sidebar navigation (below SAC Performance).
+
+Screen header:
+  Associates Network                    [+ Add Associate]  [↑ Import Excel]
+
+Data fetch:
+  GET {GAS_URL}?action=associates&token={token}
+
+Grid columns:
+  Company Name | Contact | State / City | License | Specialization | Recruiters | Active | Actions
+
+Actions per row:
+  [Edit]  [Deactivate]
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORT EXCEL FLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[↑ Import Excel] opens a modal.
+
+Step 1 — Upload file:
+  [Drop Excel/CSV here or click to browse]
+  Accepts: .xlsx, .csv
+
+Step 2 — Column mapping (show after file selected):
+  KAI Field          →  Your Column
+  Company Name       →  [Your Company's Legal Name  ▾]
+  Contact Name       →  [Name of Person Representing▾]
+  Email              →  [Contact Email               ▾]
+  Mobile             →  [Contact No.                 ▾]
+  State              →  [State                       ▾]
+  City               →  [City you Operate            ▾]
+  License Type       →  [Type of Vendor              ▾]
+  License No         →  [Your Company's Registration ▾]
+  Specialization     →  [Specialization              ▾]
+  Capacity           →  [Capacity                    ▾]
+
+Auto-map based on header name similarity. Allow recruiter to override.
+
+Step 3 — Preview (first 5 rows):
+  Show table with mapped data.
+  "125 rows detected. 3 will be skipped (duplicate email)."
+
+Step 4 — Import:
+  [Import 122 Associates]
+
+  POST to GAS:
+    fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'importAssociates',
+        token: sessionToken,
+        source: 'EXCEL_IMPORT',
+        associates: [
+          { companyName, contactName, email, mobile, state, city,
+            licenseType, licenseNo, specialization, capacity,
+            numRecruiters, linkedInUrl, websiteUrl, address },
+          ...
+        ]
+      })
+    })
+
+GAS response:
+  { ok:true, added:N, skipped:N, total:N }
+
+Show result:
+  "Import complete: 122 added, 3 skipped (duplicate email)"
+
+[Close] → refresh Associates list.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANUAL ADD ASSOCIATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[+ Add Associate] opens a form drawer:
+
+  Company Name *
+  Contact Name *
+  Email *
+  Mobile
+  State / City
+  License Type  [RA License / Without License / Freelance / Other]
+  License No
+  Specialization
+  Capacity (candidates/month)
+  Notes
+
+POST: action=importAssociates with single associate in array.
+On success: refresh list, show toast.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DO NOT BUILD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Performance analytics per associate, payment tracking, commission modules.
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec

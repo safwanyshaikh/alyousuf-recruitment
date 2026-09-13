@@ -1,0 +1,25 @@
+KAI Gmail Export Analysis
+Generated: 2026-05-31 13:10
+========================================
+
+GMAIL EXPORT STATS
+  Total rows in export:          146,847
+  Unique sender emails:           74,438
+  Already in Excel database:         919
+  NEW candidates from Gmail:      73,519
+
+NEW BREAKDOWN
+  CV/Job-related senders:         67,781  ← Gmail_CV_Candidates.csv
+  Other attachment senders:        5,738  (ignored)
+
+TOTAL DATABASE AFTER MERGE
+  From Excel (3 files):            3,553
+  New from Gmail:                 73,519
+  GRAND TOTAL:                    77,072
+
+AUTO-EMAIL CAMPAIGN
+  File: KAI_Gmail_CV_Candidates.csv
+  All rows have Status = PENDING_RECONTACT
+  Use GAS to send 100 emails/day (Gmail limit: 500/day)
+  Subject: "Update Your CV — Al Yousuf Recruitment"
+  When they reply with new CV, ai@ auto-parses it

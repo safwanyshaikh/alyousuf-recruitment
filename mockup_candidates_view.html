@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>KAI OS — Candidates Contacts View</title>
+<style>
+  :root {
+    --list-row-h: 72px;
+    --rail-w: 224px;
+    --detail-w: 380px;
+    --accent: oklch(0.55 0.22 270);
+    --accent-wa: oklch(0.62 0.18 145);
+    --surface: #ffffff;
+    --surface-muted: #f9f9f9;
+    --hairline: #ebebeb;
+    --row-selected: color-mix(in oklab, oklch(0.55 0.22 270) 6%, transparent);
+    --row-hover: color-mix(in oklab, oklch(0.55 0.22 270) 3%, transparent);
+    --indigo: #5b4fcf;
+    --indigo-light: #eeecfb;
+    --wa-green: #25d366;
+    --text-primary: #111;
+    --text-secondary: #666;
+    --text-muted: #999;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 14px;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    height: 52px;
+    border-bottom: 1px solid var(--hairline);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+    background: var(--surface);
+    position: relative;
+    z-index: 10;
+  }
+  .topbar-logo {
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--indigo);
+    letter-spacing: -0.5px;
+    margin-right: 8px;
+  }
+  .topbar-search {
+    flex: 1;
+    max-width: 400px;
+    height: 32px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0 12px 0 32px;
+    font-size: 13px;
+    background: var(--surface-muted) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") 10px center no-repeat;
+    outline: none;
+    color: var(--text-primary);
+  }
+  .topbar-search::placeholder { color: var(--text-muted); }
+  .view-toggle {
+    display: flex;
+    background: var(--surface-muted);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-left: auto;
+  }
+  .view-toggle button {
+    padding: 6px 14px;
+    font-size: 12px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .view-toggle button.active {
+    background: var(--indigo);
+    color: white;
+    border-radius: 7px;
+    margin: 1px;
+  }
+  .topbar-avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--indigo);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── MY CARD ── */
+  .mycard {
+    display: flex;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--surface);
+  }
+  .tile {
+    flex: 1;
+    background: var(--surface-muted);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .tile:hover { background: var(--indigo-light); border-color: var(--indigo); }
+  .tile-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 500;
+  }
+  .tile-value {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+    margin-top: 2px;
+  }
+  .tile-value.accent { color: var(--indigo); }
+  .tile-value.green  { color: #16a34a; }
+
+  /* ── MAIN BODY ── */
+  .main {
+    display: flex;
+    height: calc(100vh - 52px - 73px);
+    overflow: hidden;
+  }
+
+  /* ── RAIL ── */
+  .rail {
+    width: var(--rail-w);
+    min-width: var(--rail-w);
+    background: var(--surface-muted);
+    border-right: 1px solid var(--hairline);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .rail-section-header {
+    padding: 16px 16px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+  }
+  .group-item {
+    display: flex;
+    align-items: center;
+    height: 34px;
+    padding: 0 16px;
+    cursor: pointer;
+    border-radius: 0;
+    position: relative;
+    color: var(--text-secondary);
+    font-size: 13px;
+    gap: 8px;
+  }
+  .group-item:hover { background: rgba(0,0,0,0.03); }
+  .group-item.active {
+    background: var(--indigo-light);
+    color: var(--indigo);
+    font-weight: 600;
+  }
+  .group-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 4px; bottom: 4px;
+    width: 3px;
+    background: var(--indigo);
+    border-radius: 0 3px 3px 0;
+  }
+  .group-badge {
+    margin-left: auto;
+    background: var(--indigo);
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 10px;
+    padding: 1px 6px;
+    min-width: 20px;
+    text-align: center;
+  }
+  .group-badge.muted {
+    background: var(--hairline);
+    color: var(--text-muted);
+  }
+  .group-icon { font-size: 14px; width: 18px; text-align: center; }
+  .rail-divider {
+    height: 1px;
+    background: var(--hairline);
+    margin: 8px 16px;
+  }
+  .rail-add {
+    display: flex;
+    align-items: center;
+    height: 34px;
+    padding: 0 16px;
+    cursor: pointer;
+    color: var(--indigo);
+    font-size: 13px;
+    gap: 6px;
+  }
+  .rail-add:hover { opacity: 0.7; }
+
+  /* ── CANDIDATE LIST ── */
+  .list-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surface);
+    position: relative;
+  }
+  .list-header {
+    padding: 10px 24px 8px;
+    border-bottom: 1px solid var(--hairline);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .filter-chip {
+    height: 26px;
+    padding: 0 12px;
+    border: 1px solid var(--hairline);
+    border-radius: 13px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--surface-muted);
+    cursor: pointer;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .filter-chip.active {
+    background: var(--indigo-light);
+    border-color: var(--indigo);
+    color: var(--indigo);
+    font-weight: 500;
+  }
+  .list-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .list-scroll {
+    flex: 1;
+    overflow-y: auto;
+    position: relative;
+  }
+
+  /* Letter section header */
+  .letter-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 6px 24px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    background: color-mix(in oklab, white 85%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--hairline);
+    letter-spacing: 0.5px;
+  }
+
+  /* Candidate row */
+  .cand-row {
+    display: flex;
+    align-items: center;
+    height: var(--list-row-h);
+    padding: 0 24px 0 20px;
+    cursor: pointer;
+    position: relative;
+    border-bottom: 1px solid var(--hairline);
+    transition: background 60ms;
+  }
+  .cand-row:hover { background: var(--row-hover); }
+  .cand-row.selected {
+    background: var(--row-selected);
+  }
+  .cand-row.selected::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 8px; bottom: 8px;
+    width: 3px;
+    background: var(--indigo);
+    border-radius: 0 3px 3px 0;
+  }
+
+  .avatar {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+    position: relative;
+    margin-right: 12px;
+  }
+  .avatar.c1 { background: #5b4fcf; }
+  .avatar.c2 { background: #0891b2; }
+  .avatar.c3 { background: #059669; }
+  .avatar.c4 { background: #d97706; }
+  .avatar.c5 { background: #db2777; }
+  .avatar.c6 { background: #7c3aed; }
+  .new-dot {
+    position: absolute;
+    bottom: 1px; right: 1px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #16a34a;
+    border: 2px solid white;
+  }
+
+  .row-body { flex: 1; min-width: 0; }
+  .row-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+  }
+
+  .row-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .stage-chip {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .stage-chip.new       { background: #eff6ff; color: #3b82f6; }
+  .stage-chip.short     { background: var(--indigo-light); color: var(--indigo); }
+  .stage-chip.sent      { background: #fef3c7; color: #d97706; }
+  .stage-chip.review    { background: #f1f5f9; color: #64748b; }
+  .stage-chip.call      { background: #fce7f3; color: #db2777; }
+  .score-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+
+  /* A-Z jump rail */
+  .az-rail {
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 1px;
+    z-index: 5;
+  }
+  .az-letter {
+    font-size: 9px;
+    color: var(--indigo);
+    cursor: pointer;
+    font-weight: 600;
+    width: 16px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .az-letter:hover { opacity: 0.6; }
+
+  /* skeleton */
+  .skeleton-row {
+    height: var(--list-row-h);
+    padding: 14px 24px 14px 20px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .sk { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.4s infinite;
+        border-radius: 4px; }
+  .sk-avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
+  .sk-lines { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .sk-line1 { height: 13px; width: 60%; }
+  .sk-line2 { height: 11px; width: 40%; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  /* ── DETAIL PANE ── */
+  .detail-pane {
+    width: var(--detail-w);
+    min-width: var(--detail-w);
+    border-left: 1px solid var(--hairline);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Top block — must fit 720px without scroll */
+  .detail-top {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid var(--hairline);
+    flex-shrink: 0;
+  }
+  .detail-avatar-row {
+    display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px;
+  }
+  .detail-avatar {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--indigo);
+    color: white;
+    font-size: 20px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .detail-name-block { flex: 1; min-width: 0; }
+  .detail-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+  .detail-trade {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 3px;
+  }
+  .detail-location {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  /* Contact chips */
+  .contact-chips {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  .chip-btn {
+    flex: 1;
+    height: 34px;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+  .chip-call  { background: var(--indigo); color: white; }
+  .chip-wa    { background: var(--wa-green); color: white; }
+  .chip-email { background: var(--surface-muted); color: var(--text-secondary);
+                border: 1px solid var(--hairline); }
+
+  /* Stage + Needs Call row */
+  .stage-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 0;
+  }
+  .stage-select {
+    flex: 1;
+    height: 32px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--indigo);
+    background: var(--indigo-light);
+    cursor: pointer;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235b4fcf' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 28px;
+  }
+  .needs-call-btn {
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid #fce7f3;
+    border-radius: 8px;
+    background: #fce7f3;
+    color: #db2777;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  /* Collapsible sections */
+  .detail-sections { flex: 1; overflow-y: auto; }
+  .section-item {
+    border-bottom: 1px solid var(--hairline);
+  }
+  .section-header {
+    display: flex; align-items: center;
+    padding: 13px 20px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    user-select: none;
+  }
+  .section-header:hover { background: var(--surface-muted); }
+  .section-arrow {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+  }
+  .section-header.open .section-arrow { transform: rotate(180deg); }
+  .section-content {
+    padding: 0 20px 16px;
+    display: none;
+  }
+  .section-content.open { display: block; }
+
+  /* Assessment content preview */
+  .assess-row {
+    display: flex; gap: 10px; margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .assess-label { color: var(--text-muted); width: 90px; flex-shrink: 0; }
+  .assess-value { color: var(--text-primary); font-weight: 500; }
+  .score-bar {
+    height: 4px;
+    background: var(--hairline);
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .score-fill {
+    height: 100%;
+    background: var(--indigo);
+    border-radius: 2px;
+  }
+
+  /* Compliance badge */
+  .compliance-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #dcfce7;
+    color: #16a34a;
+    margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-logo">KAI OS</div>
+  <input class="topbar-search" type="text" placeholder="Search candidates, trades, locations…" value="welder india">
+  <div class="view-toggle">
+    <button class="active">Contacts</button>
+    <button>Table</button>
+  </div>
+  <div class="topbar-avatar">SF</div>
+</div>
+
+<!-- MY CARD -->
+<div class="mycard">
+  <div class="tile">
+    <div class="tile-label">Today's CVs</div>
+    <div class="tile-value accent">126</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">Pending Callbacks</div>
+    <div class="tile-value" style="color:#db2777">4</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">Shortlisted</div>
+    <div class="tile-value green">1,440</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">Active Deployments</div>
+    <div class="tile-value">0</div>
+  </div>
+</div>
+
+<!-- MAIN 3-COLUMN LAYOUT -->
+<div class="main">
+
+  <!-- RAIL -->
+  <div class="rail">
+    <div class="rail-section-header">Groups</div>
+
+    <div class="group-item"><span class="group-icon">👥</span>All Candidates<span class="group-badge muted">7,187</span></div>
+    <div class="group-item active"><span class="group-icon">🆕</span>New<span class="group-badge">126</span></div>
+    <div class="group-item"><span class="group-icon">📞</span>Needs Call<span class="group-badge muted">38</span></div>
+    <div class="group-item"><span class="group-icon">⭐</span>Shortlisted<span class="group-badge">1,440</span></div>
+    <div class="group-item"><span class="group-icon">📤</span>Client Sent<span class="group-badge muted">84</span></div>
+    <div class="group-item"><span class="group-icon">✅</span>Client Selected<span class="group-badge muted">21</span></div>
+    <div class="group-item"><span class="group-icon">✈️</span>Deployed<span class="group-badge muted">0</span></div>
+    <div class="group-item"><span class="group-icon">🗄️</span>Rejected<span class="group-badge muted">219</span></div>
+
+    <div class="rail-divider"></div>
+
+    <div class="group-item"><span class="group-icon">🔔</span>Callbacks<span class="group-badge" style="background:#fce7f3;color:#db2777">4</span></div>
+
+    <div class="rail-divider"></div>
+    <div class="rail-section-header">Saved Views</div>
+    <div class="group-item"><span class="group-icon">🔧</span>Welder KSA Ready</div>
+    <div class="group-item"><span class="group-icon">⚡</span>AC Tech UAE</div>
+
+    <div class="rail-add">+ New group</div>
+  </div>
+
+  <!-- CANDIDATE LIST COLUMN -->
+  <div class="list-col">
+    <div class="list-header">
+      <div class="filter-chip active">New ✕</div>
+      <div class="filter-chip">Trade ▾</div>
+      <div class="filter-chip">Nationality ▾</div>
+      <div class="filter-chip">Stage ▾</div>
+      <div class="list-count">126 candidates</div>
+    </div>
+
+    <div class="list-scroll">
+
+      <!-- Letter A -->
+      <div class="letter-header">A</div>
+      <div class="cand-row">
+        <div class="avatar c1">AR<div class="new-dot"></div></div>
+        <div class="row-body">
+          <div class="row-name">Abdul Rahman Khan</div>
+          <div class="row-sub">Welder · Chennai, India</div>
+        </div>
+        <div class="row-right">
+          <span class="stage-chip new">New</span>
+          <span class="score-badge">82</span>
+        </div>
+      </div>
+      <div class="cand-row">
+        <div class="avatar c4">AM</div>
+        <div class="row-body">
+          <div class="row-name">Ahmed Mohammed Al-Rashid</div>
+          <div class="row-sub">Pipe Fitter · Hyderabad, India</div>
+        </div>
+        <div class="row-right">
+          <span class="stage-chip call">Needs Call</span>
+          <span class="score-badge">76</span>
+        </div>
+      </div>
+      <div class="cand-row">
+        <div class="avatar c2">AK<div class="new-dot"></div></div>
+        <div class="row-body">
+          <div class="row-name">Arjun Kumar</div>
+          <div class="row-sub">Instrument Technician · Mumbai, India</div>
+        </div>
+        <div class="row-right">
+          <span class="stage-chip new">New</span>
+          <span class="score-badge">91</span>
+        </div>
+      </div>
+
+      <!-- Letter B -->
+      <div class="letter-header">B</div>
+      <div class="cand-row selected">
+        <div class="avatar c3">BS</div>
+        <div class="row-body">
+          <div class="row-name">Babu Suresh</div>
+          <div class="row-sub">6GR Welder · Vijayawada, India</div>
+        </div>
+        <div class="row-right">
+          <span class="stage-chip short">Shortlisted</span>
+          <span class="score-badge">93</span>
+        </div>
+      </div>
+      <div class="cand-row">
+        <div class="avatar c5">BM<div class="new-dot"></div></div>
+        <div class="row-body">
+          <div class="row-name">Bilal Mohammed</div>
+          <div class="row-sub">Heavy Driver · Kerala, India</div>
+        </div>
+        <div class="row-right">
+          <span class="stage-chip new">New</span>
+          <span class="score-badge">68</span>
+        </div>
+      </div>
+
+      <!-- Letter C -->
+      <div class="letter-header">C</div>
+      <div class="cand-row">
+        <div class="avatar c6">CR<div class="new-dot"></div></div>
+        <div class="row-body">
+          <div class="row-name">Chandran Rajan</div>
+          <div class="row-sub">Rigger · Tamil Nadu, India</div>
+        </div>
+        <div class="row-right">
+          <span class="stage-chip new">New</span>
+          <span class="score-badge">74</span>
+        </div>
+      </div>
+      <div class="cand-row">
+        <div class="avatar c1">DK</div>
+        <div class="row-body">
+          <div class="row-name">Deepak Kumar Singh</div>
+          <div class="row-sub">Scaffolder · Bihar, India</div>
+        </div>
+        <div class="row-right">
+          <span class="stage-chip review">Under Review</span>
+          <span class="score-badge">61</span>
+        </div>
+      </div>
+
+      <!-- Skeleton rows (shown on first load) - subtle -->
+      <div style="border-bottom:1px solid var(--hairline); padding:12px 24px 12px 20px; display:flex; align-items:center; gap:12px; opacity:0.35">
+        <div class="sk sk-avatar"></div>
+        <div class="sk-lines">
+          <div class="sk sk-line1"></div>
+          <div class="sk sk-line2"></div>
+        </div>
+      </div>
+
+      <!-- A-Z jump rail -->
+      <div class="az-rail">
+        <div class="az-letter">A</div><div class="az-letter">B</div>
+        <div class="az-letter">C</div><div class="az-letter">D</div>
+        <div class="az-letter">E</div><div class="az-letter">F</div>
+        <div class="az-letter">G</div><div class="az-letter">H</div>
+        <div class="az-letter">I</div><div class="az-letter">J</div>
+        <div class="az-letter">K</div><div class="az-letter">L</div>
+        <div class="az-letter">M</div><div class="az-letter">N</div>
+        <div class="az-letter">O</div><div class="az-letter">P</div>
+        <div class="az-letter">Q</div><div class="az-letter">R</div>
+        <div class="az-letter">S</div><div class="az-letter">T</div>
+        <div class="az-letter">U</div><div class="az-letter">V</div>
+        <div class="az-letter">W</div><div class="az-letter">X</div>
+        <div class="az-letter">Y</div><div class="az-letter">Z</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- DETAIL PANE -->
+  <div class="detail-pane">
+    <!-- TOP BLOCK — fits 720px without scroll -->
+    <div class="detail-top">
+      <div class="detail-avatar-row">
+        <div class="detail-avatar">BS</div>
+        <div class="detail-name-block">
+          <div class="detail-name">Babu Suresh</div>
+          <div class="detail-trade">6GR Welder · SKILLED_TRADESMAN</div>
+          <div class="detail-location">📍 Vijayawada, Andhra Pradesh · Indian</div>
+        </div>
+      </div>
+
+      <div class="contact-chips">
+        <button class="chip-btn chip-call">📞 Call</button>
+        <button class="chip-btn chip-wa">WhatsApp</button>
+        <button class="chip-btn chip-email">✉ Email</button>
+      </div>
+
+      <div class="stage-row">
+        <select class="stage-select">
+          <option selected>Shortlisted</option>
+          <option>New</option>
+          <option>Needs Call</option>
+          <option>Under Review</option>
+          <option>Client Sent</option>
+          <option>Client Selected</option>
+          <option>Deployed</option>
+          <option>Rejected</option>
+        </select>
+        <button class="needs-call-btn">📞 Needs Call</button>
+      </div>
+    </div>
+
+    <!-- COLLAPSIBLE SECTIONS -->
+    <div class="detail-sections">
+
+      <div class="section-item">
+        <div class="section-header open" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+          <span>📊 Assessment</span>
+          <span class="section-arrow">▼</span>
+        </div>
+        <div class="section-content open">
+          <div class="assess-row">
+            <div class="assess-label">Match Score</div>
+            <div class="assess-value">93 · EXCELLENT</div>
+          </div>
+          <div class="score-bar"><div class="score-fill" style="width:93%"></div></div>
+          <div style="height:8px"></div>
+          <div class="assess-row">
+            <div class="assess-label">Experience</div>
+            <div class="assess-value">7 years · Gulf 4 yrs</div>
+          </div>
+          <div class="assess-row">
+            <div class="assess-label">Education</div>
+            <div class="assess-value">ITI / Certificate</div>
+          </div>
+          <div class="assess-row">
+            <div class="assess-label">Passport</div>
+            <div class="assess-value">A1234567 · Valid</div>
+          </div>
+          <div class="assess-row">
+            <div class="assess-label">ECR Status</div>
+            <div class="assess-value">ECR</div>
+          </div>
+          <div class="compliance-pill">✓ Compliance 100 · LOW RISK</div>
+        </div>
+      </div>
+
+      <div class="section-item">
+        <div class="section-header" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+          <span>📄 CV Preview</span>
+          <span class="section-arrow">▼</span>
+        </div>
+        <div class="section-content">
+          <div style="background:var(--surface-muted);border:1px solid var(--hairline);border-radius:8px;height:120px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:12px">Click to open CV PDF</div>
+        </div>
+      </div>
+
+      <div class="section-item">
+        <div class="section-header" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+          <span>📋 Submissions</span>
+          <span class="section-arrow">▼</span>
+        </div>
+        <div class="section-content">
+          <div style="font-size:12px;color:var(--text-muted)">No active submissions</div>
+        </div>
+      </div>
+
+      <div class="section-item">
+        <div class="section-header" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+          <span>🔔 Callbacks</span>
+          <span class="section-arrow">▼</span>
+        </div>
+        <div class="section-content">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">No pending callbacks</div>
+          <button style="font-size:12px;color:var(--indigo);background:var(--indigo-light);border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:600">+ Schedule Callback</button>
+        </div>
+      </div>
+
+      <div class="section-item">
+        <div class="section-header" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+          <span>🕒 Timeline</span>
+          <span class="section-arrow">▼</span>
+        </div>
+        <div class="section-content">
+          <div style="font-size:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;gap:8px;color:var(--text-secondary)">
+              <span style="color:var(--text-muted);width:60px;flex-shrink:0">Today</span>
+              <span>Stage → <strong>Shortlisted</strong></span>
+            </div>
+            <div style="display:flex;gap:8px;color:var(--text-secondary)">
+              <span style="color:var(--text-muted);width:60px;flex-shrink:0">2 days ago</span>
+              <span>CV received via email</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Interactive: clicking rows selects them
+  document.querySelectorAll('.cand-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+      document.querySelectorAll('.cand-row').forEach(function(r) { r.classList.remove('selected'); });
+      row.classList.add('selected');
+    });
+  });
+  // Group items
+  document.querySelectorAll('.group-item').forEach(function(item) {
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.group-item').forEach(function(g) { g.classList.remove('active'); });
+      item.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

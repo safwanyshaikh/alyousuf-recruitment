@@ -1,0 +1,744 @@
+══════════════════════════════════════════════════════════════════════
+KAI RECRUIT HUB — LOVABLE DASHBOARD: LIVE DATA INTEGRATION
+Step-by-Step Guide (Non-Technical)
+Prepared for: Al Yousuf Manpower | GAS Account: ai@alyousufent.com
+══════════════════════════════════════════════════════════════════════
+
+WHAT THIS DOCUMENT DOES
+──────────────────────
+Your Lovable dashboard already looks perfect with dummy data. This guide
+connects it to your REAL Google Apps Script (GAS) data — candidate scores,
+pipeline stages, SAC performance — without touching a single line of your
+existing GAS files.
+
+This is done in 3 stages:
+  • Stage 1: Build a thin "data bridge" (a new GAS script — not modifying
+             any existing file) that speaks JSON to Lovable.
+  • Stage 2: Tell Lovable exactly where to fetch data and how to map it
+             to each screen.
+  • Stage 3: Connect login so users get real session tokens from GAS.
+
+══════════════════════════════════════════════════════════════════════
+STAGE 1 — BUILD THE DATA BRIDGE (DO THIS IN GOOGLE APPS SCRIPT)
+══════════════════════════════════════════════════════════════════════
+
+NOTE: This is a BRAND NEW Google Apps Script project. You are NOT
+touching Code.gs or any existing patch files. Think of it as a
+"read-only window" into your existing Google Sheet.
+
+STEP 1.1 — Create the new GAS project
+  1. Go to script.google.com (sign in as ai@alyousufent.com)
+  2. Click "+ New project" (top-left)
+  3. Rename it to: KAI-API-Bridge
+
+STEP 1.2 — Paste the bridge code
+  Delete the default "function myFunction() {}" and paste this entire
+  block:
+
+─────────────────────── COPY FROM HERE ───────────────────────────────
+
+// KAI API Bridge v1 — Read-only JSON API for Lovable dashboard
+// This script reads from the existing KAI Google Sheet.
+// It does NOT write to or modify any existing GAS files.
+
+var SS_ID = '101iCo5lPpGOZc5CGGZA_kaYugbPHzRXQstl3WsRKBRE';
+
+function doGet(e) {
+  var params  = e && e.parameter ? e.parameter : {};
+  var action  = params.action  || 'candidates';
+  var token   = params.token   || '';
+
+  var out;
+  try {
+    // Minimal token check — reuse same _LoginSystem sheet as main GAS
+    if (!isTokenValid_(token)) {
+      out = JSON.stringify({ ok: false, error: 'Unauthorized' });
+      return ContentService.createTextOutput(out)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if      (action === 'candidates')   out = JSON.stringify(getCandidates_());
+    else if (action === 'requirements') out = JSON.stringify(getRequirements_());
+    else if (action === 'metrics')      out = JSON.stringify(getMetrics_());
+    else if (action === 'sac')          out = JSON.stringify(getSacPerformance_());
+    else                                out = JSON.stringify({ ok: false, error: 'Unknown action' });
+
+  } catch(err) {
+    out = JSON.stringify({ ok: false, error: err.message });
+  }
+
+  return ContentService.createTextOutput(out)
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── TOKEN VALIDATION ─────────────────────────────────────────────────
+function isTokenValid_(token) {
+  if (!token) return false;
+  try {
+    var cache = CacheService.getScriptCache().get('KAI_TOK_' + token);
+    if (cache) return true;
+    var ss    = SpreadsheetApp.openById(SS_ID);
+    var sheet = ss.getSheetByName('_LoginSystem');
+    if (!sheet || sheet.getLastRow() < 2) return false;
+    var data  = sheet.getRange(2, 1, sheet.getLastRow()-1, 8).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][5]||'').trim() === token) {
+        return new Date(data[i][6]) > new Date();
+      }
+    }
+    return false;
+  } catch(e) { return false; }
+}
+
+// ── CANDIDATES ───────────────────────────────────────────────────────
+// Returns all active candidates (not SUPERSEDED / ARCHIVED)
+function getCandidates_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('Candidates');
+  if (!sheet || sheet.getLastRow() < 2) return { records: [] };
+
+  var lr   = sheet.getLastRow();
+  var lc   = Math.min(sheet.getLastColumn(), 42);
+  var data = sheet.getRange(2, 1, lr-1, lc).getValues();
+  var records = [];
+
+  data.forEach(function(row, i) {
+    var active = String(row[23]||'').toUpperCase().trim(); // col 24 = _Active
+    if (active === 'SUPERSEDED' || active === 'ARCHIVED') return;
+
+    var name = String(row[3]||'').trim();     // col 4 = Name
+    var email= String(row[5]||'').trim();     // col 6 = Email
+    if (!name && !email) return;
+
+    // Passport expiry → status label
+    var ppExp = row[36] ? new Date(row[36]) : null; // col 37 = Passport Expiry (ext col)
+    var ppStatus = 'Unknown';
+    if (ppExp instanceof Date && !isNaN(ppExp)) {
+      var mLeft = (ppExp - new Date()) / (1000*60*60*24*30);
+      ppStatus  = mLeft > 6 ? 'Valid' : (mLeft > 0 ? '<6mo' : 'Expired');
+    }
+
+    records.push({
+      rowIndex:        i + 2,
+      name:            name,
+      trade:           String(row[8] ||'').trim(),   // col 9  = Trade
+      score:           parseInt(row[16])||0,          // col 17 = Score
+      verdict:         String(row[14]||'').toUpperCase().trim(), // col 15
+      nationality:     String(row[2] ||'').trim(),   // col 3
+      gulfExp:         String(row[11]||'').trim(),   // col 12 = Gulf Experience
+      passportStatus:  ppStatus,
+      availability:    String(row[28]||'').trim(),   // col 29 ext = Availability
+      stage:           String(row[0] ||'').trim(),   // col 1  = Stage
+      source:          String(row[35]||'').trim(),   // col 36 ext = Source (SAC01 etc)
+      positionApplied: String(row[7] ||'').trim(),   // col 8
+      industry:        String(row[9] ||'').trim(),   // col 10 = Industry
+      age:             parseInt(row[13])||0,          // col 14 = Age
+      experience:      parseFloat(row[10])||0,        // col 11 = Experience
+      education:       String(row[6] ||'').trim(),   // col 7
+      mobile:          String(row[4] ||'').replace(/^'/,'').trim(), // col 5
+      cvLink:          String(row[21]||'').trim(),   // col 22 = CV Link
+      kaiAssessment:   String(row[19]||'').slice(0,300).trim(), // col 20
+      applicationDate: row[1] instanceof Date ?
+        Utilities.formatDate(row[1],'Asia/Kolkata','yyyy-MM-dd') : '',
+      deployScore:     parseInt(row[26])||0,         // col 27 ext = Deploy Score
+      techReview:      String(row[39]||'').trim(),   // col 40 v282 = Tech Review
+      top3Positions:   String(row[41]||'').trim()    // col 42 v282 = Top 3 Positions
+    });
+  });
+
+  return { ok: true, records: records, count: records.length };
+}
+
+// ── REQUIREMENTS (JOBS / JD DATA) ────────────────────────────────────
+// Reads the _Requirements sheet (auto-built from forwarded JDs)
+function getRequirements_() {
+  var ss    = SpreadsheetApp.openById(SS_ID);
+  var sheet = ss.getSheetByName('_Requirements');
+  if (!sheet || sheet.getLastRow() < 2) return { requirements: [] };
+
+  var data = sheet.getRange(2, 1, sheet.getLastRow()-1, 17).getValues();
+  var reqs = data.map(function(row) {
+    return {
+      reqId:              String(row[0]||''),
+      receivedDate:       row[1] instanceof Date ?
+        Utilities.formatDate(row[1],'Asia/Kolkata','dd-MMM-yyyy') : '',
+      clientName:         String(row[2]||'Unknown'),
+      deployCountry:      String(row[3]||''),
+      jobTitle:           String(row[4]||''),
+      trade:              String(row[5]||''),
+      requiredQty:        parseInt(row[6])||0,
+      minExperience:      parseInt(row[7])||0,
+      maxAge:             parseInt(row[8])||0,
+      shortlistCount:     parseInt(row[10])||0,
+      selectedCount:      parseInt(row[11])||0,
+      notes:              String(row[13]||''),
+      status:             parseInt(row[10])>0 ? 'Active' : 'Open'
+    };
+  }).filter(function(r){ return r.reqId; });
+
+  return { ok: true, requirements: reqs };
+}
+
+// ── METRICS ──────────────────────────────────────────────────────────
+function getMetrics_() {
+  var data = getCandidates_();
+  var records = data.records || [];
+  var m = {
+    total:0, shortlisted:0, needsReview:0, needsCall:0,
+    interviewPending:0, clientSent:0, selected:0, deployed:0,
+    todayCount:0
+  };
+  var today = Utilities.formatDate(new Date(),'Asia/Kolkata','yyyy-MM-dd');
+
+  records.forEach(function(r) {
+    m.total++;
+    var v = r.verdict;
+    var s = (r.stage||'').toUpperCase();
+    if (v === 'SHORTLISTED')                   m.shortlisted++;
+    if (v === 'NEEDS_REVIEW')                  m.needsReview++;
+    if (v === 'NEEDS_CALL')                    m.needsCall++;
+    if (s.indexOf('INTERVIEW') >= 0)           m.interviewPending++;
+    if (s === 'CLIENT_SENT')                   m.clientSent++;
+    if (s === 'CLIENT_SELECTED' || s==='SELECTED') m.selected++;
+    if (s === 'DEPLOYED')                      m.deployed++;
+    if (r.applicationDate === today)           m.todayCount++;
+  });
+
+  return { ok: true, metrics: m };
+}
+
+// ── SAC PERFORMANCE ──────────────────────────────────────────────────
+// Groups candidates by their Source tag (Direct, SAC01, SAC02, SAC03)
+function getSacPerformance_() {
+  var data    = getCandidates_();
+  var records = data.records || [];
+  var groups  = {};
+
+  records.forEach(function(r) {
+    var src = r.source || 'Direct';
+    if (!groups[src]) groups[src] = {
+      source:src, total:0, shortlisted:0, selected:0,
+      scores:[], totalDeployScore:0
+    };
+    var g = groups[src];
+    g.total++;
+    if (r.verdict === 'SHORTLISTED') g.shortlisted++;
+    var stage = (r.stage||'').toUpperCase();
+    if (stage === 'CLIENT_SELECTED' || stage === 'SELECTED' || stage === 'DEPLOYED') g.selected++;
+    if (r.score > 0) g.scores.push(r.score);
+  });
+
+  var result = Object.keys(groups).map(function(src) {
+    var g = groups[src];
+    var avgScore = g.scores.length ?
+      Math.round(g.scores.reduce(function(a,b){return a+b;},0) / g.scores.length) : 0;
+    var passRate = g.total > 0 ?
+      Math.round((g.shortlisted / g.total) * 100) + '%' : '0%';
+    var grade = avgScore >= 75 ? 'A' : (avgScore >= 65 ? 'B+' :
+                (avgScore >= 55 ? 'B'  : 'C'));
+    var readiness = avgScore >= 72 ? 'HIGH' : (avgScore >= 62 ? 'MODERATE' : 'LOW');
+    return {
+      source: src, total: g.total, shortlisted: g.shortlisted,
+      selected: g.selected, passRate: passRate,
+      avgScore: avgScore, grade: grade, readiness: readiness
+    };
+  });
+
+  result.sort(function(a,b){ return b.avgScore - a.avgScore; });
+  return { ok: true, sacPerformance: result };
+}
+
+─────────────────────── COPY TO HERE ─────────────────────────────────
+
+STEP 1.3 — Deploy the bridge as a Web App
+  1. Click "Deploy" → "New deployment" (top-right in GAS editor)
+  2. Click the gear icon next to "Select type" → choose "Web app"
+  3. Set these options:
+       Description:   KAI API Bridge v1
+       Execute as:    Me (ai@alyousufent.com)
+       Who has access: Anyone
+  4. Click "Deploy"
+  5. COPY AND SAVE THE URL that appears — it looks like:
+       https://script.google.com/macros/s/XXXXXXXX/exec
+     You will need this URL in Stage 2.
+
+  ⚠️ IMPORTANT: Each time you re-deploy (if you update the code),
+     copy the NEW URL again, as it may change.
+
+
+══════════════════════════════════════════════════════════════════════
+STAGE 2 — TELL LOVABLE TO FETCH REAL DATA (PASTE INTO LOVABLE)
+══════════════════════════════════════════════════════════════════════
+
+In Lovable's chat, paste the prompts below ONE AT A TIME.
+Wait for Lovable to finish implementing each one before moving to the next.
+Replace [YOUR_BRIDGE_URL] with the URL you copied in Step 1.3.
+
+──────────────────────────────────────────────────────────────────────
+LOVABLE PROMPT 1 OF 6 — Global Setup & API Service
+──────────────────────────────────────────────────────────────────────
+Paste this into Lovable chat:
+
+"""
+We need to connect this dashboard to a live Google Apps Script (GAS) backend.
+Here is the setup:
+
+1. Create a file called src/services/gasApi.ts with this content:
+
+   const GAS_BRIDGE_URL = import.meta.env.VITE_GAS_BRIDGE_URL || '';
+
+   async function apiFetch(action: string, token: string) {
+     const url = `${GAS_BRIDGE_URL}?action=${action}&token=${encodeURIComponent(token)}`;
+     const res = await fetch(url, { redirect: 'follow' });
+     if (!res.ok) throw new Error(`API error: ${res.status}`);
+     return res.json();
+   }
+
+   export const gasApi = {
+     getCandidates:    (token: string) => apiFetch('candidates', token),
+     getRequirements:  (token: string) => apiFetch('requirements', token),
+     getMetrics:       (token: string) => apiFetch('metrics', token),
+     getSacPerformance:(token: string) => apiFetch('sac', token),
+   };
+
+2. Create a React Context called GasDataContext (src/context/GasDataContext.tsx)
+   that stores the session token (from localStorage key 'kai_session_token') and
+   exposes: token, candidates, requirements, metrics, sacPerformance,
+   isLoading, error, refreshAll.
+
+   refreshAll() should call all four gasApi methods and update state. It should
+   run once when the token is first available, and can be called manually to
+   refresh.
+
+3. Wrap the entire app in GasDataProvider inside main.tsx.
+
+4. Add a .env.example file with:
+   VITE_GAS_BRIDGE_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+
+Do not change any existing UI components yet. Just add the data layer.
+"""
+
+──────────────────────────────────────────────────────────────────────
+LOVABLE PROMPT 2 OF 6 — Candidates Screen (Live Data)
+──────────────────────────────────────────────────────────────────────
+Paste this into Lovable chat AFTER Prompt 1 is done:
+
+"""
+Update the Candidates screen to show real data from the GAS API instead
+of the current dummy/mock data.
+
+Data source: use the `candidates` array from GasDataContext.
+
+Each candidate record has these fields:
+  name           — full name (string)
+  trade          — job trade/skill (string)
+  score          — KAI score 0–100 (number). Colour: ≥75 green dot, 60–74 yellow dot, <60 orange dot
+  verdict        — one of: SHORTLISTED | NEEDS_REVIEW | NEEDS_CALL | REJECT
+  nationality    — country (string)
+  gulfExp        — Gulf experience e.g. "KSA 4yr" (string)
+  passportStatus — Valid | <6mo | Expired | Unknown
+  availability   — e.g. "Immediate", "30d", "60d" (string)
+  stage          — pipeline stage (string), use as the "Stage" badge
+  source         — Direct | SAC01 | SAC02 | SAC03
+  industry       — industry tags (string)
+  cvLink         — Google Drive URL for CV (string)
+  kaiAssessment  — 4-line AI summary text (string)
+  techReview     — Strong Match | Moderate Match | Weak Match | Unrelated | Helper Risk
+  top3Positions  — suggested roles (string, pipe-separated, split into tags)
+  applicationDate— yyyy-MM-dd (string)
+
+Mapping to the existing table columns:
+  NAME column      → name
+  TRADE column     → trade
+  SCORE column     → score (with colour dot)
+  VERDICT column   → verdict (bold uppercase, colour: green=SHORTLISTED,
+                     orange=NEEDS_REVIEW, red=NEEDS_CALL, grey=REJECT)
+  NATIONALITY col  → nationality
+  GULF EXP column  → gulfExp
+  PASSPORT column  → passportStatus (green if Valid, amber if <6mo, red if Expired)
+  AVAIL column     → availability
+  READINESS column → derive from score: ≥72=HIGH, 62–71=MODERATE, <62=LOW
+  INDUSTRY TAGS    → industry (show as a tag chip)
+  STAGE column     → stage (coloured badge matching existing badge styles)
+  SOURCE column    → source (coloured badge: Direct=green, SAC01/02/03=amber)
+  VIEW link        → opens cvLink in a new tab
+
+Keep the existing search bar (filter by name/trade), All Verdicts dropdown,
+and All Sources dropdown filters working — now they filter the live data.
+
+Show a loading spinner while data is fetching. Show total candidate count
+in the "All Candidates [count]" badge.
+
+Keep the Upload CV, Import Excel, and + Add buttons visible (they can remain
+as non-functional placeholders for now).
+"""
+
+──────────────────────────────────────────────────────────────────────
+LOVABLE PROMPT 3 OF 6 — Pipeline / Interview Tracker (Live Data)
+──────────────────────────────────────────────────────────────────────
+Paste this into Lovable chat AFTER Prompt 2 is done:
+
+"""
+Update the Pipeline / Interview Tracker screen to show real pipeline data
+from GAS.
+
+Data source: filter the `candidates` array from GasDataContext where the
+`stage` field contains any of these values (case-insensitive):
+  INTERVIEW_PENDING, CLIENT_SENT, CLIENT_SELECTED, SELECTED, ATTENDED,
+  HOLD, NOT_RECOMMENDED, PENDING ACTION, SHORTLISTED
+
+Pipeline status mapping (stage → display status):
+  "SHORTLISTED" or "PENDING ACTION"   → PENDING  (yellow badge)
+  "CLIENT_SENT" or "INTERVIEW_PENDING" → PENDING  (yellow badge)
+  "ATTENDED"                           → ATTENDED (blue badge)
+  "CLIENT_SELECTED" or "SELECTED"      → SELECTED (green badge)
+  "HOLD"                               → HOLD     (orange badge)
+  "NOT_RECOMMENDED"                    → NOT RECOMMENDED (red badge)
+
+The 5 summary counters at the top (PENDING, ATTENDED, SELECTED, HOLD,
+NOT RECOMMENDED) should count how many candidates match each status above.
+
+For the interview table rows, map as follows:
+  NAME column      → candidate.name
+  TRADE column     → candidate.trade
+  CAMPAIGN column  → candidate.positionApplied (the job they applied for)
+  SCHEDULED column → candidate.applicationDate (use as date reference;
+                     display as "Jun DD" format from the applicationDate field)
+  MODE column      → derive from source: Direct=F2F, SAC01/02/03=Online
+  VENUE column     → derive from techReview field:
+                     if techReview has "Strong" → "Trade Test",
+                     otherwise → "Associate Office"
+  PASSPORT column  → candidate.passportStatus
+                     (Deposited if Valid, NOT DEPOSITED if <6mo or Expired)
+  STATUS column    → the coloured badge from the mapping above
+  ACTION column    → based on status:
+                     PENDING    → "Mark Attended · Reschedule"
+                     ATTENDED   → "Enter Result"
+                     SELECTED   → "Begin Onboarding"
+                     HOLD       → "Re-evaluate"
+                     NOT RECOMMENDED → (no action shown)
+
+Keep the existing filter dropdowns (All Campaigns, All Stages, All Modes,
+date picker) working — they now filter this live data.
+
+The All Campaigns dropdown should be populated from the unique values of
+`positionApplied` found in the filtered records.
+"""
+
+──────────────────────────────────────────────────────────────────────
+LOVABLE PROMPT 4 OF 6 — SAC Performance Screen (Live Data)
+──────────────────────────────────────────────────────────────────────
+Paste this into Lovable chat AFTER Prompt 3 is done:
+
+"""
+Update the SAC Performance screen to show real data from GAS.
+
+Data source: use `sacPerformance` array from GasDataContext.
+(This is already grouped/calculated by the GAS API Bridge.)
+
+Each SAC performance record has:
+  source       — "Direct" | "SAC01" | "SAC02" | "SAC03"
+  total        — total candidates (number)
+  shortlisted  — shortlisted count (number)
+  selected     — selected/deployed count (number)
+  passRate     — e.g. "70.8%" (string)
+  avgScore     — average score (number)
+  grade        — "S" | "A" | "B+" | "B" | "C"
+  readiness    — "HIGH" | "MODERATE" | "LOW"
+
+Table column mapping:
+  SAC column          → source (show as coloured tag: Direct=green,
+                        SAC01=blue, SAC02=teal, SAC03=red — matching existing style)
+  AGENCY NAME column  → Direct=(Own), SAC01=Associate A, SAC02=Associate B,
+                        SAC03=Associate C  ← use these labels for now
+  CAMPAIGNS column    → leave as "--" (this needs future data; skip for now)
+  CANDIDATES column   → total
+  SHORTLISTED column  → shortlisted
+  SELECTED column     → selected (colour green if > 0)
+  PASS RATE column    → passRate (colour: ≥70% green, 55–69% amber, <55% red)
+  AVG SCORE column    → avgScore
+  READINESS column    → readiness (coloured badge: HIGH=green, MODERATE=amber, LOW=red)
+  GRADE column        → grade (colour: S/A=green, B+=teal, B=amber, C=red)
+
+The 4 KPI cards at the top:
+  TOTAL SACS ACTIVE   → count of rows where source is not "Direct"
+  TOTAL CANDIDATES VIA SAC → sum of `total` for non-Direct rows
+  AVG SAC PASS RATE   → average of passRate numbers for non-Direct rows
+  BEST PERFORMING SAC → source with highest avgScore (non-Direct rows)
+
+Keep the + Register New SAC button visible as a placeholder.
+"""
+
+──────────────────────────────────────────────────────────────────────
+LOVABLE PROMPT 5 OF 6 — Jobs Screen (Derived from Requirements)
+──────────────────────────────────────────────────────────────────────
+Paste this into Lovable chat AFTER Prompt 4 is done:
+
+"""
+Update the Jobs / Active Jobs screen to show real data.
+
+Data source: use `requirements` array from GasDataContext.
+Each requirement record has:
+  reqId           — unique ID e.g. "ALR-010"
+  clientName      — e.g. "Client A"
+  jobTitle        — position title
+  trade           — trade/skill
+  deployCountry   — e.g. "Saudi Arabia"
+  requiredQty     — total positions required (number)
+  shortlistCount  — candidates shortlisted (number)
+  selectedCount   — candidates selected (number)
+  status          — "Active" | "Open"
+  receivedDate    — date string
+
+Also cross-reference with `candidates` from GasDataContext:
+  applied  → count of candidates where positionApplied matches jobTitle/trade
+  sent     → count of candidates where stage = "CLIENT_SENT" for that job
+  remaining → requiredQty - selectedCount
+
+Job Card fields:
+  Title            → jobTitle
+  Sector tags      → trade (as grey tag) + "Gulf Exp" (as amber tag)
+  Client row       → clientName
+  REQ ID badge     → reqId (show top-right corner of card, only if reqId exists)
+  APPLIED stat     → applied (from candidates cross-reference)
+  SHORTLISTED stat → shortlistCount
+  SENT stat        → sent (from candidates cross-reference)
+  REMAINING stat   → remaining = requiredQty - selectedCount
+  Progress bar     → (shortlistCount / requiredQty * 100)%
+                     Colour: ≥70% blue, 40–69% amber, <40% red
+  "% filled"       → (selectedCount / requiredQty * 100)% filled
+  Mode badge       → If reqId starts with "ALR" → "COMPLIANCE" (purple)
+                     If shortlistCount > 5       → "CAMPAIGN" (blue)
+                     Otherwise                  → "DIRECT" (green)
+  Drive date       → receivedDate formatted as "Jun DD"
+  "View Candidates" button → filter Candidates screen by this jobTitle
+  "Manage Campaign" button → placeholder (no action needed yet)
+
+Show only jobs where status = "Active" on the main Jobs page.
+
+Keep the + Create JD and Upload JD buttons. Keep the All Sectors dropdown
+(filter by trade) and Search bar working with live data.
+
+If requirements array is empty (GAS hasn't processed any JDs yet), show a
+friendly empty state: "No active jobs yet. Forward a client email to
+intake+ALYOUSUF@karigarai.com or click Upload JD to get started."
+"""
+
+──────────────────────────────────────────────────────────────────────
+LOVABLE PROMPT 6 OF 6 — Campaigns Screen (Derived Data)
+──────────────────────────────────────────────────────────────────────
+Paste this into Lovable chat AFTER Prompt 5 is done:
+
+"""
+Update the Campaigns screen to show real data derived from `requirements`
+and `candidates` in GasDataContext.
+
+Each table row = one requirement record. Map columns:
+
+  CAMPAIGN column    → reqId + " — " + jobTitle
+                       e.g. "ALR-010 — CP Technician Drive"
+  CLIENT column      → clientName
+  SECTOR column      → trade (or industry if trade is empty)
+  REQ column         → requiredQty
+  SHORTLISTED column → shortlistCount (colour green if > 0)
+  REMAINING column   → requiredQty - selectedCount
+                       (colour amber if > 0, green if 0)
+  MODE column        → Cross-reference candidates: if any candidate for
+                       this job has source=Direct → "F2F" pill (blue);
+                       if SAC source only → "Online" pill (purple);
+                       if mixed → "Mixed" pill (teal)
+  SOURCE column      → The most common source tag among candidates for
+                       this job (Direct / SAC01 / SAC02 / Mixed)
+  PASS RATE column   → shortlistCount / applied * 100
+                       (colour: ≥70% green, 55–69% amber, <55% red)
+  PASSPORT column    → Count candidates for this job where passportStatus
+                       = "Valid" as "Dep: X" and not valid as "Not: Y"
+                       Show as "Dep: X / Not: Y"
+  INTERVIEW PENDING  → Count candidates for this job where stage contains
+                       "INTERVIEW" — show as number badge (amber if > 0)
+  STATUS column      → requirement.status (Active=green badge,
+                       Planning=amber badge, Closed=grey badge)
+
+Keep the + New Campaign button as a placeholder.
+Show a loading state while data fetches.
+If no campaigns exist yet, show a friendly empty state.
+"""
+
+
+══════════════════════════════════════════════════════════════════════
+STAGE 3 — CONNECT AUTHENTICATION (LOVABLE LOGIN → GAS TOKEN)
+══════════════════════════════════════════════════════════════════════
+
+STEP 3.1 — How login works (plain English)
+  Your existing GAS has a login system with these users already set up:
+    hr5@alyousufent.com  (password: KAI@2026hr5)
+    hr7@alyousufent.com  (password: KAI@2026hr7)
+    hr8@alyousufent.com  (password: KAI@2026hr8)
+    admin@alyousufent.com (password: KAIAdmin@2026)
+
+  When someone logs in via the GAS login page (KAI_Login.html), GAS issues
+  a session token that lasts 24 hours. That token is saved in localStorage
+  as 'kai_session_token'.
+
+  The Lovable dashboard should read this token from localStorage and pass
+  it with every API call to the bridge.
+
+STEP 3.2 — Lovable Authentication Prompt
+Paste this into Lovable chat:
+
+"""
+Add authentication to the KAI dashboard.
+
+The login flow works like this:
+1. User visits the Lovable app
+2. App checks localStorage for key 'kai_session_token'
+3. If a valid token is found, show the dashboard
+4. If no token is found, show a Login page
+
+The Login page should:
+  - Show the KAI OS logo / branding
+  - Have an email field and password field
+  - Have a "Login" button
+  - On submit, call the existing GAS main web app URL
+    (stored in env var VITE_GAS_MAIN_URL) with the email and password
+    by redirecting the user to: VITE_GAS_MAIN_URL + "?email=" + email
+    This opens the GAS login page in a new tab; after GAS login succeeds,
+    the token gets written to localStorage automatically.
+  - Alternative (simpler for now): Show the login fields and when user
+    clicks Login, open VITE_GAS_MAIN_URL in a new tab for them to
+    authenticate. Once they return to the Lovable tab, a "I'm logged in"
+    button refreshes the page to pick up the new localStorage token.
+
+Also add a "Logout" button to the top-right corner (next to the tenant name)
+that clears 'kai_session_token' from localStorage and returns to the Login page.
+
+Add env var to .env.example:
+  VITE_GAS_MAIN_URL=https://script.google.com/macros/s/YOUR_MAIN_DEPLOYMENT_ID/exec
+"""
+
+
+══════════════════════════════════════════════════════════════════════
+STAGE 4 — ENVIRONMENT VARIABLES TO SET IN LOVABLE
+══════════════════════════════════════════════════════════════════════
+
+In Lovable, go to Project Settings → Environment Variables and add:
+
+  Variable Name          Value
+  ─────────────────────────────────────────────────────────────────
+  VITE_GAS_BRIDGE_URL    [The URL from Step 1.3]
+  VITE_GAS_MAIN_URL      [The URL of your existing GAS main web app]
+  ─────────────────────────────────────────────────────────────────
+
+How to find VITE_GAS_MAIN_URL:
+  1. Go to script.google.com → open your EXISTING main GAS project
+     (NOT the new bridge — the original one with Code.gs etc.)
+  2. Click Deploy → Manage Deployments
+  3. Copy the Web App URL shown there
+
+Both URLs look like: https://script.google.com/macros/s/XXXX/exec
+
+
+══════════════════════════════════════════════════════════════════════
+WHAT WORKS AFTER THESE STEPS
+══════════════════════════════════════════════════════════════════════
+
+Screen              | Status After This Guide
+────────────────────|────────────────────────────────────────────────
+Candidates          | ✅ LIVE — real candidate scores, verdicts, stages
+Pipeline            | ✅ LIVE — real interview stages from GAS pipeline
+SAC Performance     | ✅ LIVE — real source grouping and pass rates
+Jobs                | ✅ LIVE — real job requirements from _Requirements sheet
+Campaigns           | ✅ LIVE — derived from requirements + candidates
+Login / Logout      | ✅ LIVE — uses GAS session tokens
+Reports             | 🕐 PHASE 2 — to be added gradually
+Settings            | 🕐 PHASE 2 — user management (GAS already has it)
+
+
+══════════════════════════════════════════════════════════════════════
+QUICK REFERENCE — DATA COMING FROM EACH GAS SHEET
+══════════════════════════════════════════════════════════════════════
+
+GAS Sheet          → Lovable Screen
+──────────────────────────────────────────────────────
+Candidates         → Candidates list, Pipeline tracker,
+                     SAC performance grouping
+_Requirements      → Jobs cards, Campaigns table
+_LoginSystem       → Authentication / session tokens
+
+Bridge API Actions:
+  ?action=candidates   → Returns all active candidates (42 fields)
+  ?action=requirements → Returns all open job requirements
+  ?action=metrics      → Returns summary counts
+  ?action=sac          → Returns SAC performance grouped by source
+
+All calls require &token=YOUR_SESSION_TOKEN
+Tokens are 24-hour. Users get them by logging in through GAS login page.
+
+
+══════════════════════════════════════════════════════════════════════
+TROUBLESHOOTING
+══════════════════════════════════════════════════════════════════════
+
+Problem: Dashboard shows no data / "Unauthorized" error
+  → The session token has expired or is missing.
+  → User needs to log in again via the GAS main URL.
+  → Check that VITE_GAS_BRIDGE_URL is set correctly in Lovable env vars.
+
+Problem: CORS error in browser console
+  → Add this Supabase Edge Function as a proxy (ask Lovable):
+    "Create a Supabase Edge Function called 'gas-proxy' that accepts
+     a POST with { url } and fetches that URL server-side, returning
+     the JSON response. Update gasApi.ts to call this edge function
+     instead of fetching GAS directly."
+  → Then update VITE_GAS_BRIDGE_URL to your Supabase project URL.
+
+Problem: Jobs or Campaigns screen is empty
+  → The _Requirements sheet may not have data yet.
+  → To populate it: forward any client email with a job description
+    to intake+ALYOUSUF@karigarai.com — GAS auto-parses it.
+  → Or run "Scan for JDs" manually from the GAS spreadsheet menu.
+
+Problem: SAC columns show Direct only, no SAC01/SAC02/SAC03
+  → The Source column in the Candidates sheet may not be filled.
+  → This gets populated when candidates are submitted via SAC links.
+  → Initially all candidates will appear under "Direct" — that is correct.
+
+Problem: Passport status shows "Unknown" for many candidates
+  → The passport expiry date column (extended column 37) may not be
+    filled for older candidates. This is expected — new candidates
+    processed after the v282 patch will have this data.
+
+
+══════════════════════════════════════════════════════════════════════
+PHASED ROADMAP (WHAT TO ADD NEXT, GRADUALLY)
+══════════════════════════════════════════════════════════════════════
+
+Phase 2A — Stage Updates from Lovable
+  Goal: clicking "Mark Attended" or "Begin Onboarding" in Lovable
+        actually updates the candidate stage in Google Sheets.
+  How: Add a new action to the bridge:
+       ?action=updateStage&token=XXX&rowIndex=N&newStage=ATTENDED
+  Note: This requires one new function in the bridge script (not in
+        any existing GAS file).
+
+Phase 2B — Reports Screen
+  Goal: Charts showing pipeline velocity, SAC trends, trade demand.
+  How: Add ?action=reports to bridge; Lovable renders charts using
+       the metrics and historical log data.
+
+Phase 2C — Real-Time Notifications
+  Goal: Bell icon shows new candidates parsed today.
+  How: Bridge adds ?action=notifications endpoint reading from Logs sheet.
+
+Phase 2D — Direct Login via Lovable
+  Goal: User types email/password directly in Lovable (not via GAS page).
+  How: Add ?action=login&email=X&password=HASH to bridge; returns token.
+  Note: Small addition to bridge, zero change to existing GAS files.
+
+Phase 2E — Admin Settings
+  Goal: Add/remove users, change passwords, view quota.
+  How: Protected by admin role check; reads from _LoginSystem sheet.
+
+══════════════════════════════════════════════════════════════════════
+END OF GUIDE
+══════════════════════════════════════════════════════════════════════

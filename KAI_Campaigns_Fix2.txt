@@ -1,0 +1,22 @@
+The Campaigns page still has issues with the data display.
+
+The API returns requirements from the _Requirements sheet with these fields:
+  reqId       — e.g. "REQ-20260517-0001"
+  client      — e.g. "Saudi Aramco"
+  trade       — e.g. "Welding QA" ← USE THIS as the campaign title
+  country     — e.g. "Saudi Arabia"
+  quantity    — number
+  status      — "OPEN" or "CLOSED"
+  rawJD       — the source filename (e.g. "AMMAD PROJECT_JD (1).pdf") ← do NOT show this as title
+  sector      — industry/sector field
+
+Fix the Campaigns table:
+1. CAMPAIGN column: show candidate.trade as the title (bold), with reqId below in grey 11px
+   If trade is empty: show "Manual JD" as title
+2. SECTOR column: show candidate.country (deploy country), not the filename
+3. SOURCE column: show candidate.rawJD filename in grey small text (truncated to 20 chars)
+4. Keep STATUS chip as "OPEN" green
+
+The campaign title must NEVER show a filename. Filenames go in the SOURCE column only.
+
+Do not change any other page.

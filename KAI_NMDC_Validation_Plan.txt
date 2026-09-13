@@ -1,0 +1,219 @@
+KAI RECRUITMENT OS — NMDC CAMPAIGN VALIDATION PLAN
+═══════════════════════════════════════════════════════════════════════════════
+Campaign: NMDC Offshore Maintenance Shutdown 2026
+Client:   NMDC (National Marine Dredging Company)
+Dates:    Baroda 8 Jun · Mumbai 12 Jun · Cochin 17 Jun (backup)
+Rotation: 150 ON / 43 OFF · 12-hour day (8 reg + 4 OT)
+Type:     Offshore only
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 0 — LOVABLE TASKS (paste in this order)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+0a. Paste KAI_Prompt_T11_BulkUpload.txt into Lovable
+0b. Paste KAI_Prompt_T12_AssociateImport.txt into Lovable
+0c. Screenshot → validate Associates nav item, bulk upload tab
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — S1-S7: SUBMISSION LIST VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+S1: Existing slots data intact
+    → Open any existing requirement → Submission List
+    → Confirm all previous rows visible, no data lost
+    → Confirm columns: BatchNo, SrNo, RecruiterRemark, ClientRemark, SubmissionDate visible (may be empty)
+    PASS if: rows load, no 500 error
+
+S2: New assignment creates BatchNo + SrNo
+    → Match screen → pick any candidate → [+ Assign]
+    → Open Submission List for that requirement
+    → Confirm BatchNo and SrNo populated (e.g., "BATCH-001", "1")
+    PASS if: BatchNo + SrNo not blank
+
+S3: RecruiterRemark saves and persists
+    → Submission List → click remark cell for a candidate
+    → Type "Strong passport holder"
+    → Save → refresh page
+    → Open same Submission List
+    PASS if: remark is still there after refresh
+
+S4: ClientRemark saves and persists
+    → Same as S3 but ClientRemark column
+    PASS if: persists after refresh
+
+S5: Status → SUBMITTED auto-sets SubmissionDate
+    → Change a slot status to "SUBMITTED"
+    → Check SubmissionDate column
+    PASS if: date auto-filled (should be today's date)
+    FAIL if: SubmissionDate blank after status = SUBMITTED
+
+S6: Logout → Login → Submission List intact
+    → Log out, log back in
+    → Open same requirement's Submission List
+    PASS if: all data (remarks, status, date) still present
+
+S7: Full NMDC dry run — see Step 3 below
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — CREATE NMDC PROJECT IN KAI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create Project:
+  Name:      NMDC Offshore Maintenance Shutdown 2026
+  Client:    NMDC
+  Country:   UAE
+  Type:      Offshore
+  Urgency:   URGENT
+  Rotation:  150 ON / 43 OFF
+  Notes:     12hr day. Baroda 8 Jun, Mumbai 12 Jun, Cochin 17 Jun.
+
+Campaign name:  NMDC_SHUTDOWN_2026
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — CREATE 16 REQUIREMENTS VIA JD AUTOMATION (T09)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Use [+ Upload JD] → Paste Text tab for each. Client name = NMDC.
+JD samples are in KAI_NMDC_JD_Samples.txt (same folder).
+
+After each parse, verify auto-detected:
+  ✓ Department badge correct
+  ✓ Trade name matches
+  ✓ Qty populated
+  ✓ Min Exp set
+
+REQUIREMENTS LIST (Qty · AED/day MIN-MAX):
+─────────────────────────────────────────
+ 1. Welder                  Qty 49   AED 3510-4095
+ 2. TIG Welder              Qty 39   AED 4000-4600
+ 3. Scaffolder              Qty 42   AED 3200-3500
+ 4. Structural Fabricator   Qty 98   AED 3510-3800
+ 5. Pipe Fitter             Qty 89   AED 2340-2630
+ 6. Rigger                  Qty TBD  AED 2340-2630
+ 7. Painter                 Qty TBD  AED 2340-2630
+ 8. Rigging Foreman         Qty 8    AED 6400-7300
+ 9. Fabrication Foreman     Qty 9    AED 6400-7300
+10. Anchor Foreman          Qty 10   AED 11500-14500
+11. Painting Foreman        Qty 10   AED 6400-7300
+12. Scaffolding Foreman     Qty 10   AED 6400-7300
+13. Welding Foreman         Qty 10   AED 6400-7300  (Aramco JCC mandatory)
+14. Radio Operator          Qty 10   (salary TBD)
+15. Winch Operator          Qty 1    (salary TBD)
+16. Anchor Operator         Qty 15   (salary TBD)
+
+TOTAL POSITIONS: ~400
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 4 — NMDC SCENARIO 1: JD AUTOMATION TEST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Test trade: Welder (Qty 49, most complex — FCAW/SMAW/6G certs)
+
+1. Requirements screen → [+ Upload JD] → Paste Text tab
+2. Paste the Welder JD from KAI_NMDC_JD_Samples.txt
+3. Client Name: NMDC
+4. [Parse JD]
+5. Review card — verify:
+   ✓ Title: Welder  (or Structural Welder)
+   ✓ Department badge: Mechanical (blue)
+   ✓ Trade: Welder
+   ✓ Client: NMDC
+   ✓ Country: UAE
+   ✓ Min Exp: 3 years (or 5)
+   ✓ Certifications: FCAW, SMAW, 6G
+6. Edit Qty → 49
+7. [✓ Confirm & Create Req]
+8. Toast: "Requirement AYE-REQ-2026-XXXX created — Welder for NMDC"
+9. Requirements grid shows new row with blue "Mechanical" badge
+
+PASS if: requirement created in under 60 seconds without manual data entry
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 5 — NMDC SCENARIO 2: MATCH SCREEN REVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Open Welder requirement → [Find Matches]
+2. Filter bar defaults: Strong / Indian / Hide Assigned ON / Score sort
+3. Check count: "Showing X of Y Strong matches"
+4. Change to "All Tiers" → count should jump
+5. Filter Nationality → All → count should increase further
+6. Switch to "Good" → different candidates
+7. Reset defaults
+
+PASS if: filter bar changes cause re-fetch and different results
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 6 — NMDC SCENARIO 3: ASSIGN 10 CANDIDATES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Match screen (Strong, Indian)
+2. Review top 10 candidates
+3. Click [+ Assign] on 10 candidates one by one
+4. After each: candidate disappears (Hide Assigned ON)
+5. 10th assigned: navigate to Submission List
+
+PASS if: 10 candidates in Submission List, BatchNo = BATCH-001, SrNo 1-10
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 7 — NMDC SCENARIO 4: SUBMISSION LIST WORKFLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Submission List for Welder requirement
+2. For each candidate add RecruiterRemark (e.g., "6G certified, passport valid")
+3. Change status on 3 candidates → "SUBMITTED"
+4. Verify SubmissionDate auto-set
+5. Add ClientRemark on submitted candidates (e.g., "Client CV sent")
+
+PASS if: all remarks and status changes persist
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 8 — NMDC SCENARIO 5: PERSISTENCE TEST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Hard refresh (Ctrl+F5) → open Submission List
+2. All 10 candidates still there ✓
+3. Remarks still there ✓
+4. Status still there ✓
+5. Log out → log in → repeat checks
+
+PASS if: zero data loss
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 9 — NMDC SCENARIO 6: ACTIVITY TIMELINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Open any assigned candidate's drawer
+2. Click History tab
+3. Verify timeline shows:
+   ✓ SLOT_ADDED event with AYE-REQ number
+   ✓ SLOT_STATUS event if status was changed
+   ✓ Timestamps in correct order (newest first)
+
+PASS if: at least SLOT_ADDED appears in history
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FINAL TEST — RECRUITER SELF-SUFFICIENCY CHECK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Question: "Can you complete this NMDC Welder requirement end-to-end
+           without using Excel, WhatsApp tracker, or a separate sheet?"
+
+  JD Created?            YES / NO
+  Matches Found?         YES / NO
+  10 Assigned?           YES / NO
+  Remarks Saved?         YES / NO
+  Status Updated?        YES / NO
+  History Visible?       YES / NO
+
+ALL YES = Phase 1 PASS. KAI is production-ready for NMDC campaign.

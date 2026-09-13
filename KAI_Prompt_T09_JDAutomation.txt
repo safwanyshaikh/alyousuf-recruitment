@@ -1,0 +1,131 @@
+KAI RECRUITMENT OS — TASK 09: JD Automation (P3)
+═══════════════════════════════════════════════════════════════════════════════
+
+OBJECTIVE
+─────────
+Eliminate manual requirement creation.
+
+Recruiter uploads or pastes a JD → KAI parses it using AI →
+shows extracted fields for confirmation → creates Requirement automatically.
+
+Workflow:
+  Upload / Paste JD → Parse → Review → Confirm → Requirement Created
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENTRY POINT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+On the Requirements screen, add a button: [+ Upload JD]
+
+This opens a modal with two tabs:
+  Tab 1: Upload File  (PDF / DOCX / image)
+  Tab 2: Paste Text   (plain text or email body)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+UPLOAD FILE TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [Drop file here or click to browse]
+  Accepts: PDF, DOCX, TXT (max 5MB)
+
+  Client Name field (optional pre-fill):
+  [ Enter client name... ]
+
+  [Parse JD] button
+
+On parse:
+  - Read file as base64
+  - POST to GAS (same pattern as uploadCV):
+
+    fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'createJDAndReq',
+        token: sessionToken,
+        rawText: extractedText,     // text extracted from file
+        clientName: clientNameField,
+        recruiter: currentUser.email,
+        source: 'UPLOAD'
+      })
+    })
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PASTE TEXT TAB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Large textarea: "Paste JD text or email body here..."
+  Client Name: [ Enter client name... ]
+  [Parse JD] button
+
+Same POST as above with source: 'PASTE'.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PARSE RESULT — REVIEW SCREEN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GAS returns:
+  { ok:true, jdId, reqId, trade, department, title, clientName,
+    country, minExp, certifications, summary }
+
+Show a review card — all fields editable before confirming:
+
+  ┌─────────────────────────────────────────────┐
+  │  JD Parsed Successfully                      │
+  │                                              │
+  │  Title         [Pipe Fitter            ▾]   │
+  │  Trade         [Pipe Fitter            ▾]   │
+  │  Department    [Mechanical             ▾]   │
+  │  Client        [NMDC                    ]   │
+  │  Project       [Shutdown 2026           ]   │
+  │  Country       [Saudi Arabia           ▾]   │
+  │  Qty           [20                      ]   │
+  │  Min Exp       [3 years                 ]   │
+  │  Certifications[CSWIP                   ]   │
+  │  Nationality   [Indian                 ▾]   │
+  │  Urgency       [NORMAL                 ▾]   │
+  │                                              │
+  │  Summary:                                    │
+  │  • [responsibility 1]                        │
+  │  • [responsibility 2]                        │
+  │  • [responsibility 3]                        │
+  │                                              │
+  │  [← Re-Parse]    [✓ Confirm & Create Req]   │
+  └─────────────────────────────────────────────┘
+
+Department options: Mechanical / Electrical / Instrumentation / Civil / QAQC / HSE / General
+Country options: Saudi Arabia / UAE / Qatar / Kuwait / Bahrain / Oman / Malaysia / Other
+Urgency options: URGENT / HIGH / NORMAL / LOW
+
+On [Confirm & Create Req]:
+  - The requirement was already created by GAS in the initial parse call
+  - Just close the modal and refresh the requirements list
+  - Show toast: "Requirement [reqId] created — [trade] for [client]"
+  - Navigate to the new requirement row
+
+On [← Re-Parse]:
+  - Keep the text, let recruiter edit client name and re-submit
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DEPARTMENT BADGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Show department as a coloured badge on every requirement row:
+  Mechanical       → blue
+  Electrical       → yellow
+  Instrumentation  → purple
+  Civil            → orange
+  QAQC             → teal
+  HSE              → green
+  General          → grey
+
+GAS already returns `department` field from the requirements endpoint.
+Display it as a badge in the requirements grid.
+
+GAS URL: https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec

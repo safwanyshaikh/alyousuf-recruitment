@@ -1,0 +1,302 @@
+================================================================
+KAI SPRINT 1 — LOVABLE PROMPT 01
+Complete 12-Column Candidate Grid Rebuild
+================================================================
+
+CONTEXT
+-------
+This is the KAI Recruitment OS dashboard.
+Backend is Google Apps Script (GAS) serving JSON via this URL:
+
+  GAS_BRIDGE_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec"
+
+Update gasApi.ts to use this URL for all API calls.
+The API accepts: ?action=candidates&token=TOKEN&page=1&limit=100
+Token comes from the existing login session (localStorage key: kai_session_token).
+
+If GasDataContext and gasApi.ts already exist and are wired:
+  → Keep them, but update the BASE_URL to the URL above.
+  → Update the candidates fetch to pass: page, limit, and any active filters as query params.
+
+If they do not exist, create them as follows:
+
+gasApi.ts:
+  const BASE_URL = "https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec";
+
+  export async function fetchCandidates(token: string, params?: Record<string,string>) {
+    const q = new URLSearchParams({ action: 'candidates', token, ...params }).toString();
+    const res = await fetch(`${BASE_URL}?${q}`);
+    return res.json();
+  }
+
+  export async function fetchCandidate(token: string, rowIndex: number) {
+    const q = new URLSearchParams({ action: 'candidate', token, rowIndex: String(rowIndex) }).toString();
+    const res = await fetch(`${BASE_URL}?${q}`);
+    return res.json();
+  }
+
+Only rebuild the candidate grid UI (described below).
+
+================================================================
+TASK
+====
+Rebuild the Candidates screen completely.
+
+Replace the current table with a new 12-column grid.
+
+================================================================
+COLUMN DEFINITIONS
+==================
+
+COL 1 — Stage
+  • Badge chip with colour coding:
+      "New"           → grey chip
+      "Review"        → blue chip
+      "Shortlisted"   → amber chip
+      "Client Sent"   → purple chip
+      "Selected"      → green chip
+      "Deployed"      → dark green chip
+      "On Hold"       → orange chip
+      (any other)     → grey chip
+  • Left-most column, always sticky
+  • Show checkbox on hover for bulk select
+
+COL 2 — Candidate
+  • Line 1: Full name, bold, 14px
+  • Line 2: Nationality · Age (e.g. "Indian · 41Y"), grey text, 12px
+  • If age = 0 or missing, show nationality only
+  • Sticky column (stays visible when scrolling right)
+  • KI Number: NOT shown here. Do not display.
+
+COL 3 — Passport
+  • Line 1: Passport number (from candidate.passportNo field)
+  • Line 2: "ECNR" or "ECR" badge (from candidate.ecrStatus field)
+  • If passportNo is empty: show "—" in grey
+  • If ecrStatus is empty: show nothing on line 2
+  • Passport column never causes row to be hidden or greyed
+
+COL 4 — Location
+  • Single line: candidate.currentLocation
+  • If empty: "—" in grey
+  • No icon needed
+
+COL 5 — Education
+  • Line 1: candidate.educationLevel (e.g. "Degree", "Diploma", "ITI / Certificate")
+  • Line 2: candidate.educationSubject (e.g. "B.Tech Mechanical"), grey text, 12px
+  • If educationLevel empty: show educationRaw as single line (truncated at 40 chars)
+
+COL 6 — Position Applied
+  • Single line: candidate.positionApplied
+  • Truncate at 30 chars with ellipsis
+
+COL 7 — Trade / Skill
+  • Single line: candidate.trade
+  • Bold, slightly darker text to signal importance
+
+COL 8 — KAI Assessment
+  • Line 1: score percentage e.g. "88%" — bold, larger font (16px)
+  • Line 2: tier label:
+      confidenceTier === "STRONG"   → "Strong Match"  green text
+      confidenceTier === "GOOD"     → "Good Match"    blue text
+      confidenceTier === "POSSIBLE" → "Possible Match" amber text
+      confidenceTier === "REVIEW"   → "Review"        grey text
+  • Do NOT show any AI text here. Only score + tier label.
+
+COL 9 — CV
+  • Show only if candidate.cvLink is not empty
+  • Three small icon buttons in a row:
+      👁 Preview  → open cvLink in iframe modal or new tab
+      ↗ Open     → window.open(cvLink)
+      ⬇ Download → anchor download link
+  • If cvLink empty: "No CV" in grey, 11px
+
+COL 10 — Top 3 Positions
+  • Show: candidate.top3Positions.first (truncated at 25 chars)
+  • If top3Positions.count > 1: append " +{rest.length}" in grey
+      e.g. "QA QC Lead Inspector +2"
+  • On hover over this cell: show a tooltip/popover listing all positions
+  • If no positions: show "—"
+
+COL 11 — Contact
+  • Show icons only when the data field is not empty:
+      📞  — show if candidate.mobile is not empty
+      💬  — show if candidate.mobile is not empty (WhatsApp)
+      ✉   — show if candidate.email is not empty
+  • Icons are action buttons (clicking opens tel: or mailto: link)
+  • Do NOT show actual phone/email in the grid
+  • Space icons evenly, small size (16px)
+
+COL 12 — Recruiter Actions
+  • Single "⋮" button (vertical ellipsis)
+  • On click: dropdown menu appears with these items:
+      "📞 Call Candidate"
+      "💬 WhatsApp"
+      "⭐ Shortlist"
+      "📋 Request Documents"
+      "📤 Submit to Client"
+  • Actions are click handlers — show toast "Action: [name]" for now
+  • Build with expansion in mind (future items will be added)
+
+================================================================
+GRID BEHAVIOUR
+==============
+
+Sticky columns:
+  • COL 1 (Stage) and COL 2 (Candidate) stay fixed on left when scrolling
+  • All other columns scroll horizontally
+
+Horizontal scroll:
+  • Full-width horizontal scrollbar always visible at bottom of table
+  • Smooth scrolling
+
+Row height:
+  • Minimum 56px per row to accommodate 2-line cells
+
+Row click:
+  • Clicking anywhere on a row (except action buttons) opens the Candidate Drawer
+  • Drawer slides in from the right
+  • Drawer is a placeholder for now: show "Drawer: {candidate.name}" panel
+  • Full drawer will be built in a later sprint
+
+Sorting:
+  • Click column header to sort
+  • Default sort: applicationDate descending (newest first)
+  • Sort by: Stage, Name, Score (KAI Assessment col), Application Date
+
+Column widths (minimum):
+  • Stage: 120px
+  • Candidate: 180px
+  • Passport: 120px
+  • Location: 110px
+  • Education: 160px
+  • Position Applied: 150px
+  • Trade: 140px
+  • KAI Assessment: 130px
+  • CV: 100px
+  • Top 3 Positions: 180px
+  • Contact: 90px
+  • Recruiter Actions: 60px
+
+================================================================
+TOP BAR (above the grid)
+========================
+
+Row 1 — Stats bar:
+  Show 4 stat chips in a row:
+    "Total: {totalCount}" (grey)
+    "Shortlisted: {shortlistedCount}" (amber)
+    "Strong Match: {strongCount}" (green)
+    "Deployed: {deployedCount}" (dark green)
+  Count from the full candidates array in GasDataContext.
+
+Row 2 — Filter + Search bar:
+  LEFT: Search input (full width on mobile)
+    Placeholder: "Search name, KI number, trade, mobile..."
+    Debounced 300ms
+    Searches: name, kaiNo, trade, positionApplied, nationality (client-side for now)
+
+  RIGHT: Filter chips — show these as clickable chip filters:
+    [Stage ▼]  [Trade ▼]  [Nationality ▼]  [Score ▼]  [GCC Mobility ▼]
+
+  Each chip opens a simple dropdown with the top values (build static for now):
+    Stage: New, Review, Shortlisted, Client Sent, Selected, Deployed, On Hold
+    Trade: show top 8 unique trade values from data
+    Nationality: show top 8 unique nationality values from data
+    Score: 75–100 (Strong), 55–74 (Good), 35–54 (Possible), 0–34 (Review)
+    GCC Mobility: India Available, Saudi Local, UAE Local, Qatar Local, GCC Transferable
+
+  Active filter chips show with a close (×) button.
+  "Clear all" link when any filter is active.
+
+================================================================
+MOBILE LAYOUT (below 768px)
+============================
+
+Do NOT show the 12-column table on mobile.
+
+Instead show a CARD layout:
+
+Each card shows:
+┌──────────────────────────────────────┐
+│ [Stage chip]              88% Strong │
+│ Ravish Kumar                         │
+│ Indian · 41Y · Mumbai                │
+│ Trade: Welding QA  Exp: 18yr         │
+│ ─────────────────────────────────────│
+│ [📞] [💬] [✉]        [⋮ Actions]    │
+└──────────────────────────────────────┘
+
+Card click → opens drawer.
+Cards use full screen width with padding.
+Show search bar + stage filter chips above cards on mobile.
+
+================================================================
+DATA SOURCE
+===========
+
+API URL:
+  https://script.google.com/macros/s/AKfycbxfNPL371bf8UF84bMz3E2i8drw4opVpWJMb24w2pW_p_og08_MwlJ5PyRqtaZPHv02Ng/exec
+
+Call on load:
+  GET ?action=candidates&token={kai_session_token}&page=1&limit=100
+
+Response shape:
+  {
+    ok: true,
+    records: Candidate[],   // array of candidates (see field mapping below)
+    total: number,          // total matching count
+    page: number,
+    limit: number,
+    totalPages: number
+  }
+
+Token: read from localStorage key "kai_session_token"
+If token is missing or null → redirect to login page.
+
+Use React state (useState + useEffect) to:
+  • Store candidates array
+  • Store isLoading boolean
+  • Store error string
+  • Store total count
+  • Show skeleton loader rows while isLoading = true
+  • Show error banner if error is not null
+
+Field mapping from the API response:
+  stage             → COL 1
+  name              → COL 2 line 1
+  nationality       → COL 2 line 2
+  age               → COL 2 line 2
+  passportNo        → COL 3 line 1
+  ecrStatus         → COL 3 line 2
+  currentLocation   → COL 4
+  educationLevel    → COL 5 line 1
+  educationSubject  → COL 5 line 2
+  educationRaw      → COL 5 fallback
+  positionApplied   → COL 6
+  trade             → COL 7
+  score             → COL 8 line 1
+  confidenceTier    → COL 8 line 2
+  cvLink            → COL 9
+  top3Positions     → COL 10 (object with .first, .rest, .count)
+  mobile            → COL 11 (phone + WhatsApp icons)
+  email             → COL 11 (email icon)
+  (row click)       → COL 12 drawer trigger
+  kaiAssessment     → NOT in grid, for drawer use only
+  kaiNo             → NOT in grid, for drawer + search only
+
+================================================================
+IMPORTANT RULES
+===============
+
+1. Do NOT show KI Number in the grid anywhere.
+2. Do NOT show full KAI assessment text in the grid.
+3. Do NOT show passport expiry in the grid (drawer only).
+4. The grid must be desktop-first (12 cols, horizontal scroll).
+5. Mobile shows card layout only — do not show the table on mobile.
+6. Clicking a row always opens the drawer (even on mobile, full-screen).
+7. The drawer is a placeholder in this sprint. Just show the name.
+8. Preserve the existing login flow. Do not touch auth.
+9. Use Tailwind CSS. Clean, professional, minimal design.
+10. Candidate count above the table must always reflect filtered count.
+
+================================================================
